@@ -27,4 +27,4 @@ edition.workspace = true
 [dependencies]
 bollard_num = { path = "../bollard-num" }
 num-traits = "0.2.19"
-smallvec = "1.15.1"
+smallvec = "=2.0.0-alpha.12"

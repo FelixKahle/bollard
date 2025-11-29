@@ -355,7 +355,7 @@ impl<T> ClosedInterval<T> {
     /// assert_eq!(result[1], ClosedInterval::new(7, 10));
     /// ```
     #[inline]
-    pub fn subtract(&self, other: ClosedInterval<T>) -> SmallVec<[ClosedInterval<T>; 2]>
+    pub fn subtract(&self, other: ClosedInterval<T>) -> SmallVec<ClosedInterval<T>, 2>
     where
         T: Copy + Ord + One + Sub<Output = T> + Add<Output = T>,
     {
@@ -396,7 +396,7 @@ impl<T> ClosedInterval<T> {
     /// assert_eq!(comp[1], ClosedInterval::new(11, 127));
     /// ```
     #[inline]
-    pub fn complement(&self) -> SmallVec<[ClosedInterval<T>; 2]>
+    pub fn complement(&self) -> SmallVec<ClosedInterval<T>, 2>
     where
         T: Copy + Ord + Bounded + One + Sub<Output = T> + Add<Output = T>,
     {
@@ -759,6 +759,13 @@ mod tests {
                     let interval = i(max - 1, max);
                     let vec: Vec<$t> = interval.iter().collect();
                     assert_eq!(vec, vec![max - 1, max]);
+                }
+
+                #[test]
+                fn test_from_range_inclusive() {
+                    let range = 5 as $t..=15 as $t;
+                    let interval: ClosedInterval<$t> = range.into();
+                    assert_eq!(interval, i(5, 15));
                 }
             }
         };
