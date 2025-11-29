@@ -526,6 +526,27 @@ where
     }
 }
 
+impl<T> DoubleEndedIterator for ClosedIntervalIterator<T>
+where
+    T: Copy + Ord + One + Sub<Output = T> + Add<Output = T>,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+
+        let result = self.upper;
+
+        if self.current >= self.upper {
+            self.finished = true;
+        } else {
+            self.upper = self.upper - T::one();
+        }
+
+        Some(result)
+    }
+}
+
 impl<T> FusedIterator for ClosedIntervalIterator<T> where T: PrimInt {}
 
 impl<T> std::fmt::Debug for ClosedInterval<T>
@@ -766,6 +787,110 @@ mod tests {
                     let range = 5 as $t..=15 as $t;
                     let interval: ClosedInterval<$t> = range.into();
                     assert_eq!(interval, i(5, 15));
+                }
+
+                #[test]
+                fn test_double_ended() {
+                    let interval = ClosedInterval::new(1, 5);
+                    let mut iter = interval.iter();
+
+                    assert_eq!(iter.next(), Some(1));
+                    assert_eq!(iter.next_back(), Some(5));
+
+                    assert_eq!(iter.next(), Some(2));
+                    assert_eq!(iter.next_back(), Some(4));
+                    assert_eq!(iter.next(), Some(3));
+
+                    assert_eq!(iter.next(), None);
+                    assert_eq!(iter.next_back(), None);
+                }
+
+                #[test]
+                fn test_double_ended_exhaustion_forward_then_back() {
+                    let interval = ClosedInterval::new(1, 3);
+                    let mut iter = interval.iter();
+
+                    assert_eq!(iter.next(), Some(1));
+                    assert_eq!(iter.next(), Some(2));
+                    assert_eq!(iter.next(), Some(3));
+
+                    assert_eq!(iter.next(), None);
+                    assert_eq!(iter.next_back(), None);
+                }
+
+                #[test]
+                fn test_double_ended_exhaustion_back_then_forward() {
+                    let interval = ClosedInterval::new(1, 3);
+                    let mut iter = interval.iter();
+
+                    assert_eq!(iter.next_back(), Some(3));
+                    assert_eq!(iter.next_back(), Some(2));
+                    assert_eq!(iter.next_back(), Some(1));
+
+                    assert_eq!(iter.next(), None);
+                    assert_eq!(iter.next_back(), None);
+                }
+
+                #[test]
+                fn test_double_ended_singleton() {
+                    let interval = ClosedInterval::new(7, 7);
+                    let mut iter = interval.iter();
+
+                    assert_eq!(iter.next(), Some(7));
+                    assert_eq!(iter.next_back(), None);
+
+                    let mut iter2 = interval.iter();
+                    assert_eq!(iter2.next_back(), Some(7));
+                    assert_eq!(iter2.next(), None);
+                }
+
+                #[test]
+                fn test_double_ended_full_boundary_type_max() {
+                    let max = <$t>::max_value();
+                    let min = <$t>::min_value();
+                    let interval = ClosedInterval::new(min, max);
+                    let mut iter = interval.iter();
+
+                    let first = iter.next();
+                    let last = iter.next_back();
+                    assert_eq!(first, Some(min));
+                    assert_eq!(last, Some(max));
+
+                    let f2 = iter.next();
+                    let b2 = iter.next_back();
+                    if min < max {
+                        assert_eq!(f2, Some(min + 1));
+                        assert_eq!(b2, Some(max - 1));
+                    }
+                }
+
+                #[test]
+                fn test_into_iter_collect() {
+                    let interval = ClosedInterval::new(2, 5);
+                    let v: Vec<$t> = interval.into_iter().collect();
+                    assert_eq!(v, vec![2, 3, 4, 5]);
+                }
+
+                #[test]
+                fn test_display_and_debug() {
+                    let interval = ClosedInterval::new(4, 9);
+                    assert_eq!(format!("{}", interval), "[4, 9]");
+                    assert_eq!(format!("{:?}", interval), "[4, 9]");
+                }
+
+                #[test]
+                fn test_iter_alternate_until_finish() {
+                    let interval = ClosedInterval::new(10, 14);
+                    let mut iter = interval.iter();
+
+                    assert_eq!(iter.next(), Some(10));
+                    assert_eq!(iter.next_back(), Some(14));
+                    assert_eq!(iter.next(), Some(11));
+                    assert_eq!(iter.next_back(), Some(13));
+                    assert_eq!(iter.next(), Some(12));
+
+                    assert_eq!(iter.next(), None);
+                    assert_eq!(iter.next_back(), None);
                 }
             }
         };
