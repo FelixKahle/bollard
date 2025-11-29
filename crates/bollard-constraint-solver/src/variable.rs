@@ -19,17 +19,29 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use num_traits::PrimInt;
+use bollard_num::ops::{checked_arithmetic, saturating_arithmetic};
+use num_traits::{Bounded, One, PrimInt};
 use smallvec::SmallVec;
 use std::{
     iter::FusedIterator,
-    ops::{Bound, RangeBounds},
+    ops::{Add, Bound, RangeBounds, Sub},
 };
 
-/// A closed interval `[lower, upper]` over a primitive integer type `T`.
+/// A closed interval `[lower, upper]` over a primitive integer type.
 ///
-/// The interval includes both `lower` and `upper` bounds.
-/// It maintains the invariant that `lower <= upper`.
+/// The interval represents a contiguous set of integers including both the `lower`
+/// and `upper` bounds. It maintains the invariant that `lower <= upper`.
+///
+/// # Examples
+///
+/// ```
+/// use bollard_constraint_solver::variable::ClosedInterval;
+///
+/// let interval = ClosedInterval::new(1, 10);
+/// assert!(interval.contains(1));
+/// assert!(interval.contains(10));
+/// assert!(!interval.contains(11));
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ClosedInterval<T> {
     lower: T,
@@ -40,9 +52,11 @@ impl<T> ClosedInterval<T> {
     /// Creates a new `ClosedInterval` without checking the `lower <= upper` invariant.
     ///
     /// # Safety
-    /// This function is safe to call, but creating an interval where `lower > upper`
-    /// violates the logical invariants of this struct and may lead to incorrect results
-    /// in subsequent operations.
+    ///
+    /// While this function is technically safe (it will not cause undefined behavior in the
+    /// memory safety sense), creating an interval where `lower > upper` violates the
+    /// logical invariants of this type. Subsequent operations like `len()`, `contains()`,
+    /// or `iter()` may produce incorrect results or wrap unexpectedly.
     ///
     /// In debug builds, this will trigger a `debug_assert!`.
     #[inline]
@@ -51,27 +65,51 @@ impl<T> ClosedInterval<T> {
         T: Ord,
     {
         debug_assert!(lower <= upper, "lower bound must be <= upper bound");
-
         ClosedInterval { lower, upper }
     }
 
     /// Creates a new `ClosedInterval`.
     ///
     /// # Panics
+    ///
     /// Panics if `lower > upper`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let interval = ClosedInterval::new(5, 10); // OK
+    /// ```
+    ///
+    /// The following causes a panic:
+    ///
+    /// ```should_panic
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let interval = ClosedInterval::new(10, 5); // Panics!
+    /// ```
     #[inline]
     pub fn new(lower: T, upper: T) -> Self
     where
         T: Ord,
     {
         assert!(lower <= upper, "lower bound must be <= upper bound");
-
         ClosedInterval { lower, upper }
     }
 
     /// Tries to create a new `ClosedInterval`.
     ///
     /// Returns `None` if `lower > upper`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// assert!(ClosedInterval::try_new(1, 5).is_some());
+    /// assert!(ClosedInterval::try_new(5, 1).is_none());
+    /// ```
     #[inline]
     pub fn try_new(lower: T, upper: T) -> Option<Self>
     where
@@ -85,6 +123,16 @@ impl<T> ClosedInterval<T> {
     }
 
     /// Creates a singleton interval `[val, val]`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let single = ClosedInterval::singleton(5);
+    /// assert_eq!(single.len(), 1);
+    /// assert!(single.contains(5));
+    /// ```
     #[inline]
     pub fn singleton(val: T) -> Self
     where
@@ -113,17 +161,32 @@ impl<T> ClosedInterval<T> {
 
     /// Returns the number of elements in the interval.
     ///
-    /// # Saturating Arithmetic
-    /// This method uses saturating arithmetic to handle overflows.
-    /// If the length of the interval exceeds the maximum value representable by `T`
-    /// (e.g., `[-128, 127]` for `i8`, which has length 256), this returns `T::max_value()`.
+    /// # Saturating Behavior
     ///
-    /// This behavior ensures the method never panics and is consistent with constraint
-    /// solving philosophies (e.g., OR-Tools) where "very large" is treated effectively as infinite.
+    /// This method uses saturating arithmetic. If the mathematical length of the
+    /// interval exceeds the maximum value representable by `T` (e.g., `[-128, 127]`
+    /// for `i8` has length 256, which fits in `u8` but not `i8`), this returns
+    /// `T::max_value()`.
+    ///
+    /// This ensures the method never panics and treats "oversized" intervals as
+    /// effectively infinite for the purposes of constraint solving.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let interval = ClosedInterval::new(1u8, 5u8);
+    /// assert_eq!(interval.len(), 5);
+    ///
+    /// // Saturation example
+    /// let full = ClosedInterval::new(0u8, 255u8);
+    /// assert_eq!(full.len(), 255); // 256 saturates to 255
+    /// ```
     #[inline(always)]
     pub fn len(&self) -> T
     where
-        T: PrimInt,
+        T: Copy + saturating_arithmetic::SaturatingAdd + saturating_arithmetic::SaturatingSub + One,
     {
         self.upper
             .saturating_sub(self.lower)
@@ -131,6 +194,17 @@ impl<T> ClosedInterval<T> {
     }
 
     /// Returns `true` if the interval contains the given `value`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let i = ClosedInterval::new(10, 20);
+    /// assert!(i.contains(10));
+    /// assert!(i.contains(15));
+    /// assert!(!i.contains(30));
+    /// ```
     #[inline]
     pub fn contains(&self, value: T) -> bool
     where
@@ -140,6 +214,18 @@ impl<T> ClosedInterval<T> {
     }
 
     /// Returns `true` if this interval fully contains `other`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let outer = ClosedInterval::new(0, 100);
+    /// let inner = ClosedInterval::new(10, 20);
+    ///
+    /// assert!(outer.contains_interval(inner));
+    /// assert!(!inner.contains_interval(outer));
+    /// ```
     #[inline]
     pub fn contains_interval(&self, other: ClosedInterval<T>) -> bool
     where
@@ -150,7 +236,20 @@ impl<T> ClosedInterval<T> {
 
     /// Returns `true` if this interval intersects with `other`.
     ///
-    /// Intersection is defined as sharing at least one common value.
+    /// Intersection implies the two intervals share at least one common value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let a = ClosedInterval::new(1, 5);
+    /// let b = ClosedInterval::new(5, 10);
+    /// let c = ClosedInterval::new(6, 10);
+    ///
+    /// assert!(a.intersects(b)); // Share '5'
+    /// assert!(!a.intersects(c)); // Disjoint
+    /// ```
     #[inline]
     pub fn intersects(&self, other: ClosedInterval<T>) -> bool
     where
@@ -163,13 +262,27 @@ impl<T> ClosedInterval<T> {
     ///
     /// Two intervals are adjacent if there is no gap between them, but they do not overlap.
     /// For example, `[1, 5]` and `[6, 10]` are adjacent.
+    ///
+    ///  and [b+1, c]]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let a = ClosedInterval::new(1, 5);
+    /// let b = ClosedInterval::new(6, 10);
+    ///
+    /// assert!(a.adjacent(b));
+    /// assert!(b.adjacent(a));
+    /// ```
     #[inline(always)]
     pub fn adjacent(&self, other: ClosedInterval<T>) -> bool
     where
-        T: PrimInt,
+        T: Copy + PartialEq + checked_arithmetic::CheckedAdd + One,
     {
-        let self_touches_other = self.upper.checked_add(&T::one()) == Some(other.lower);
-        let other_touches_self = other.upper.checked_add(&T::one()) == Some(self.lower);
+        let self_touches_other = self.upper.checked_add(T::one()) == Some(other.lower);
+        let other_touches_self = other.upper.checked_add(T::one()) == Some(self.lower);
         self_touches_other || other_touches_self
     }
 
@@ -180,7 +293,7 @@ impl<T> ClosedInterval<T> {
     #[inline(always)]
     pub fn intersects_or_adjacent(&self, other: ClosedInterval<T>) -> bool
     where
-        T: PrimInt,
+        T: Copy + saturating_arithmetic::SaturatingAdd + Ord + One,
     {
         let max_start = std::cmp::max(self.lower, other.lower);
         let min_end = std::cmp::min(self.upper, other.upper);
@@ -189,12 +302,25 @@ impl<T> ClosedInterval<T> {
 
     /// Merges two intervals if they intersect or are adjacent.
     ///
-    /// Returns `Some(merged_interval)` if the intervals can be combined into a single
+    /// Returns `Some(merged)` if the intervals can be combined into a single
     /// contiguous block. Returns `None` if they are disjoint and separated by a gap.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let a = ClosedInterval::new(1, 5);
+    /// let b = ClosedInterval::new(6, 10);
+    /// let disjoint = ClosedInterval::new(12, 15);
+    ///
+    /// assert_eq!(a.merge(b), Some(ClosedInterval::new(1, 10)));
+    /// assert_eq!(a.merge(disjoint), None);
+    /// ```
     #[inline]
     pub fn merge(&self, other: ClosedInterval<T>) -> Option<ClosedInterval<T>>
     where
-        T: PrimInt,
+        T: Copy + saturating_arithmetic::SaturatingAdd + Ord + One,
     {
         if self.intersects_or_adjacent(other) {
             Some(ClosedInterval {
@@ -209,13 +335,29 @@ impl<T> ClosedInterval<T> {
     /// Calculates the set difference `self - other`.
     ///
     /// Returns a `SmallVec` containing 0, 1, or 2 intervals.
-    /// * **0**: If `other` fully covers `self`.
-    /// * **1**: If `other` is disjoint or overlaps only one side.
-    /// * **2**: If `other` is strictly contained within `self` (punching a hole).
+    ///
+    /// * **0 elements**: If `other` fully covers `self`.
+    /// * **1 element**: If `other` is disjoint or overlaps only one side.
+    /// * **2 elements**: If `other` is strictly contained within `self`, punching a hole
+    ///   in the middle and splitting `self` into two parts.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let base = ClosedInterval::new(0, 10);
+    /// let hole = ClosedInterval::new(4, 6);
+    ///
+    /// let result = base.subtract(hole);
+    /// assert_eq!(result.len(), 2);
+    /// assert_eq!(result[0], ClosedInterval::new(0, 3));
+    /// assert_eq!(result[1], ClosedInterval::new(7, 10));
+    /// ```
     #[inline]
     pub fn subtract(&self, other: ClosedInterval<T>) -> SmallVec<[ClosedInterval<T>; 2]>
     where
-        T: PrimInt,
+        T: Copy + Ord + One + Sub<Output = T> + Add<Output = T>,
     {
         if !self.intersects(other) {
             return smallvec::smallvec![*self];
@@ -235,14 +377,28 @@ impl<T> ClosedInterval<T> {
         result
     }
 
-    /// Returns the set complement of this interval.
+    /// Returns the set complement of this interval within the domain of `T`.
     ///
     /// The result represents the set of all values in `T` that are *not* in this interval.
     /// Returns a `SmallVec` with 0, 1, or 2 intervals.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// // Assuming T is i8 (range -128 to 127)
+    /// let i = ClosedInterval::new(0i8, 10i8);
+    /// let comp = i.complement();
+    ///
+    /// assert_eq!(comp.len(), 2);
+    /// assert_eq!(comp[0], ClosedInterval::new(-128, -1));
+    /// assert_eq!(comp[1], ClosedInterval::new(11, 127));
+    /// ```
     #[inline]
     pub fn complement(&self) -> SmallVec<[ClosedInterval<T>; 2]>
     where
-        T: PrimInt,
+        T: Copy + Ord + Bounded + One + Sub<Output = T> + Add<Output = T>,
     {
         let mut result = SmallVec::new();
         let min_val = T::min_value();
@@ -262,12 +418,26 @@ impl<T> ClosedInterval<T> {
 
     /// Creates an iterator over all integer values contained in the interval.
     ///
-    /// # Note
-    /// The iterator handles full-range intervals (e.g., `[0, 255u8]`) correctly without infinite loops.
+    /// The iterator yields values from `lower` to `upper` (inclusive).
+    ///
+    /// # Edge Cases
+    ///
+    /// The iterator handles full-range intervals (e.g., `[0, 255u8]`) correctly
+    /// without entering an infinite loop when the counter overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// let i = ClosedInterval::new(1, 3);
+    /// let collected: Vec<_> = i.iter().collect();
+    /// assert_eq!(collected, vec![1, 2, 3]);
+    /// ```
     #[inline]
     pub fn iter(&self) -> ClosedIntervalIterator<T>
     where
-        T: PrimInt,
+        T: Copy,
     {
         ClosedIntervalIterator {
             current: self.lower,
@@ -279,7 +449,7 @@ impl<T> ClosedInterval<T> {
 
 impl<T> PartialOrd for ClosedInterval<T>
 where
-    T: PrimInt,
+    T: Copy + PartialEq + Ord,
 {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -289,7 +459,7 @@ where
 
 impl<T> Ord for ClosedInterval<T>
 where
-    T: PrimInt,
+    T: Copy + Ord,
 {
     #[inline]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
@@ -313,12 +483,20 @@ where
     }
 }
 
-/// An iterator over the values of a `ClosedInterval`.
+/// An iterator over the values of a `ClosedInterval`
+///
+/// This `struct` is created by the `iter` method on `ClosedInterval`.
+/// It yields integer values of type `T` in ascending order, including both the
+/// lower and upper bounds.
+///
+/// # Logic and Safety
+///
+/// This iterator is designed to correctly handle intervals that end at the maximum
+/// value of the integer type (e.g., `u8::MAX`). Standard iterators or naive `for` loops
+/// often cause infinite loops or panics due to overflow when incrementing past the
+/// maximum value. This implementation uses an internal flag to track completion safely.
 #[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ClosedIntervalIterator<T>
-where
-    T: PrimInt,
-{
+pub struct ClosedIntervalIterator<T> {
     current: T,
     upper: T,
     finished: bool,
@@ -326,7 +504,7 @@ where
 
 impl<T> Iterator for ClosedIntervalIterator<T>
 where
-    T: PrimInt,
+    T: Copy + Ord + One + Add<Output = T>,
 {
     type Item = T;
 
@@ -352,7 +530,7 @@ impl<T> FusedIterator for ClosedIntervalIterator<T> where T: PrimInt {}
 
 impl<T> std::fmt::Debug for ClosedInterval<T>
 where
-    T: PrimInt + std::fmt::Debug,
+    T: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[{:?}, {:?}]", self.lower, self.upper)
@@ -361,7 +539,7 @@ where
 
 impl<T> std::fmt::Display for ClosedInterval<T>
 where
-    T: PrimInt + std::fmt::Display,
+    T: std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[{}, {}]", self.lower, self.upper)
@@ -370,7 +548,7 @@ where
 
 impl<T> IntoIterator for ClosedInterval<T>
 where
-    T: PrimInt,
+    T: Copy + Ord + One + Add<Output = T>,
 {
     type Item = T;
     type IntoIter = ClosedIntervalIterator<T>;
@@ -383,7 +561,7 @@ where
 
 impl<T> From<std::ops::RangeInclusive<T>> for ClosedInterval<T>
 where
-    T: PrimInt,
+    T: Copy + Ord,
 {
     #[inline]
     fn from(range: std::ops::RangeInclusive<T>) -> Self {
@@ -398,7 +576,6 @@ mod tests {
             mod $mod_name {
                 use super::super::*;
 
-                // Helpers for succinct tests
                 fn i(l: $t, u: $t) -> ClosedInterval<$t> {
                     ClosedInterval::new(l, u)
                 }
@@ -408,10 +585,7 @@ mod tests {
                     let interval = ClosedInterval::new(1, 10);
                     assert_eq!(interval.lower(), 1);
                     assert_eq!(interval.upper(), 10);
-
-                    // try_new valid
                     assert!(ClosedInterval::try_new(5, 5).is_some());
-                    // try_new invalid
                     assert!(ClosedInterval::try_new(10, 5).is_none());
                 }
 
@@ -423,35 +597,23 @@ mod tests {
 
                 #[test]
                 fn test_len_standard() {
-                    // Standard length
-                    assert_eq!(i(1, 5).len(), 5); // 1,2,3,4,5
+                    assert_eq!(i(1, 5).len(), 5);
                     assert_eq!(i(1, 1).len(), 1);
                 }
 
                 #[test]
                 fn test_len_saturation() {
-                    // This is the CRITICAL OR-Tools behavior check.
-                    // If the interval is the full width of the type, len() should return T::MAX.
-
                     let min = <$t>::min_value();
                     let max = <$t>::max_value();
                     let full = i(min, max);
 
-                    // The "True" math length is max - min + 1.
-                    // But that doesn't fit in T. It should saturate to T::MAX.
                     assert_eq!(full.len(), max);
 
-                    // Test just below max
                     let almost_full = i(min + 1, max);
-                    // This length might fit or might saturate depending on signed/unsigned.
-                    // If T is u8: [1, 255] len is 255. Fits!
-                    // If T is i8: [-127, 127] len is 255. Cannot fit in i8 (127). Saturates.
 
                     if <$t>::min_value() == 0 {
-                        // Unsigned: min+1 to max has length max. Fits exactly.
                         assert_eq!(almost_full.len(), max);
                     } else {
-                        // Signed: Length is still > T::MAX. Should saturate.
                         assert_eq!(almost_full.len(), max);
                     }
                 }
@@ -464,8 +626,6 @@ mod tests {
                     assert!(x.contains(15));
                     assert!(!x.contains(9));
                     assert!(!x.contains(21));
-
-                    // Interval containment
                     assert!(x.contains_interval(i(12, 18)));
                     assert!(x.contains_interval(i(10, 20)));
                     assert!(!x.contains_interval(i(9, 20)));
@@ -476,16 +636,10 @@ mod tests {
                 fn test_intersects() {
                     let base = i(10, 20);
 
-                    // Inside
                     assert!(base.intersects(i(12, 18)));
-                    // Overlap Left
                     assert!(base.intersects(i(5, 10)));
-                    // Overlap Right
                     assert!(base.intersects(i(20, 25)));
-                    // Envelops
                     assert!(base.intersects(i(0, 30)));
-
-                    // No intersection
                     assert!(!base.intersects(i(0, 9)));
                     assert!(!base.intersects(i(21, 30)));
                 }
@@ -493,44 +647,31 @@ mod tests {
                 #[test]
                 fn test_adjacency() {
                     let base = i(10, 20);
-                    // Touching Left
-                    assert!(base.adjacent(i(5, 9)));
-                    // Touching Right
-                    assert!(base.adjacent(i(21, 30)));
 
-                    // Intersecting is NOT adjacent
+                    assert!(base.adjacent(i(5, 9)));
+                    assert!(base.adjacent(i(21, 30)));
                     assert!(!base.adjacent(i(20, 25)));
-                    // Gap is NOT adjacent
                     assert!(!base.adjacent(i(22, 30)));
 
-                    // Edge case: MAX
                     let max_interval = i(<$t>::max_value(), <$t>::max_value());
                     let almost_max = i(<$t>::max_value() - 1, <$t>::max_value() - 1);
                     assert!(max_interval.adjacent(almost_max));
                     assert!(almost_max.adjacent(max_interval));
-
-                    // Overflow check: MAX adjacent to nothing above it
-                    // The code handles this via checked_add -> map_or(false).
-                    // We can't construct an interval above MAX, so this is implicitly tested by the logic not crashing.
                 }
 
                 #[test]
                 fn test_merge_logic() {
                     let base = i(10, 20);
 
-                    // Intersecting -> Merge
                     let m1 = base.merge(i(15, 25));
                     assert_eq!(m1, Some(i(10, 25)));
 
-                    // Adjacent -> Merge
                     let m2 = base.merge(i(21, 30));
                     assert_eq!(m2, Some(i(10, 30)));
 
-                    // Adjacent Left -> Merge
                     let m3 = base.merge(i(0, 9));
                     assert_eq!(m3, Some(i(0, 20)));
 
-                    // Disjoint -> None
                     let m4 = base.merge(i(22, 30));
                     assert_eq!(m4, None);
                 }
@@ -539,32 +680,26 @@ mod tests {
                 fn test_subtract() {
                     let base = i(10, 20);
 
-                    // 1. Disjoint (No change)
                     let r1 = base.subtract(i(25, 30));
                     assert_eq!(r1.len(), 1);
                     assert_eq!(r1[0], base);
 
-                    // 2. Complete Cover (Empty)
                     let r2 = base.subtract(i(0, 30));
                     assert!(r2.is_empty());
 
-                    // 3. Punch Hole (Split)
                     let r3 = base.subtract(i(12, 18));
                     assert_eq!(r3.len(), 2);
                     assert_eq!(r3[0], i(10, 11));
                     assert_eq!(r3[1], i(19, 20));
 
-                    // 4. Trim Right
                     let r4 = base.subtract(i(15, 30));
                     assert_eq!(r4.len(), 1);
                     assert_eq!(r4[0], i(10, 14));
 
-                    // 5. Trim Left
                     let r5 = base.subtract(i(0, 15));
                     assert_eq!(r5.len(), 1);
                     assert_eq!(r5[0], i(16, 20));
 
-                    // 6. Identity (Exact Match)
                     let r6 = base.subtract(base);
                     assert!(r6.is_empty());
                 }
@@ -574,16 +709,12 @@ mod tests {
                     let min = <$t>::min_value();
                     let max = <$t>::max_value();
 
-                    // Punch hole at min
                     let full = i(min, max);
                     let sub_min = full.subtract(i(min, min));
-                    // Should be [min+1, max]
                     assert_eq!(sub_min.len(), 1);
                     assert_eq!(sub_min[0], i(min + 1, max));
 
-                    // Punch hole at max
                     let sub_max = full.subtract(i(max, max));
-                    // Should be [min, max-1]
                     assert_eq!(sub_max.len(), 1);
                     assert_eq!(sub_max[0], i(min, max - 1));
                 }
@@ -593,11 +724,10 @@ mod tests {
                     let min = <$t>::min_value();
                     let max = <$t>::max_value();
 
-                    // Complement of something in the middle
                     let mid = i(10, 20);
                     let comp = mid.complement();
                     assert_eq!(comp.len(), 2);
-                    // Check bounds carefully regarding min/max
+
                     if min < 10 {
                         assert_eq!(comp[0], i(min, 9));
                     }
@@ -605,7 +735,6 @@ mod tests {
                         assert_eq!(comp[1], i(21, max));
                     }
 
-                    // Complement of Full Universe is Empty
                     let full = i(min, max);
                     assert!(full.complement().is_empty());
                 }
@@ -626,7 +755,6 @@ mod tests {
 
                 #[test]
                 fn test_iterator_boundary_max() {
-                    // This tests the Infinite Loop bug fix.
                     let max = <$t>::max_value();
                     let interval = i(max - 1, max);
                     let vec: Vec<$t> = interval.iter().collect();

@@ -12,9 +12,14 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 name = "bollard_constraint_solver"
 version = "0.1.0"
 dependencies = [
+ "bollard_num",
  "num-traits",
  "smallvec",
 ]
+
+[[package]]
+name = "bollard_num"
+version = "0.1.0"
 
 [[package]]
 name = "num-traits"
