@@ -20,11 +20,11 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bollard_num::ops::{checked_arithmetic, saturating_arithmetic};
-use num_traits::{Bounded, One, PrimInt};
+use num_traits::{Bounded, One, Zero};
 use smallvec::SmallVec;
 use std::{
     iter::FusedIterator,
-    ops::{Add, Bound, RangeBounds, Sub},
+    ops::{Add, Bound, RangeBounds, Rem, Sub},
 };
 
 /// A closed interval `[lower, upper]` over a primitive integer type.
@@ -183,7 +183,7 @@ impl<T> ClosedInterval<T> {
     /// let full = ClosedInterval::new(0u8, 255u8);
     /// assert_eq!(full.len(), 255); // 256 saturates to 255
     /// ```
-    #[inline(always)]
+    #[inline]
     pub fn len(&self) -> T
     where
         T: Copy + saturating_arithmetic::SaturatingAdd + saturating_arithmetic::SaturatingSub + One,
@@ -276,7 +276,7 @@ impl<T> ClosedInterval<T> {
     /// assert!(a.adjacent(b));
     /// assert!(b.adjacent(a));
     /// ```
-    #[inline(always)]
+    #[inline]
     pub fn adjacent(&self, other: ClosedInterval<T>) -> bool
     where
         T: Copy + PartialEq + checked_arithmetic::CheckedAdd + One,
@@ -290,7 +290,7 @@ impl<T> ClosedInterval<T> {
     ///
     /// This is an optimized check equivalent to `intersects(other) || adjacent(other)`.
     /// If true, the union of the two intervals forms a single contiguous interval.
-    #[inline(always)]
+    #[inline]
     pub fn intersects_or_adjacent(&self, other: ClosedInterval<T>) -> bool
     where
         T: Copy + saturating_arithmetic::SaturatingAdd + Ord + One,
@@ -445,6 +445,70 @@ impl<T> ClosedInterval<T> {
             finished: false,
         }
     }
+
+    /// Creates an iterator over the interval that yields values spaced by `step`.
+    ///
+    /// The iterator starts at `self.lower` and advances by `step` each time,
+    /// yielding values up to and including `self.upper` when possible. If the next
+    /// step would exceed `self.upper`, the iterator stops yielding from the front.
+    /// When used as a `DoubleEndedIterator`, it yields from `self.upper` backwards
+    /// by `step` until doing so would cross below `self.lower`.
+    ///
+    /// # Known Limitations (Signed Integers)
+    ///
+    /// For signed integer types (e.g., `i8`, `i32`), if the interval spans the entire representable
+    /// range (e.g., `i8::MIN` to `i8::MAX`), the mathematical distance `upper - lower` exceeds
+    /// `T::MAX`. Calculating the alignment for reverse iteration requires this distance.
+    ///
+    /// In this specific edge case, the iterator defaults to starting reverse iteration at `self.upper`,
+    /// even if `self.upper` does not mathematically align with the grid starting from `self.lower`.
+    /// This avoids the need for casting to wider types, maintaining generic simplicity at the cost
+    /// of strict alignment in this rare overflow scenario.
+    ///
+    /// # Debug Assertions
+    ///
+    /// - In debug builds, passing a non-positive `step` (e.g., zero or a value that
+    ///   does not strictly move the iterator forward/backward for the type) will
+    ///   cause a debug assertion to fail.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::ClosedInterval;
+    ///
+    /// // Forward iteration with step 3
+    /// let i = ClosedInterval::new(1, 10);
+    /// let v: Vec<_> = i.iter_step(3).collect();
+    /// assert_eq!(v, vec![1, 4, 7, 10]);
+    ///
+    /// // Double-ended alternating
+    /// let mut it = i.iter_step(3);
+    /// assert_eq!(it.next(), Some(1));
+    /// assert_eq!(it.next_back(), Some(10));
+    /// ```
+    pub fn iter_step(&self, step: T) -> ClosedIntervalStepIterator<T>
+    where
+        T: Copy + Zero + Ord + Rem<Output = T> + checked_arithmetic::CheckedSub,
+    {
+        debug_assert!(step > T::zero(), "step must be positive");
+
+        // We attempt to calculate the largest value K <= upper such that K = lower + n * step.
+        // This is done via: aligned_upper = upper - (distance % step).
+        //
+        // If (upper - lower) overflows (e.g. i8::MIN to i8::MAX), checked_sub returns None.
+        // In that case, we fallback to just using upper. This is the documented limitation.
+        let aligned_upper = match self.upper.checked_sub(self.lower) {
+            Some(diff) => self.upper - (diff % step),
+            None => self.upper,
+        };
+
+        ClosedIntervalStepIterator {
+            current: self.lower,
+            upper: aligned_upper,
+            step,
+            finished: false,
+        }
+    }
 }
 
 impl<T> PartialOrd for ClosedInterval<T>
@@ -470,16 +534,31 @@ where
     }
 }
 
-impl<T> RangeBounds<T> for ClosedInterval<T>
-where
-    T: PrimInt,
-{
+impl<T> RangeBounds<T> for ClosedInterval<T> {
     fn start_bound(&self) -> Bound<&T> {
         Bound::Included(&self.lower)
     }
 
     fn end_bound(&self) -> Bound<&T> {
         Bound::Included(&self.upper)
+    }
+}
+
+impl<T> std::fmt::Debug for ClosedInterval<T>
+where
+    T: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{:?}, {:?}]", self.lower, self.upper)
+    }
+}
+
+impl<T> std::fmt::Display for ClosedInterval<T>
+where
+    T: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}, {}]", self.lower, self.upper)
     }
 }
 
@@ -530,6 +609,7 @@ impl<T> DoubleEndedIterator for ClosedIntervalIterator<T>
 where
     T: Copy + Ord + One + Sub<Output = T> + Add<Output = T>,
 {
+    #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.finished {
             return None;
@@ -547,23 +627,115 @@ where
     }
 }
 
-impl<T> FusedIterator for ClosedIntervalIterator<T> where T: PrimInt {}
-
-impl<T> std::fmt::Debug for ClosedInterval<T>
-where
-    T: std::fmt::Debug,
+impl<T> FusedIterator for ClosedIntervalIterator<T> where
+    T: Copy + Ord + One + Add<Output = T> + Sub<Output = T>
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{:?}, {:?}]", self.lower, self.upper)
-    }
 }
 
-impl<T> std::fmt::Display for ClosedInterval<T>
+impl<T> std::fmt::Display for ClosedIntervalIterator<T>
 where
     T: std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}, {}]", self.lower, self.upper)
+        write!(
+            f,
+            "ClosedIntervalIterator(current: {}, upper: {}, finished: {})",
+            self.current, self.upper, self.finished
+        )
+    }
+}
+
+#[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ClosedIntervalStepIterator<T> {
+    current: T,
+    upper: T,
+    step: T,
+    finished: bool,
+}
+
+impl<T> Iterator for ClosedIntervalStepIterator<T>
+where
+    T: Copy + Ord + One + checked_arithmetic::CheckedAdd,
+{
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+
+        let result = self.current;
+
+        if self.current >= self.upper {
+            self.finished = true;
+        } else {
+            match self.current.checked_add(self.step) {
+                Some(next_val) => {
+                    if next_val > self.upper {
+                        self.finished = true;
+                    } else {
+                        self.current = next_val;
+                    }
+                }
+                None => {
+                    self.finished = true;
+                }
+            }
+        }
+
+        Some(result)
+    }
+}
+
+impl<T> DoubleEndedIterator for ClosedIntervalStepIterator<T>
+where
+    T: Copy + Ord + One + checked_arithmetic::CheckedSub + checked_arithmetic::CheckedAdd,
+{
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+
+        let result = self.upper;
+
+        if self.current >= self.upper {
+            self.finished = true;
+        } else {
+            match self.upper.checked_sub(self.step) {
+                Some(prev_val) => {
+                    if prev_val < self.current {
+                        self.finished = true;
+                    } else {
+                        self.upper = prev_val;
+                    }
+                }
+                None => {
+                    self.finished = true;
+                }
+            }
+        }
+
+        Some(result)
+    }
+}
+
+impl<T> FusedIterator for ClosedIntervalStepIterator<T> where
+    T: Copy + Ord + One + checked_arithmetic::CheckedAdd
+{
+}
+
+impl<T> std::fmt::Display for ClosedIntervalStepIterator<T>
+where
+    T: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ClosedIntervalStepIterator(current: {}, upper: {}, step: {}, finished: {})",
+            self.current, self.upper, self.step, self.finished
+        )
     }
 }
 
@@ -891,6 +1063,156 @@ mod tests {
 
                     assert_eq!(iter.next(), None);
                     assert_eq!(iter.next_back(), None);
+                }
+
+                #[test]
+                fn test_iter_step_basic() {
+                    let interval = i(1, 10);
+                    let vec: Vec<$t> = interval.iter_step(3 as $t).collect();
+                    assert_eq!(vec, vec![1, 4, 7, 10]);
+                }
+
+                #[test]
+                fn test_iter_step_singleton() {
+                    let interval = i(7, 7);
+                    let vec: Vec<$t> = interval.iter_step(3 as $t).collect();
+                    assert_eq!(vec, vec![7]);
+                }
+
+                #[test]
+                fn test_iter_step_uneven_alignment() {
+                    let interval = i(1, 8);
+                    let vec: Vec<$t> = interval.iter_step(3 as $t).collect();
+                    assert_eq!(vec, vec![1, 4, 7]);
+
+                    let interval2 = i(2, 9);
+                    let vec2: Vec<$t> = interval2.iter_step(4 as $t).collect();
+                    assert_eq!(vec2, vec![2, 6]);
+                }
+
+                #[test]
+                fn test_iter_step_exact_alignment() {
+                    let interval = i(1, 9);
+                    let vec: Vec<$t> = interval.iter_step(4 as $t).collect();
+                    assert_eq!(vec, vec![1, 5, 9]);
+                }
+
+                #[test]
+                fn test_iter_step_double_ended_basic() {
+                    let interval = i(1, 10);
+                    let mut iter = interval.iter_step(3 as $t);
+
+                    assert_eq!(iter.next(), Some(1));
+                    assert_eq!(iter.next_back(), Some(10));
+
+                    assert_eq!(iter.next(), Some(4));
+                    assert_eq!(iter.next_back(), Some(7));
+
+                    assert_eq!(iter.next(), None);
+                    assert_eq!(iter.next_back(), None);
+                }
+
+                #[test]
+                fn test_iter_step_double_ended_exhaustion_forward_then_back() {
+                    let interval = i(1, 10);
+                    let mut iter = interval.iter_step(3 as $t);
+
+                    assert_eq!(iter.next(), Some(1));
+                    assert_eq!(iter.next(), Some(4));
+                    assert_eq!(iter.next(), Some(7));
+                    assert_eq!(iter.next(), Some(10));
+
+                    assert_eq!(iter.next(), None);
+                    assert_eq!(iter.next_back(), None);
+                }
+
+                #[test]
+                fn test_iter_step_double_ended_exhaustion_back_then_forward() {
+                    let interval = i(1, 10);
+                    let mut iter = interval.iter_step(3 as $t);
+
+                    assert_eq!(iter.next_back(), Some(10));
+                    assert_eq!(iter.next_back(), Some(7));
+                    assert_eq!(iter.next_back(), Some(4));
+                    assert_eq!(iter.next_back(), Some(1));
+
+                    assert_eq!(iter.next(), None);
+                    assert_eq!(iter.next_back(), None);
+                }
+
+                #[test]
+                fn test_iter_step_double_ended_singleton() {
+                    let interval = i(7, 7);
+                    let mut iter = interval.iter_step(5 as $t);
+
+                    assert_eq!(iter.next(), Some(7));
+                    assert_eq!(iter.next_back(), None);
+
+                    let mut iter2 = interval.iter_step(5 as $t);
+                    assert_eq!(iter2.next_back(), Some(7));
+                    assert_eq!(iter2.next(), None);
+                }
+
+                #[test]
+                fn test_iter_step_collect() {
+                    let interval = i(2, 14);
+                    let v: Vec<$t> = interval.iter_step(5 as $t).collect();
+                    assert_eq!(v, vec![2, 7, 12]);
+                }
+
+                #[test]
+                fn test_iter_step_boundary_max_min() {
+                    let min = <$t>::min_value();
+                    let max = <$t>::max_value();
+                    if min < max {
+                        let step = 2 as $t;
+                        let mut iter = i(min, max).iter_step(step);
+
+                        let first = iter.next();
+                        let last = iter.next_back();
+                        assert_eq!(first, Some(min));
+                        assert!(last.is_some());
+                        let l = last.unwrap();
+                        assert!(l <= max);
+                        assert!(l >= min);
+
+                        let f2 = iter.next();
+                        let b2 = iter.next_back();
+                        if min + step <= max {
+                            assert!(f2.is_some());
+                            assert!(b2.is_some());
+                            assert!(f2.unwrap() >= min);
+                            assert!(b2.unwrap() <= max);
+                        }
+                    }
+                }
+
+                #[test]
+                fn test_iter_step_misalignment() {
+                    let interval = i(1, 4);
+                    let mut iter = interval.iter_step(2 as $t);
+
+                    assert_eq!(iter.next_back(), Some(3));
+                    assert_eq!(iter.next_back(), Some(1));
+                    assert_eq!(iter.next_back(), None);
+                }
+
+                #[test]
+                fn test_iter_step_signed_overflow_limitation() {
+                    // Range: -128 to 127
+                    let interval = ClosedInterval::new(i8::MIN, i8::MAX);
+                    let step = 10;
+
+                    let mut forward_iter = interval.iter_step(step);
+                    assert_eq!(forward_iter.next(), Some(-128));
+                    assert_eq!(forward_iter.last(), Some(122));
+
+                    // Backward Behavior (The Limitation):
+                    // Mathematically, this SHOULD start at 122 to match the forward grid.
+                    // However, because 127 - (-128) overflows i8, we fallback to upper.
+                    let mut backward_iter = interval.iter_step(step);
+                    assert_eq!(backward_iter.next_back(), Some(127));
+                    assert_eq!(backward_iter.next_back(), Some(117));
                 }
             }
         };
