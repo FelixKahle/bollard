@@ -1941,7 +1941,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_new_and_singleton() {
+    fn test_domain_new_and_singleton() {
         let d: IntegerDomain<i32, 1> = IntegerDomain::new(1i32, 5);
         assert_eq!(d.len(), 1);
         assert!(!d.is_empty());
@@ -1956,7 +1956,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_empty_and_all() {
+    fn test_domain_empty_and_all() {
         let e: IntegerDomain<i32> = IntegerDomain::empty();
         assert!(e.is_empty());
         assert_eq!(e.len(), 0);
@@ -1973,7 +1973,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_from_sorted_builders() {
+    fn test_domain_from_sorted_builders() {
         let v = vec![
             new_closed_interval(1i32, 3),
             new_closed_interval(10, 12),
@@ -2005,7 +2005,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_min_max_unchecked_and_is_fixed_unchecked() {
+    fn test_domain_min_max_unchecked_and_is_fixed_unchecked() {
         let d: IntegerDomain<i32, 1> = IntegerDomain::from_sorted_intervals([
             new_closed_interval(5i32, 5),
             new_closed_interval(10, 20),
@@ -2025,7 +2025,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_size_and_saturation() {
+    fn test_domain_size_and_saturation() {
         let all_u8: IntegerDomain<u8> = IntegerDomain::all();
         assert_eq!(all_u8.size(), u8::MAX);
 
@@ -2038,7 +2038,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_intersects_cases() {
+    fn test_domain_intersects_cases() {
         // A: [1,5], [10,12]
         let a = IntegerDomain::from_sorted_intervals([
             new_closed_interval(1i32, 5),
@@ -2068,7 +2068,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_contains_value_binary_search_examples() {
+    fn test_domain_contains_value_binary_search_examples() {
         // [10, 20], [30, 40], [50, 60]
         let d: IntegerDomain<i32, 1> = IntegerDomain::from_sorted_intervals([
             new_closed_interval(10i32, 20),
@@ -2091,7 +2091,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_contains_interval_cases() {
+    fn test_domain_contains_interval_cases() {
         // Domain: [1,5], [10,20]
         let d: IntegerDomain<i32, 1> = IntegerDomain::from_sorted_intervals([
             new_closed_interval(1i32, 5),
@@ -2111,7 +2111,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_display_and_debug() {
+    fn test_domain_display_and_debug() {
         // Show: IntegerDomain([1, 5], [10, 12])
         let d = IntegerDomain::from_sorted_intervals([
             new_closed_interval(1i32, 5),
@@ -2125,7 +2125,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_len_and_is_empty() {
+    fn test_domain_len_and_is_empty() {
         let d0: IntegerDomain<i64> = IntegerDomain::empty();
         assert_eq!(d0.len(), 0);
         assert!(d0.is_empty());
@@ -2143,7 +2143,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_is_fixed() {
+    fn test_domain_is_fixed() {
         let empty: IntegerDomain<i32> = IntegerDomain::empty();
         assert!(empty.is_fixed().is_err());
 
