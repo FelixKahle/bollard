@@ -100,7 +100,7 @@ fn bench_contains_value(c: &mut Criterion) {
 fn bench_contains_interval(c: &mut Criterion) {
     let mut group = c.benchmark_group("integer_domain_contains_interval");
 
-    for &n in &[1_usize, 4, 16, 64, 256, 1024] {
+    for &n in &INTEGER_DOMAIN_SIZES {
         let d: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
             make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 0);
         let mut contained = Vec::with_capacity(n);
@@ -147,7 +147,6 @@ fn bench_intersection(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |bencher, &_n| {
             bencher.iter(|| {
-                // Prevent the optimizer from eliding the intersection by consuming the size.
                 let res = black_box(a.intersection(black_box(&b)));
                 match res {
                     Some(ref dom) => black_box(dom.size()),
@@ -160,11 +159,164 @@ fn bench_intersection(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_insert(c: &mut Criterion) {
+    let mut group = c.benchmark_group("integer_domain_insert");
+
+    // Insert intervals that will cause merging and adjacency coalescing.
+    for n in INTEGER_DOMAIN_SIZES {
+        let base: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 0);
+
+        // Intervals to insert: every interval shifted by 5 to overlap adjacently/overlap
+        let mut inserts = Vec::with_capacity(n);
+        for i in 0..n {
+            let lower = 5 + (i as i32) * 20;
+            inserts.push(ClosedInterval::new(lower, lower + 9));
+        }
+
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |bencher, &_n| {
+            bencher.iter(|| {
+                // Clone per-iter to keep work constant across iterations
+                let mut d = base.clone();
+                for &iv in &inserts {
+                    d.insert(black_box(iv));
+                }
+                black_box(d.len()) // consume result
+            });
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_remove(c: &mut Criterion) {
+    let mut group = c.benchmark_group("integer_domain_remove");
+
+    for n in INTEGER_DOMAIN_SIZES {
+        // Start with overlapped union to produce a denser domain
+        let a: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 0);
+        let b: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 5);
+        let dense = a.union(&b);
+
+        // Removal intervals targeting parts within each span
+        let mut removals = Vec::with_capacity(n);
+        for i in 0..n {
+            let base = (i as i32) * 20;
+            removals.push(ClosedInterval::new(base + 3, base + 6));
+        }
+
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |bencher, &_n| {
+            bencher.iter(|| {
+                let mut d = dense.clone();
+                for &iv in &removals {
+                    d.remove(black_box(iv));
+                }
+                black_box(d.len())
+            });
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_union(c: &mut Criterion) {
+    let mut group = c.benchmark_group("integer_domain_union");
+
+    for n in INTEGER_DOMAIN_SIZES {
+        let a: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 0);
+        let b: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 5);
+
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |bencher, &_n| {
+            bencher.iter(|| {
+                let u = black_box(a.union(black_box(&b)));
+                black_box(u.len())
+            });
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_union_in_place(c: &mut Criterion) {
+    let mut group = c.benchmark_group("integer_domain_union_in_place");
+
+    for n in INTEGER_DOMAIN_SIZES {
+        let a: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 0);
+        let b: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 5);
+
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |bencher, &_n| {
+            bencher.iter(|| {
+                let mut d = a.clone();
+                d.union_in_place(black_box(&b));
+                black_box(d.len())
+            });
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_subtract(c: &mut Criterion) {
+    let mut group = c.benchmark_group("integer_domain_subtract");
+
+    for n in INTEGER_DOMAIN_SIZES {
+        let a: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 0);
+        let b: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 5);
+
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |bencher, &_n| {
+            bencher.iter(|| {
+                let res = black_box(a.subtract(black_box(&b)));
+                match res {
+                    Some(ref dom) => black_box(dom.len()),
+                    None => black_box(0usize),
+                }
+            });
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_subtract_in_place(c: &mut Criterion) {
+    let mut group = c.benchmark_group("integer_domain_subtract_in_place");
+
+    for n in INTEGER_DOMAIN_SIZES {
+        let a: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 0);
+        let b: IntegerDomain<i32, INTEGER_DOMAIN_SMALLVECTOR_SIZE> =
+            make_domain::<INTEGER_DOMAIN_SMALLVECTOR_SIZE>(n, 10, 10, 5);
+
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |bencher, &_n| {
+            bencher.iter(|| {
+                let mut d = a.clone();
+                let _changed = black_box(d.subtract_in_place(black_box(&b)));
+                black_box(d.len())
+            });
+        });
+    }
+
+    group.finish();
+}
+
 fn criterion_benches(c: &mut Criterion) {
     bench_intersects(c);
     bench_contains_value(c);
     bench_contains_interval(c);
     bench_intersection(c);
+    bench_insert(c);
+    bench_remove(c);
+    bench_union(c);
+    bench_union_in_place(c);
+    bench_subtract(c);
+    bench_subtract_in_place(c);
 }
 
 criterion_group!(benches, criterion_benches);

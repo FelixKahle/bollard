@@ -2786,7 +2786,7 @@ mod tests {
     }
 
     #[test]
-    fn test_domain_merge_in_place_cases() {
+    fn test_domain_union_in_place_cases() {
         let a: IntegerDomain<i32, 1> =
             IntegerDomain::from_sorted_intervals([new_interval(1, 5), new_interval(10, 12)]);
         let b: IntegerDomain<i32, 1> =
