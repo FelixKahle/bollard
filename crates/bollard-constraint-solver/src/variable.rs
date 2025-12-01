@@ -2088,7 +2088,7 @@ impl<T, const N: usize> IntegerDomain<T, N> {
     /// assert_eq!(it.next(), Some(2));
     /// ```
     #[inline]
-    pub fn iter_values(&self) -> impl Iterator<Item = T> + DoubleEndedIterator + FusedIterator + '_
+    pub fn iter_values(&self) -> impl DoubleEndedIterator<Item = T> + FusedIterator + '_
     where
         T: Copy + Ord + One + Add<Output = T> + Sub<Output = T>,
     {
@@ -2153,7 +2153,7 @@ impl<T, const N: usize> IntegerDomain<T, N> {
     pub fn iter_values_step(
         &self,
         step: T,
-    ) -> impl Iterator<Item = T> + DoubleEndedIterator + FusedIterator + '_
+    ) -> impl DoubleEndedIterator<Item = T> + FusedIterator + '_
     where
         T: Copy
             + Zero
