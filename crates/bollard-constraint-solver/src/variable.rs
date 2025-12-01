@@ -1882,7 +1882,7 @@ impl<T, const N: usize> IntegerDomain<T, N> {
         while i < a.len() {
             let mut cur = unsafe { *a.get_unchecked(i) };
 
-            while j < b.len() && unsafe { b.get_unchecked(j) }.upper < cur.lower {
+            while j < b.len() && unsafe { *b.get_unchecked(j) }.upper < cur.lower {
                 j += 1;
             }
 
@@ -2044,6 +2044,128 @@ impl<T, const N: usize> IntegerDomain<T, N> {
     #[inline]
     pub fn iter_intervals(&self) -> std::slice::Iter<'_, ClosedInterval<T>> {
         self.intervals.iter()
+    }
+
+    /// Creates an iterator over every individual value contained in the domain.
+    ///
+    /// The iterator yields all values from each stored `ClosedInterval` in ascending
+    /// order, fully exhausting one interval before moving to the next. No allocation
+    /// is performed; iteration is lazy.
+    ///
+    /// The iterator implements:
+    /// - `DoubleEndedIterator`: allowing reverse consumption via `next_back()`.
+    /// - `FusedIterator`: once it returns `None` it will always return `None`.
+    ///
+    /// # Empty Domains
+    ///
+    /// If the domain is empty, the iterator yields no items.
+    ///
+    /// # Complexity
+    ///
+    /// - Time: O(total_number_of_values_in_all_intervals)
+    /// - Space: O(1) (aside from the iterator state).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::{IntegerDomain, ClosedInterval};
+    ///
+    /// // Domain represents {1,2,3,10,11,20}
+    /// let domain: IntegerDomain<i32, 3> = IntegerDomain::from_sorted_vec(vec![
+    ///     ClosedInterval::new(1, 3),
+    ///     ClosedInterval::new(10, 11),
+    ///     ClosedInterval::new(20, 20),
+    /// ]);
+    ///
+    /// let values: Vec<_> = domain.iter_values().collect();
+    /// assert_eq!(values, vec![1, 2, 3, 10, 11, 20]);
+    ///
+    /// // Double-ended consumption
+    /// let mut it = domain.iter_values();
+    /// assert_eq!(it.next(), Some(1));
+    /// assert_eq!(it.next_back(), Some(20));
+    /// assert_eq!(it.next_back(), Some(11));
+    /// assert_eq!(it.next(), Some(2));
+    /// ```
+    #[inline]
+    pub fn iter_values(&self) -> impl Iterator<Item = T> + DoubleEndedIterator + FusedIterator + '_
+    where
+        T: Copy + Ord + One + Add<Output = T> + Sub<Output = T>,
+    {
+        self.intervals.iter().flat_map(|interval| interval.iter())
+    }
+
+    /// Creates an iterator over the domain that steps through each interval using a fixed stride.
+    ///
+    /// For every stored `ClosedInterval`, iteration starts at its `lower` bound and advances
+    /// by `step` until it reaches (and possibly includes) an aligned value not exceeding `upper`.
+    ///
+    /// Alignment is computed independently per interval (i.e., the arithmetic progression
+    /// restarts at each interval boundary). Gaps between intervals do not affect the
+    /// stepping sequence inside subsequent intervals.
+    ///
+    /// When used as a `DoubleEndedIterator`, the reverse direction yields from the last
+    /// aligned value of the last interval backward by `step`, stopping before crossing that
+    /// interval’s lower bound; then proceeds similarly with previous intervals.
+    ///
+    /// # Requirements
+    ///
+    /// - `step` must be strictly positive. A non-positive `step` triggers a debug assertion
+    ///   inside the per-interval iterator (`ClosedInterval::iter_step`).
+    ///
+    /// # Overflow Handling
+    ///
+    /// Uses checked arithmetic. If adding `step` to the current value would overflow,
+    /// iteration for that interval halts. This mirrors the behavior documented for
+    /// `ClosedInterval::iter_step`.
+    ///
+    /// # Signed Full-Range Limitation
+    ///
+    /// For signed integer types spanning their entire representable range, reverse
+    /// alignment may fall back to the raw `upper` bound (see `ClosedInterval::iter_step`
+    /// documentation for details).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bollard_constraint_solver::variable::{IntegerDomain, ClosedInterval};
+    ///
+    /// // Intervals: [1,10] and [20,25]
+    /// // With step 3:
+    /// //   [1,10]  -> 1,4,7,10
+    /// //   [20,25] -> 20,23
+    /// let domain: IntegerDomain<i32, 2> = IntegerDomain::from_sorted_vec(vec![
+    ///     ClosedInterval::new(1, 10),
+    ///     ClosedInterval::new(20, 25),
+    /// ]);
+    ///
+    /// let stepped: Vec<_> = domain.iter_values_step(3).collect();
+    /// assert_eq!(stepped, vec![1, 4, 7, 10, 20, 23]);
+    ///
+    /// // Double-ended usage
+    /// let mut it = domain.iter_values_step(3);
+    /// assert_eq!(it.next(), Some(1));
+    /// assert_eq!(it.next_back(), Some(23));
+    /// assert_eq!(it.next_back(), Some(20));
+    /// assert_eq!(it.next(), Some(4));
+    /// ```
+    #[inline]
+    pub fn iter_values_step(
+        &self,
+        step: T,
+    ) -> impl Iterator<Item = T> + DoubleEndedIterator + FusedIterator + '_
+    where
+        T: Copy
+            + Zero
+            + One
+            + Ord
+            + Rem<Output = T>
+            + checked_arithmetic::CheckedSub
+            + checked_arithmetic::CheckedAdd,
+    {
+        self.intervals
+            .iter()
+            .flat_map(move |interval| interval.iter_step(step))
     }
 }
 
@@ -2901,5 +3023,77 @@ mod tests {
             .map(|iv| (iv.lower(), iv.upper()))
             .collect();
         assert_eq!(collected, vec![(1, 3), (10, 12), (20, 20)]);
+    }
+
+    #[test]
+    fn test_domain_iter_values_basic() {
+        let d: IntegerDomain<i32, 1> = IntegerDomain::from_sorted_intervals([
+            new_interval(1, 3),   // 1,2,3
+            new_interval(10, 11), // 10,11
+            new_interval(20, 20), // 20
+        ]);
+        let vals: Vec<i32> = d.iter_values().collect();
+        assert_eq!(vals, vec![1, 2, 3, 10, 11, 20]);
+    }
+
+    #[test]
+    fn test_domain_iter_values_double_ended() {
+        let d: IntegerDomain<i32, 1> =
+            IntegerDomain::from_sorted_intervals([new_interval(1, 3), new_interval(10, 11)]);
+        let mut it = d.iter_values();
+
+        // Forward then backward interleaving
+        assert_eq!(it.next(), Some(1));
+        assert_eq!(it.next_back(), Some(11));
+        assert_eq!(it.next_back(), Some(10));
+        assert_eq!(it.next_back(), Some(3));
+        assert_eq!(it.next(), Some(2));
+        assert_eq!(it.next(), None);
+        assert_eq!(it.next_back(), None);
+    }
+
+    #[test]
+    fn test_domain_iter_values_empty() {
+        let e: IntegerDomain<i32, 1> = IntegerDomain::empty();
+        assert_eq!(e.iter_values().next(), None);
+        let mut it = e.iter_values();
+        assert_eq!(it.next_back(), None);
+    }
+
+    #[test]
+    fn test_domain_iter_values_step_basic() {
+        let d: IntegerDomain<i32, 1> = IntegerDomain::from_sorted_intervals([
+            new_interval(1, 10),  // step 3 -> 1,4,7,10
+            new_interval(20, 25), // step 3 -> 20,23
+        ]);
+        let vals: Vec<i32> = d.iter_values_step(3).collect();
+        assert_eq!(vals, vec![1, 4, 7, 10, 20, 23]);
+    }
+
+    #[test]
+    fn test_domain_iter_values_step_double_ended() {
+        let d: IntegerDomain<i32, 1> =
+            IntegerDomain::from_sorted_intervals([new_interval(1, 5), new_interval(10, 12)]);
+        // step 2 -> [1,3,5] and [10,12]
+        let mut it = d.iter_values_step(2);
+
+        assert_eq!(it.next_back(), Some(12));
+        assert_eq!(it.next(), Some(1));
+        assert_eq!(it.next_back(), Some(10));
+        assert_eq!(it.next(), Some(3));
+        assert_eq!(it.next_back(), Some(5));
+        assert_eq!(it.next(), None);
+        assert_eq!(it.next_back(), None);
+    }
+
+    #[test]
+    fn test_domain_iter_values_step_alignment_edges() {
+        // Interval chosen where upper aligns exactly, and another where it doesn't.
+        let d: IntegerDomain<i32, 1> = IntegerDomain::from_sorted_intervals([
+            new_interval(2, 9),   // step 4 -> 2,6
+            new_interval(10, 17), // step 4 -> 10,14
+        ]);
+        let vals: Vec<i32> = d.iter_values_step(4).collect();
+        assert_eq!(vals, vec![2, 6, 10, 14]);
     }
 }
