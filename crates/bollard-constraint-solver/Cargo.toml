@@ -28,3 +28,13 @@ edition.workspace = true
 bollard_num = { path = "../bollard-num" }
 num-traits = "0.2.19"
 smallvec = "=2.0.0-alpha.12"
+
+[dev-dependencies]
+criterion = "0.8.0"
+
+# Benchmarks
+
+[[bench]]
+name = "variable_benchmarks"
+harness = false
+path = "benches/variable_benches.rs"
