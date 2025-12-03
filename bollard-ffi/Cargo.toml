@@ -19,13 +19,16 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-[workspace]
-members = [
-    "crates/bollard-core",
-    "crates/bollard-model",
-    "bollard-ffi",
-]
-resolver = "3"
+[package]
+name = "bollard_ffi"
+version = "0.1.0"
+edition = "2021"
 
-[workspace.package]
-edition = "2024"
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bollard_core = { path = "../crates/bollard-core" }
+bollard_model = { path = "../crates/bollard-model" }
+num-traits = "0.2.19"
+libc = "0.2.178"

@@ -20,21 +20,11 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 [package]
-name = "bollard_constraint_solver"
+name = "bollard_model"
 version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-bollard_num = { path = "../bollard-num" }
+bollard_core = { path = "../bollard-core" }
 num-traits = "0.2.19"
-smallvec = "=2.0.0-alpha.12"
-
-[dev-dependencies]
-criterion = "0.8.0"
-
-# Benchmarks
-
-[[bench]]
-name = "variable_benchmarks"
-harness = false
-path = "benches/variable_benches.rs"
+rangemap = "1.7.0"

@@ -20,6 +20,10 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 [package]
-name = "bollard_num"
+name = "bollard_core"
 version = "0.1.0"
 edition.workspace = true
+
+[dependencies]
+num-traits = "0.2.19"
+smallvec = "=2.0.0-alpha.12"
