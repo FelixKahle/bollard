@@ -365,8 +365,9 @@ where
 {
     arrival_times: Vec<T>,                             // len = num_vessels
     latest_departure_times: Vec<T>,                    // len = num_vessels
+    vessel_weights: Vec<T>,                            // len = num_vessels
     processing_times: Vec<ProcessingTime<T>>,          // len = num_vessels * num_berths
-    opening_times: Vec<Vec<ClosedOpenInterval<T>>>, // len = num_berths. Inner vectors: sorted, disjoint, non-empty.
+    opening_times: Vec<Vec<ClosedOpenInterval<T>>>,    // len = num_berths.
     shortest_processing_times: Vec<ProcessingTime<T>>, // len = num_vessels
 }
 
@@ -408,6 +409,12 @@ where
     #[inline]
     pub fn arrival_times(&self) -> &[T] {
         &self.arrival_times
+    }
+
+    /// Returns a slice of vessel weights for all vessels.
+    #[inline]
+    pub fn vessel_weights(&self) -> &[T] {
+        &self.vessel_weights
     }
 
     /// Returns a slice of latest departure times for all vessels.
@@ -532,6 +539,53 @@ where
                 .latest_departure_times
                 .get_unchecked(vessel_index.get())
         }
+    }
+
+    /// Returns the weight of the vessel at the given index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `vessel_index` is out of bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::{ModelBuilder, VesselIndex};
+    ///
+    /// let mut builder = ModelBuilder::<i32>::new(1, 1);
+    /// builder.vessel_weight(VesselIndex::new(0), 15);
+    /// let model = builder.build().unwrap();
+    ///
+    /// assert_eq!(model.vessel_weight(VesselIndex::new(0)), 15);
+    /// ```
+    #[inline]
+    pub fn vessel_weight(&self, vessel_index: VesselIndex) -> T {
+        self.vessel_weights[vessel_index.get()]
+    }
+
+    /// Returns the weight of the vessel at the given index without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `vessel_index` is within the bounds of `0..num_vessels()`.
+    /// Accessing an out-of-bounds index is undefined behavior.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::{ModelBuilder, VesselIndex};
+    ///
+    /// let mut builder = ModelBuilder::<i32>::new(1, 1);
+    /// builder.vessel_weight(VesselIndex::new(0), 15);
+    /// let model = builder.build().unwrap();
+    ///
+    /// unsafe {
+    ///    assert_eq!(model.vessel_weight_unchecked(VesselIndex::new(0)), 15);
+    /// }
+    /// ```
+    #[inline]
+    pub fn vessel_weight_unchecked(&self, vessel_index: VesselIndex) -> T {
+        unsafe { *self.vessel_weights.get_unchecked(vessel_index.get()) }
     }
 
     /// Returns the processing time for a specific vessel at a specific berth.
@@ -769,6 +823,7 @@ where
         f.debug_struct("Model")
             .field("arrival_times", &self.arrival_times)
             .field("latest_departure_times", &self.latest_departure_times)
+            .field("vessel_weights", &self.vessel_weights)
             .field("processing_times", &self.processing_times)
             .field("opening_times", &self.opening_times)
             .field("shortest_processing_times", &self.shortest_processing_times)
@@ -1014,6 +1069,7 @@ where
 {
     arrival_times: Vec<T>,
     latest_departure_times: Vec<T>,
+    vessel_weights: Vec<T>,
     processing_times: Vec<ProcessingTime<T>>,
     opening_times: Vec<Vec<ClosedOpenInterval<T>>>,
 }
@@ -1042,21 +1098,16 @@ where
     where
         T: MinusOne,
     {
-        // We initialize vectors immediately so we can support random-access setters.
         let arrival_times = vec![T::zero(); num_vessels];
         let latest_departure_times = vec![T::max_value(); num_vessels];
-
-        // Default processing times are "None" (-1 sentinel)
+        let vessel_weights = vec![T::one(); num_vessels];
         let processing_times = vec![ProcessingTime::none(); num_vessels * num_berths];
-
-        // Default opening times are "Always Open" (0 to Max)
-        let default_interval = ClosedOpenInterval::new(T::zero(), T::max_value());
-        // Each berth gets a list containing one "Always Open" interval
-        let opening_times = vec![vec![default_interval]; num_berths];
+        let opening_times = vec![Vec::new(); num_berths];
 
         Self {
             arrival_times,
             latest_departure_times,
+            vessel_weights,
             processing_times,
             opening_times,
         }
@@ -1112,6 +1163,25 @@ where
         self
     }
 
+    /// Sets the weight for a specific vessel.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::{ModelBuilder, VesselIndex};
+    ///
+    /// let mut builder = ModelBuilder::<i32>::new(1, 1);
+    /// builder.vessel_weight(VesselIndex::new(0), 20);
+    /// ```
+    pub fn vessel_weight(&mut self, index: VesselIndex, weight: T) -> &mut Self {
+        self.vessel_weights[index.get()] = weight;
+        self
+    }
+
     /// Sets both arrival and latest departure for a vessel.
     ///
     /// # Panics
@@ -1154,6 +1224,32 @@ where
         self
     }
 
+    /// Adds an opening time interval for a specific berth.
+    ///
+    /// This appends the interval to any existing intervals for this berth.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_core::math::interval::ClosedOpenInterval;
+    /// # use bollard_model::{ModelBuilder, BerthIndex};
+    ///
+    /// let mut builder = ModelBuilder::<i32>::new(1, 1);
+    /// builder.push_berth_interval(BerthIndex::new(0), ClosedOpenInterval::new(60, 80));
+    /// ```
+    pub fn push_berth_interval(
+        &mut self,
+        index: BerthIndex,
+        interval: ClosedOpenInterval<T>,
+    ) -> &mut Self {
+        self.opening_times[index.get()].push(interval);
+        self
+    }
+
     /// Sets the opening time for a specific berth to a single interval using a `ClosedOpenInterval` object.
     ///
     /// This overwrites any existing intervals for this berth.
@@ -1183,6 +1279,10 @@ where
     /// Sets the opening time intervals for a specific berth.
     ///
     /// This allows defining multiple disjoint opening windows for a single berth.
+    ///
+    /// # Note
+    ///
+    /// The intervals will overwrite any existing intervals for this berth.
     ///
     /// # Panics
     ///
@@ -1315,6 +1415,7 @@ where
     where
         T: MinusOne,
     {
+        let default_interval = ClosedOpenInterval::new(T::zero(), T::max_value());
         let num_vessels = self.arrival_times.len();
         let num_berths = self.opening_times.len();
 
@@ -1329,19 +1430,31 @@ where
             "Internal Error: Processing times length mismatch"
         );
 
-        validate_berth_openings(&self.opening_times)?;
+        let opening_times: Vec<Vec<ClosedOpenInterval<T>>> = self
+            .opening_times
+            .into_iter()
+            .map(|mut intervals| {
+                if intervals.is_empty() {
+                    intervals.push(default_interval);
+                }
+                intervals
+            })
+            .collect();
+
+        validate_berth_openings(&opening_times)?;
 
         let shortest_processing_times = Self::compute_shortest_processing_times(
             &self.processing_times,
-            num_vessels,
-            num_berths,
+            self.arrival_times.len(),
+            opening_times.len(), // Use length of the local opening_times
         );
 
         Ok(Model {
             arrival_times: self.arrival_times,
             latest_departure_times: self.latest_departure_times,
+            vessel_weights: self.vessel_weights,
             processing_times: self.processing_times,
-            opening_times: self.opening_times,
+            opening_times, // Use the modified local variable
             shortest_processing_times,
         })
     }
@@ -1563,13 +1676,11 @@ mod tests {
     use super::*;
     use bollard_core::math::interval::ClosedOpenInterval;
 
-    // Helper to build a small valid model quickly
     fn make_small_model_i32(vessels: usize, berths: usize) -> Model<i32> {
         let builder = ModelBuilder::<i32>::new(vessels, berths);
         builder.build().unwrap()
     }
 
-    // ProcessingTime tests
     #[test]
     fn test_processing_time_from_option_some() {
         let pt = ProcessingTime::<i32>::from_option(Some(5));
@@ -1704,6 +1815,9 @@ mod tests {
         // Latest departure times default to max_value
         assert_eq!(m.latest_departure_times(), &[i32::MAX, i32::MAX, i32::MAX]);
 
+        // Vessel weights default to 1
+        assert_eq!(m.vessel_weights(), &[1, 1, 1]);
+
         // Opening times default to [0, max)
         let openings0 = m.opening_time(BerthIndex::new(0));
         assert_eq!(openings0.len(), 1);
@@ -1730,13 +1844,20 @@ mod tests {
         let mut mb = ModelBuilder::<i32>::new(2, 1);
         mb.vessel_arrival(VesselIndex::new(0), 10)
             .vessel_latest_departure(VesselIndex::new(0), 100)
-            .vessel_window(VesselIndex::new(1), 20, 200);
+            .vessel_window(VesselIndex::new(1), 20, 200)
+            .vessel_weight(VesselIndex::new(0), 7)
+            .vessel_weight(VesselIndex::new(1), 3);
 
         let m = mb.build().unwrap();
         assert_eq!(m.arrival_time(VesselIndex::new(0)), 10);
         assert_eq!(m.latest_departure_time(VesselIndex::new(0)), 100);
         assert_eq!(m.arrival_time(VesselIndex::new(1)), 20);
         assert_eq!(m.latest_departure_time(VesselIndex::new(1)), 200);
+
+        // Weights set via builder should be reflected in the model
+        assert_eq!(m.vessel_weight(VesselIndex::new(0)), 7);
+        assert_eq!(m.vessel_weight(VesselIndex::new(1)), 3);
+        assert_eq!(m.vessel_weights(), &[7, 3]);
     }
 
     #[test]
@@ -1854,7 +1975,8 @@ mod tests {
     #[test]
     fn test_model_arrival_and_departure_unchecked_matches_checked() {
         let mut mb = ModelBuilder::<i32>::new(1, 1);
-        mb.vessel_window(VesselIndex::new(0), 10, 200);
+        mb.vessel_window(VesselIndex::new(0), 10, 200)
+            .vessel_weight(VesselIndex::new(0), 9);
         let m = mb.build().unwrap();
         unsafe {
             assert_eq!(
@@ -1866,6 +1988,8 @@ mod tests {
                 m.latest_departure_time(VesselIndex::new(0))
             );
         }
+        // Checked weight equals the slice value
+        assert_eq!(m.vessel_weight(VesselIndex::new(0)), m.vessel_weights()[0]);
     }
 
     #[test]
@@ -1890,6 +2014,8 @@ mod tests {
         mb.vessel_processing_times(VesselIndex::new(0), vec![Some(7), Some(5), None]);
         let m = mb.build().unwrap();
         assert_eq!(m.shortest_processing_time(VesselIndex::new(0)).unwrap(), 5);
+        // Weights do not affect shortest processing time computation
+        assert_eq!(m.vessel_weights().len(), m.num_vessels());
     }
 
     #[test]
@@ -1900,6 +2026,8 @@ mod tests {
         let m = mb.build().unwrap();
         assert!(m.shortest_processing_time(VesselIndex::new(0)).is_none());
         assert!(m.shortest_processing_time(VesselIndex::new(1)).is_none());
+        // Vessel weights slice exists for each vessel
+        assert_eq!(m.vessel_weights().len(), 2);
     }
 
     #[test]
@@ -1911,6 +2039,8 @@ mod tests {
 
         assert_eq!(m.shortest_processing_time(VesselIndex::new(0)).unwrap(), 1);
         assert_eq!(m.shortest_processing_time(VesselIndex::new(1)).unwrap(), 3);
+        // Ensure weights do not modify result ordering
+        assert_eq!(m.vessel_weights().len(), 2);
     }
 
     // Validation: Empty interval
@@ -1934,7 +2064,6 @@ mod tests {
         }
     }
 
-    // Validation: Unsorted intervals
     #[test]
     fn test_build_fails_on_unsorted_intervals() {
         let mut mb = ModelBuilder::<i32>::new(1, 1);
@@ -1957,7 +2086,6 @@ mod tests {
         }
     }
 
-    // Validation: Overlap and adjacency
     #[test]
     fn test_build_fails_on_overlapping_intervals() {
         let mut mb = ModelBuilder::<i32>::new(1, 1);
@@ -2005,6 +2133,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_push_berth_interval_appends_and_validates_overlap() {
+        let mut mb = ModelBuilder::<i32>::new(1, 1);
+        // Use push_berth_interval to append multiple intervals to the same berth.
+        mb.push_berth_interval(BerthIndex::new(0), ClosedOpenInterval::new(0, 10));
+        mb.push_berth_interval(BerthIndex::new(0), ClosedOpenInterval::new(5, 15)); // overlap
+
+        // Build should fail due to overlap
+        let err = mb
+            .build()
+            .err()
+            .expect("Expected error due to overlapping intervals via push");
+        match err {
+            ModelBuildError::BerthOpeningsOverlap(e) => {
+                assert_eq!(e.berth_index, 0);
+                assert_eq!(e.first, ClosedOpenInterval::new(0, 10));
+                assert_eq!(e.second, ClosedOpenInterval::new(5, 15));
+            }
+            _ => panic!("Wrong error variant: {:?}", err),
+        }
+    }
+
     // Edge cases
     #[test]
     fn test_builder_with_zero_vessels() {
@@ -2015,6 +2165,7 @@ mod tests {
         assert_eq!(m.arrival_times().len(), 0);
         assert_eq!(m.latest_departure_times().len(), 0);
         assert_eq!(m.shortest_processing_times().len(), 0);
+        assert_eq!(m.vessel_weights().len(), 0);
         // Opening times still present per berth
         assert_eq!(m.opening_times().len(), 2);
     }
@@ -2031,6 +2182,9 @@ mod tests {
         assert_eq!(m.shortest_processing_times().len(), 2);
         assert!(m.shortest_processing_time(VesselIndex::new(0)).is_none());
         assert!(m.shortest_processing_time(VesselIndex::new(1)).is_none());
+        // Vessel weights present per vessel, default to 1
+        assert_eq!(m.vessel_weights().len(), 2);
+        assert_eq!(m.vessel_weights(), &[1, 1]);
     }
 
     #[test]
@@ -2045,6 +2199,9 @@ mod tests {
         assert!(d.contains("processing_times"));
         assert!(d.contains("opening_times"));
         assert!(d.contains("shortest_processing_times"));
+        // Debug should include vessel_weights
+        assert!(d.contains("vessel_weights"));
+        // Display may not include an explicit "vessel_weights" label; do not assert it
     }
 
     #[test]

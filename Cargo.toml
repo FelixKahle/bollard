@@ -23,7 +23,7 @@
 members = [
     "crates/bollard-core",
     "crates/bollard-model",
-    "bollard-ffi",
+    "crates/bollard-ffi",
 ]
 resolver = "3"
 
