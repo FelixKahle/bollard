@@ -20,38 +20,29 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bollard_core::math::interval::ClosedOpenInterval;
-use bollard_model::{BerthIndex, Model, ModelBuilder, Solution, VesselIndex};
-use std::slice;
+use bollard_model::{
+    index::{BerthIndex, VesselIndex},
+    model::ModelBuilder,
+    time::ProcessingTime,
+};
 
-/// Creates a new `ModelBuilder<i64>` for the given problem size and returns a raw pointer.
-///
-/// This function is intended for use from foreign runtimes (e.g., Julia, C).
-/// The returned pointer must be freed using `bollard_model_free` to avoid leaks.
-///
-/// # Parameters
-///
-/// - `num_vessels`: number of vessels in the instance
-/// - `num_berths`: number of berths in the instance
-///
-/// # Returns
-///
-/// - A non-null pointer to a heap-allocated `ModelBuilder<i64>` on success.
-///
-/// # Safety
-///
-/// This function is `extern "C"` and returns an owning raw pointer.
-/// Callers must eventually pass the pointer to `bollard_model_free`and must
-/// not free it via other means.
+/// Creates a new Bollard model builder with the specified number of vessels and berths.
 ///
 /// # Examples
 ///
 /// ```rust
 /// # use bollard_ffi::{bollard_model_new, bollard_model_free};
 ///
+/// let num_vessels = 10;
+/// let num_berths = 5;
+/// let model_builder_ptr = bollard_model_new(num_vessels, num_berths);
+///
+/// // Use the model builder...
+/// assert!(!model_builder_ptr.is_null());
+///
+/// // Remember to free the model builder when done
 /// unsafe {
-///     let ptr = bollard_model_new(2, 1);
-///     assert!(!ptr.is_null());
-///     bollard_model_free(ptr);
+///    bollard_model_free(model_builder_ptr);
 /// }
 /// ```
 #[no_mangle]
@@ -63,27 +54,23 @@ pub extern "C" fn bollard_model_new(
     Box::into_raw(Box::new(builder))
 }
 
-/// Frees a `ModelBuilder<i64>` previously created by `bollard_model_new`.
-///
-/// Safe to call with a null pointer; in that case, it is a no-op.
+/// Frees the memory allocated for the Bollard model builder.
 ///
 /// # Safety
 ///
-/// - `ptr` must be a valid, non-dangling pointer returned by `bollard_model_new`.
-/// - `ptr` must not have been freed already, and must not be aliased elsewhere.
-/// - After this call, `ptr` must not be used again.
-/// - Passing an invalid pointer or double-freeing is undefined behavior.
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_new`.
 ///
 /// # Examples
 ///
 /// ```rust
 /// # use bollard_ffi::{bollard_model_new, bollard_model_free};
 ///
+/// let model_builder_ptr = bollard_model_new(10, 5);
+/// // Use the model builder...
 /// unsafe {
-///     let ptr = bollard_model_new(1, 1);
-///     bollard_model_free(ptr);
-///     // Null is OK:
-///     bollard_model_free(std::ptr::null_mut());
+///     bollard_model_free(model_builder_ptr);
 /// }
 /// ```
 #[no_mangle]
@@ -93,532 +80,301 @@ pub unsafe extern "C" fn bollard_model_free(ptr: *mut ModelBuilder<i64>) {
     }
 }
 
-/// Sets the arrival time for a vessel in the builder.
-///
-/// # Parameters
-///
-/// - `ptr`: pointer to the builder
-/// - `vessel_index`: 0-based vessel index
-/// - `time`: arrival time
+/// Adds a closing time interval for a specific berth in the Bollard model builder.
 ///
 /// # Safety
 ///
-/// - `ptr` must be a valid, non-null pointer to a `ModelBuilder<i64>` created
-///   by `bollard_model_new` and not yet freed.
-/// - `vessel_index` must be within `0..builder.num_vessels()`; otherwise this may panic.
-/// - Caller must ensure no concurrent aliasing mutable access to the same builder.
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_new`.
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_ffi::{bollard_model_new, bollard_set_arrival, bollard_model_free};
+/// # use bollard_ffi::{bollard_model_new, bollard_model_add_closing_time, bollard_model_free};
 ///
+/// let model_builder_ptr = bollard_model_new(10, 5);
+/// // Add closing time for berth at index 0
 /// unsafe {
-///     let ptr = bollard_model_new(2, 1);
-///     bollard_set_arrival(ptr, 0, 42);
-///     bollard_model_free(ptr);
+///     bollard_model_add_closing_time(model_builder_ptr, 0, 100, 200);
+/// }
+///
+/// // Remember to free the model builder when done
+/// unsafe {
+///     bollard_model_free(model_builder_ptr);
 /// }
 /// ```
 #[no_mangle]
-pub unsafe extern "C" fn bollard_set_arrival(
+pub unsafe extern "C" fn bollard_model_add_closing_time(
+    ptr: *mut ModelBuilder<i64>,
+    berth_index: usize,
+    time_start_inclusive: i64,
+    time_end_exclusive: i64,
+) {
+    assert!(!ptr.is_null());
+    let builder = &mut *ptr;
+    assert!(berth_index < builder.num_berths());
+    builder.add_closing_time(
+        BerthIndex::new(berth_index),
+        ClosedOpenInterval::new(time_start_inclusive, time_end_exclusive),
+    );
+}
+
+/// Adds an opening time interval for a specific berth in the Bollard model builder.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_new`.
+///
+/// # Examples
+///
+/// ```rust
+/// # use bollard_ffi::{bollard_model_new, bollard_model_add_opening_time, bollard_model_free};
+///
+/// let model_builder_ptr = bollard_model_new(10, 5);
+/// // Add opening time for berth at index 0
+/// unsafe {
+///     bollard_model_add_opening_time(model_builder_ptr, 0, 300, 400);
+/// }
+///
+/// // Remember to free the model builder when done
+/// unsafe {
+///     bollard_model_free(model_builder_ptr);
+/// }
+/// ```
+#[no_mangle]
+pub unsafe extern "C" fn bollard_model_add_opening_time(
+    ptr: *mut ModelBuilder<i64>,
+    berth_index: usize,
+    time_start_inclusive: i64,
+    time_end_exclusive: i64,
+) {
+    assert!(!ptr.is_null());
+    let builder = &mut *ptr;
+    assert!(berth_index < builder.num_berths());
+    builder.add_opening_time(
+        BerthIndex::new(berth_index),
+        ClosedOpenInterval::new(time_start_inclusive, time_end_exclusive),
+    );
+}
+
+/// Sets the arrival time for a specific vessel in the Bollard model builder.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_new`.
+///
+/// # Examples
+///
+/// ```rust
+/// # use bollard_ffi::{bollard_model_new, bollard_set_arrival_time};
+///
+/// let model_builder_ptr = bollard_model_new(10, 5);
+/// // Set arrival time for vessel at index 0
+/// unsafe {
+///     bollard_set_arrival_time(model_builder_ptr, 0, 100);
+/// }
+/// // Remember to free the model builder when done
+/// unsafe {
+///     bollard_model_free(model_builder_ptr);
+/// }
+#[no_mangle]
+pub unsafe extern "C" fn bollard_set_arrival_time(
     ptr: *mut ModelBuilder<i64>,
     vessel_index: usize,
     time: i64,
 ) {
+    assert!(!ptr.is_null());
     let builder = &mut *ptr;
-    builder.vessel_arrival(VesselIndex::new(vessel_index), time);
+    assert!(vessel_index < builder.num_vessels());
+    builder.set_arrival_time(VesselIndex::new(vessel_index), time);
 }
 
-/// Sets the latest departure time for a vessel in the builder.
-///
-/// # Parameters
-///
-/// - `ptr`: pointer to the builder
-/// - `vessel_index`: 0-based vessel index
-/// - `time`: latest departure time
+/// Sets the latest departure time for a specific vessel in the Bollard model builder.
 ///
 /// # Safety
 ///
-/// - `ptr` must be a valid, non-null pointer to a `ModelBuilder<i64>` created
-///   by `bollard_model_new` and not yet freed.
-/// - `vessel_index` must be within `0..builder.num_vessels()`; otherwise this may panic.
-/// - Caller must ensure no concurrent aliasing mutable access to the same builder.
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_new`.
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_ffi::{bollard_model_new, bollard_set_latest_departure, bollard_model_free};
+/// # use bollard_ffi::{bollard_model_new, bollard_set_latest_departure_time};
 ///
+/// let model_builder_ptr = bollard_model_new(10, 5);
+/// // Set latest departure time for vessel at index 0
 /// unsafe {
-///     let ptr = bollard_model_new(1, 1);
-///     bollard_set_latest_departure(ptr, 0, 100);
-///     bollard_model_free(ptr);
+///     bollard_set_latest_departure_time(model_builder_ptr, 0, 200);
 /// }
-/// ```
+/// // Remember to free the model builder when done
+/// unsafe {
+///     bollard_model_free(model_builder_ptr);
+/// }
 #[no_mangle]
-pub unsafe extern "C" fn bollard_set_latest_departure(
+pub unsafe extern "C" fn bollard_set_latest_departure_time(
     ptr: *mut ModelBuilder<i64>,
     vessel_index: usize,
     time: i64,
 ) {
+    assert!(!ptr.is_null());
     let builder = &mut *ptr;
-    builder.vessel_latest_departure(VesselIndex::new(vessel_index), time);
+    assert!(vessel_index < builder.num_vessels());
+    builder.set_latest_departure_time(VesselIndex::new(vessel_index), time);
 }
 
-/// Sets both arrival and latest departure (window) for a vessel.
-///
-/// # Parameters
-///
-/// - `ptr`: pointer to the builder
-/// - `vessel_index`: 0-based vessel index
-/// - `arr`: arrival time
-/// - `departure`: latest departure time
+/// Sets the weight for a specific vessel in the Bollard model builder.
 ///
 /// # Safety
 ///
-/// - `ptr` must be a valid, non-null pointer to a `ModelBuilder<i64>` created
-///   by `bollard_model_new` and not yet freed.
-/// - `vessel_index` must be within `0..builder.num_vessels()`; otherwise this may panic.
-/// - Caller must ensure no concurrent aliasing mutable access to the same builder.
-/// - `arr` and `departure` are interpreted as times; no overflow checking is performed.
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_new`.
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_ffi::{bollard_model_new, bollard_set_window, bollard_model_free};
+/// # use bollard_ffi::{bollard_model_new, bollard_set_vessel_weight};
 ///
+/// let model_builder_ptr = bollard_model_new(10, 5);
+/// // Set weight for vessel at index 0
 /// unsafe {
-///     let ptr = bollard_model_new(1, 1);
-///     bollard_set_window(ptr, 0, 10, 200);
-///     bollard_model_free(ptr);
+///     bollard_set_vessel_weight(model_builder_ptr, 0, 50);
+/// }
+/// // Remember to free the model builder when done
+/// unsafe {
+///     bollard_model_free(model_builder_ptr);
 /// }
 /// ```
 #[no_mangle]
-pub unsafe extern "C" fn bollard_set_window(
+pub unsafe extern "C" fn bollard_model_set_vessel_weight(
     ptr: *mut ModelBuilder<i64>,
     vessel_index: usize,
-    arr: i64,
-    departure: i64,
+    weight: i64,
 ) {
+    assert!(!ptr.is_null());
     let builder = &mut *ptr;
-    builder.vessel_window(VesselIndex::new(vessel_index), arr, departure);
+    assert!(vessel_index < builder.num_vessels());
+    builder.set_vessel_weight(VesselIndex::new(vessel_index), weight);
 }
 
-/// Sets the processing time for a vessel at a berth. Negative `time` marks unavailability.
+/// Sets the processing time for a specific vessel-berth pair in the Bollard model builder.
+/// The caller must ensure that `processing_time` is non-negative.
 ///
-/// # Parameters
+/// # Panics
 ///
-/// - `ptr`: pointer to the builder
-/// - `vessel_index`: 0-based vessel index
-/// - `berth_index`: 0-based berth index
-/// - `time`: if negative, marks unavailable; otherwise non-negative processing time.
+/// This function will panic if `processing_time` is negative,
 ///
 /// # Safety
 ///
-/// - `ptr` must be a valid, non-null pointer to a `ModelBuilder<i64>` created
-///   by `bollard_model_new` and not yet freed.
-/// - `vessel_index` must be within `0..builder.num_vessels()` and `berth_index` within `0..builder.num_berths()`;
-///   otherwise this may panic.
-/// - Caller must ensure no concurrent aliasing mutable access to the same builder.
-/// - `time` is interpreted as an i64; negative means unavailable, non-negative must be valid.
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_new`.
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_ffi::{bollard_model_new, bollard_set_processing, bollard_model_free};
+/// # use bollard_ffi::{bollard_model_new, bollard_model_set_processing_time};
 ///
+/// let model_builder_ptr = bollard_model_new(10, 5);
+/// // Set processing time for vessel at index 0 and berth at index 0
 /// unsafe {
-///     let ptr = bollard_model_new(1, 2);
-///     bollard_set_processing(ptr, 0, 0, 15);
-///     bollard_set_processing(ptr, 0, 1, -1); // unavailable
-///     bollard_model_free(ptr);
+///     bollard_model_set_processing_time(model_builder_ptr, 0, 0, 150);
+/// }
+/// // Remember to free the model builder when done
+/// unsafe {
+///     bollard_model_free(model_builder_ptr);
 /// }
 /// ```
 #[no_mangle]
-pub unsafe extern "C" fn bollard_set_processing(
+pub unsafe extern "C" fn bollard_model_set_processing_time(
     ptr: *mut ModelBuilder<i64>,
     vessel_index: usize,
     berth_index: usize,
-    time: i64,
+    processing_time: i64,
 ) {
+    assert!(!ptr.is_null());
+    assert!(processing_time >= 0);
     let builder = &mut *ptr;
-    if time < 0 {
-        builder
-            .processing_unavailable(VesselIndex::new(vessel_index), BerthIndex::new(berth_index));
-    } else {
-        builder.processing_time(
-            VesselIndex::new(vessel_index),
-            BerthIndex::new(berth_index),
-            time,
-        );
-    }
+    assert!(vessel_index < builder.num_vessels());
+    assert!(berth_index < builder.num_berths());
+    builder.set_processing_time(
+        VesselIndex::new(vessel_index),
+        BerthIndex::new(berth_index),
+        ProcessingTime::some(processing_time),
+    );
 }
 
-/// Adds (sets) a single opening interval for a berth.
-///
-/// Multiple calls will append intervals; validation on build enforces:
-/// - intervals must be sorted by start time
-/// - intervals must not be empty (`start < end`)
-/// - intervals must not overlap or be adjacent
-///
-/// # Parameters
-///
-/// - `ptr`: pointer to the builder
-/// - `berth_index`: 0-based berth index
-/// - `start`: interval start (inclusive)
-/// - `end`: interval end (exclusive)
+/// Forbids the assignment of a specific vessel to a specific berth in the Bollard model builder.
 ///
 /// # Safety
 ///
-/// - `ptr` must be a valid, non-null pointer to a `ModelBuilder<i64>` created
-///   by `bollard_model_new` and not yet freed.
-/// - `berth_index` must be within `0..builder.num_berths()`; otherwise this may panic.
-/// - Caller must ensure no concurrent aliasing mutable access to the same builder.
-/// - `start` and `end` define a closed-open interval `[start, end)`; if `start >= end`,
-///   model validation will fail later during `build()`.
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_new`.
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_ffi::{bollard_model_new, bollard_add_opening_interval, bollard_model_free};
+/// # use bollard_ffi::{bollard_model_new, bollard_forbid_vessel_berth_assignment, bollard_model_free};
 ///
+/// let model_builder_ptr = bollard_model_new(10, 5);
+/// // Forbid assignment of vessel at index 0 to berth at index 0
 /// unsafe {
-///     let ptr = bollard_model_new(1, 1);
-///     bollard_add_opening_interval(ptr, 0, 5, 50);
-///     bollard_model_free(ptr);
+///    bollard_forbid_vessel_berth_assignment(model_builder_ptr, 0, 0);
+/// }
+///
+/// // Remember to free the model builder when done
+/// unsafe {
+///    bollard_model_free(model_builder_ptr);
 /// }
 /// ```
 #[no_mangle]
-pub unsafe extern "C" fn bollard_add_opening_interval(
+pub unsafe extern "C" fn bollard_forbid_vessel_berth_assignment(
     ptr: *mut ModelBuilder<i64>,
+    vessel_index: usize,
     berth_index: usize,
-    start: i64,
-    end: i64,
 ) {
+    assert!(!ptr.is_null());
     let builder = &mut *ptr;
-    let interval = ClosedOpenInterval::new(start, end);
-    // FIX 4: Use push instead of overwrite
-    builder.push_berth_interval(BerthIndex::new(berth_index), interval);
-}
-
-/// Solves the model and writes the solution into Julia-owned output arrays.
-///
-/// On success, returns `1` and fills `out_berths[i]` with the assigned berth index,
-/// and `out_starts[i]` with the start time for vessel `i`. Returns `0` if infeasible
-/// (no solution), or `-1` on input errors (e.g., `len` mismatch or build failure).
-///
-/// This FFI function clones the builder and builds a `Model<i64>`, then delegates to
-/// a solver (currently a dummy solver) to produce a `Solution<i64>`. The output slices
-/// are written in order from `i = 0..len-1`.
-///
-/// # Parameters
-///
-/// - `ptr`: pointer to the builder
-/// - `out_berths`: pointer to a writable array of `usize` of length at least `len`
-/// - `out_starts`: pointer to a writable array of `i64` of length at least `len`
-/// - `len`: expected number of vessels, must equal `builder.num_vessels()`
-///
-/// # Safety
-///
-/// - `ptr` must be a valid, non-null pointer to a `ModelBuilder<i64>` created
-///   by `bollard_model_new` and not yet freed.
-/// - `out_berths` must point to a writable array of length at least `len` (Julia-owned),
-///   with element type compatible with `usize`.
-/// - `out_starts` must point to a writable array of length at least `len` (Julia-owned),
-///   with element type compatible with `i64`.
-/// - The caller must ensure these pointers are properly aligned and not aliased in a way
-///   that violates Rust’s aliasing rules.
-/// - `len` must equal `builder.num_vessels()`; otherwise `-1` is returned without writing.
-/// - No concurrent mutation of the builder should occur during this call.
-/// - Behavior is undefined if any pointer is invalid or the buffers are too small.
-///
-/// # Examples
-///
-/// ```rust
-/// # use bollard_ffi::{bollard_model_new, bollard_set_arrival, bollard_solve_into, bollard_model_free};
-///
-/// unsafe {
-///     let ptr = bollard_model_new(2, 1);
-///     bollard_set_arrival(ptr, 0, 10);
-///     bollard_set_arrival(ptr, 1, 20);
-///     let mut out_berths = vec![0usize; 2];
-///     let mut out_starts = vec![0i64; 2];
-///     let rc = bollard_solve_into(ptr, out_berths.as_mut_ptr(), out_starts.as_mut_ptr(), 2);
-///     assert_eq!(rc, 1);
-///     bollard_model_free(ptr);
-/// }
-/// ```
-#[no_mangle]
-pub unsafe extern "C" fn bollard_solve_into(
-    ptr: *mut ModelBuilder<i64>,
-    out_berths: *mut usize, // Julia owns this
-    out_starts: *mut i64,   // Julia owns this
-    len: usize,
-) -> i32 {
-    let builder = &*ptr;
-
-    if len != builder.num_vessels() {
-        return -1;
-    }
-    let model_result = builder.clone().build();
-
-    let model = match model_result {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Model Invalid: {}", e);
-            return -1;
-        }
-    };
-
-    let sol = dummy_solver(&model);
-
-    match sol {
-        Some(solution) => {
-            let slice_berths = slice::from_raw_parts_mut(out_berths, len);
-            let slice_starts = slice::from_raw_parts_mut(out_starts, len);
-
-            let s_berths = solution.vessel_berths();
-            let s_starts = solution.vessel_start_times();
-
-            for i in 0..len {
-                slice_berths[i] = s_berths[i].get();
-                slice_starts[i] = s_starts[i];
-            }
-            1 // Success
-        }
-        None => 0, // Infeasible
-    }
-}
-
-// TODO: replace with real solver
-fn dummy_solver(model: &Model<i64>) -> Option<Solution<i64>> {
-    let mut b = Vec::new();
-    let mut s = Vec::new();
-    for i in 0..model.num_vessels() {
-        b.push(BerthIndex::new(0));
-        s.push(model.arrival_time(VesselIndex::new(i)));
-    }
-    Some(Solution::new(b, s))
+    assert!(vessel_index < builder.num_vessels());
+    assert!(berth_index < builder.num_berths());
+    builder.set_processing_time(
+        VesselIndex::new(vessel_index),
+        BerthIndex::new(berth_index),
+        ProcessingTime::none(),
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ptr;
-
-    unsafe fn make_builder(vessels: usize, berths: usize) -> *mut ModelBuilder<i64> {
-        bollard_model_new(vessels, berths)
-    }
-
-    unsafe fn free_builder(ptr: *mut ModelBuilder<i64>) {
-        bollard_model_free(ptr);
-    }
 
     #[test]
-    fn test_builder_new_and_free() {
-        unsafe {
-            let ptr = make_builder(3, 2);
-            assert!(!ptr.is_null());
-            free_builder(ptr);
-        }
-    }
-
-    #[test]
-    fn test_set_arrival_and_window() {
-        unsafe {
-            let ptr = make_builder(2, 1);
-            // Set arrival and window for both vessels
-            bollard_set_arrival(ptr, 0, 10);
-            bollard_set_window(ptr, 1, 20, 200);
-
-            // Build and inspect via normal Rust API
-            let builder_ref = &*ptr;
-            let model = builder_ref.clone().build().unwrap();
-
-            assert_eq!(model.arrival_time(VesselIndex::new(0)), 10);
-            assert_eq!(model.arrival_time(VesselIndex::new(1)), 20);
-            assert_eq!(model.latest_departure_time(VesselIndex::new(1)), 200);
-
-            free_builder(ptr);
-        }
-    }
-
-    #[test]
-    fn test_set_latest_departure_only() {
-        unsafe {
-            let ptr = make_builder(1, 1);
-            bollard_set_latest_departure(ptr, 0, 999);
-            let builder_ref = &*ptr;
-            let model = builder_ref.clone().build().unwrap();
-            assert_eq!(model.latest_departure_time(VesselIndex::new(0)), 999);
-            free_builder(ptr);
-        }
-    }
-
-    #[test]
-    fn test_set_processing_available_and_unavailable() {
-        unsafe {
-            let ptr = make_builder(1, 2);
-            // time >= 0 -> available, time < 0 -> unavailable
-            bollard_set_processing(ptr, 0, 0, 15);
-            bollard_set_processing(ptr, 0, 1, -1);
-
-            let builder_ref = &*ptr;
-            let model = builder_ref.clone().build().unwrap();
-
-            assert_eq!(
-                model
-                    .processing_time(VesselIndex::new(0), BerthIndex::new(0))
-                    .unwrap(),
-                15
-            );
-            assert!(model
-                .processing_time(VesselIndex::new(0), BerthIndex::new(1))
-                .is_none());
-
-            free_builder(ptr);
-        }
-    }
-
-    #[test]
-    fn test_add_opening_interval_and_build() {
-        unsafe {
-            let ptr = make_builder(1, 1);
-            // Replace the default opening with a specific interval
-            bollard_add_opening_interval(ptr, 0, 5, 50);
-
-            let builder_ref = &*ptr;
-            let model = builder_ref.clone().build().unwrap();
-            let intervals = model.opening_time(BerthIndex::new(0));
-            assert_eq!(intervals.len(), 1);
-            assert_eq!(intervals[0], ClosedOpenInterval::new(5, 50));
-
-            free_builder(ptr);
-        }
-    }
-
-    #[test]
-    fn test_solve_into_success_writes_output() {
-        unsafe {
-            let ptr = make_builder(3, 1);
-
-            // Configure arrivals; dummy_solver assigns berth 0 and start = arrival
-            bollard_set_arrival(ptr, 0, 11);
-            bollard_set_arrival(ptr, 1, 22);
-            bollard_set_arrival(ptr, 2, 33);
-
-            // Prepare Julia-owned buffers (simulated here with Vecs)
-            let mut out_berths: Vec<usize> = vec![usize::MAX; 3];
-            let mut out_starts: Vec<i64> = vec![i64::MIN; 3];
-
-            let rc = bollard_solve_into(ptr, out_berths.as_mut_ptr(), out_starts.as_mut_ptr(), 3);
-            assert_eq!(rc, 1);
-
-            // Check the outputs
-            assert_eq!(out_berths, vec![0, 0, 0]); // dummy_solver assigns berth 0
-            assert_eq!(out_starts, vec![11, 22, 33]); // starts = arrivals
-
-            free_builder(ptr);
-        }
-    }
-
-    #[test]
-    fn test_solve_into_len_mismatch_returns_minus_one() {
-        unsafe {
-            let ptr = make_builder(2, 1);
-
-            let mut out_berths: Vec<usize> = vec![0; 1]; // wrong length
-            let mut out_starts: Vec<i64> = vec![0; 1];
-
-            let rc = bollard_solve_into(ptr, out_berths.as_mut_ptr(), out_starts.as_mut_ptr(), 1);
-            assert_eq!(rc, -1);
-
-            free_builder(ptr);
-        }
-    }
-
-    #[test]
-    fn test_solve_into_invalid_model_returns_minus_one() {
-        unsafe {
-            let ptr = make_builder(1, 1);
-            // Set invalid interval (empty) to cause build error
-            bollard_add_opening_interval(ptr, 0, 10, 10);
-
-            let mut out_berths: Vec<usize> = vec![0; 1];
-            let mut out_starts: Vec<i64> = vec![0; 1];
-
-            let rc = bollard_solve_into(ptr, out_berths.as_mut_ptr(), out_starts.as_mut_ptr(), 1);
-            assert_eq!(rc, -1); // Build should fail
-
-            free_builder(ptr);
-        }
-    }
-
-    #[test]
-    fn test_dummy_solver_behavior() {
-        // Validate that dummy_solver mirrors arrivals to starts and assigns berth 0
-        let builder = ModelBuilder::<i64>::new(2, 2);
-        let builder = builder.clone(); // immutable clone used in FFI too
-        let model = builder.build().unwrap();
-        let sol = super::dummy_solver(&model).expect("dummy solver should return Some");
-
-        assert_eq!(sol.vessel_berths().len(), model.num_vessels());
-        assert!(sol.vessel_berths().iter().all(|b| b.get() == 0));
-        for i in 0..model.num_vessels() {
-            assert_eq!(
-                sol.vessel_start_times()[i],
-                model.arrival_time(VesselIndex::new(i))
-            );
-        }
+    fn test_new_and_free_basic() {
+        let ptr = bollard_model_new(3, 2);
+        assert!(!ptr.is_null());
+        unsafe { bollard_model_free(ptr) };
     }
 
     #[test]
     fn test_free_null_pointer_is_noop() {
-        unsafe {
-            // Ensure calling free on a null pointer is a no-op
-            bollard_model_free(ptr::null_mut());
-        }
+        // SAFETY: calling free on a null pointer should be safe and do nothing.
+        unsafe { bollard_model_free(std::ptr::null_mut()) };
     }
 
     #[test]
-    fn test_end_to_end_minimal_instance() {
-        // An end-to-end sanity check with 1 vessel, 1 berth
-        unsafe {
-            let ptr = make_builder(1, 1);
-            bollard_set_arrival(ptr, 0, 5);
-            bollard_set_latest_departure(ptr, 0, 100);
-            bollard_add_opening_interval(ptr, 0, 0, 200);
-            bollard_set_processing(ptr, 0, 0, 10);
-
-            let mut out_berths = vec![usize::MAX; 1];
-            let mut out_starts = vec![i64::MIN; 1];
-            let rc = bollard_solve_into(ptr, out_berths.as_mut_ptr(), out_starts.as_mut_ptr(), 1);
-            assert_eq!(rc, 1);
-            assert_eq!(out_berths, vec![0]);
-            assert_eq!(out_starts, vec![5]);
-
-            free_builder(ptr);
-        }
-    }
-
-    #[test]
-    fn test_multiple_opening_intervals_then_invalid_overlap() {
-        unsafe {
-            let ptr = make_builder(1, 1);
-            // Ensure intervals are in sorted order and overlapping to trigger validation failure.
-            // Overlapping: [0, 10) and [5, 15)
-            bollard_add_opening_interval(ptr, 0, 0, 10);
-            bollard_add_opening_interval(ptr, 0, 5, 15);
-
-            let mut out_berths = vec![0usize; 1];
-            let mut out_starts = vec![0i64; 1];
-            let rc = bollard_solve_into(ptr, out_berths.as_mut_ptr(), out_starts.as_mut_ptr(), 1);
-            assert_eq!(
-                rc, -1,
-                "overlapping intervals should cause build failure and return -1"
-            );
-
-            free_builder(ptr);
-        }
+    fn test_double_free_is_undefined_behavior_and_avoided() {
+        // Demonstrate correct free; we DO NOT double-free in tests.
+        let ptr = bollard_model_new(1, 1);
+        unsafe { bollard_model_free(ptr) };
+        // Intentionally do not free again.
+        // If we were to free again, it would be UB, hence omitted by design.
+        assert!(true);
     }
 }

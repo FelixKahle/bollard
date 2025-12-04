@@ -19,6 +19,26 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-pub mod index;
-pub mod model;
-pub mod time;
+use bollard_core::utils::index::{TypedIndex, TypedIndexTag};
+
+/// A tag type for vessel indices.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct VesselIndexTag;
+
+impl TypedIndexTag for VesselIndexTag {
+    const NAME: &'static str = "VesselIndex";
+}
+
+/// A typed index for vessels.
+pub type VesselIndex = TypedIndex<VesselIndexTag>;
+
+/// A tag type for berth indices.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct BerthIndexTag;
+
+impl TypedIndexTag for BerthIndexTag {
+    const NAME: &'static str = "BerthIndex";
+}
+
+/// A typed index for berths.
+pub type BerthIndex = TypedIndex<BerthIndexTag>;
