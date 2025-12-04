@@ -343,7 +343,7 @@ where
     /// }
     /// ```
     #[inline]
-    pub fn vessel_weight_unchecked(&self, vessel_index: VesselIndex) -> T {
+    pub unsafe fn vessel_weight_unchecked(&self, vessel_index: VesselIndex) -> T {
         debug_assert!(vessel_index.get() < self.num_vessels());
 
         unsafe { *self.vessel_weights.get_unchecked(vessel_index.get()) }
@@ -756,8 +756,8 @@ where
 {
     /// Creates a new `ModelBuilder` initialized with **permissive bounds** and an **empty topology**.
     ///
-    /// This constructor follows the standard "Solver Philosophy" (similar to Gurobi or OR-Tools) where
-    /// nothing is assumed to exist until defined:
+    /// This constructor follows the standard "Solver Philosophy" where nothing is assumed to
+    /// exist until defined:
     ///
     /// 1.  **Permissive Bounds:** Time windows (`0` to `MAX`) and availability (`Open 24/7`) are relaxed
     ///     to their widest possible values. Constraints are added by *reducing* these bounds.
@@ -1542,8 +1542,10 @@ mod tests {
         let mut bldr = ModelBuilder::<i64>::new(1, 2);
         bldr.set_vessel_weight(v(0), 9).set_vessel_weight(v(1), 8);
         let m = bldr.build();
-        assert_eq!(m.vessel_weight_unchecked(v(0)), m.vessel_weight(v(0)));
-        assert_eq!(m.vessel_weight_unchecked(v(1)), m.vessel_weight(v(1)));
+        unsafe {
+            assert_eq!(m.vessel_weight_unchecked(v(0)), m.vessel_weight(v(0)));
+            assert_eq!(m.vessel_weight_unchecked(v(1)), m.vessel_weight(v(1)));
+        }
     }
 
     #[test]

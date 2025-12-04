@@ -21,267 +21,261 @@
 
 use core::ops::{Add, Mul, Neg, Sub};
 
-macro_rules! saturating_impl_binary {
-    ($trait_name:ident, $method:ident, $t:ty) => {
+macro_rules! saturating_impl_binary_val {
+    ($trait_name:ident, $method:ident, $t:ty, $src_method:ident) => {
         impl $trait_name for $t {
             #[inline(always)]
             fn $method(self, v: Self) -> Self {
-                <$t>::$method(self, v)
+                <$t>::$src_method(self, v)
             }
         }
     };
 }
 
-macro_rules! saturating_impl_unary {
-    ($trait_name:ident, $method:ident, $t:ty) => {
+macro_rules! saturating_impl_unary_val {
+    ($trait_name:ident, $method:ident, $t:ty, $src_method:ident) => {
         impl $trait_name for $t {
             #[inline(always)]
             fn $method(self) -> Self {
-                <$t>::$method(self)
+                <$t>::$src_method(self)
             }
         }
     };
 }
 
-/// A trait for types that support saturating addition.
+/// Saturating addition by value (no references).
 ///
-/// Saturating addition clamps the result at the numeric bounds of the type
-/// instead of overflowing.
+/// This trait provides a by-value API for saturating addition, clamping the
+/// result to the numeric bounds of the type instead of overflowing. It
+/// mirrors the inherent `saturating_add` on primitive integers but avoids
+/// any ambiguity with reference-based trait APIs.
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::saturating_arithmetic::SaturatingAdd;
+/// # use bollard_core::num::ops::saturating_arithmetic::SaturatingAddVal;
 ///
 /// let a: u8 = 250;
 /// let b: u8 = 10;
-/// assert_eq!(a.saturating_add(b), 255); // Clamps at u8::MAX
+/// assert_eq!(a.saturating_add_val(b), 255); // Clamps at u8::MAX
 ///
 /// let x: i8 = 120;
 /// let y: i8 = 10;
-/// assert_eq!(x.saturating_add(y), 127); // Clamps at i8::MAX
+/// assert_eq!(x.saturating_add_val(y), 127); // Clamps at i8::MAX
 ///
 /// let m: i8 = -120;
 /// let n: i8 = -20;
-/// assert_eq!(m.saturating_add(n), -128); // Clamps at i8::MIN
+/// assert_eq!(m.saturating_add_val(n), -128); // Clamps at i8::MIN
 /// ```
-pub trait SaturatingAdd: Sized + Add<Self, Output = Self> {
-    /// Performs saturating addition.
+pub trait SaturatingAddVal: Sized + Add<Self, Output = Self> {
+    /// Performs saturating addition by value.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// # use bollard_core::num::ops::saturating_arithmetic::SaturatingAdd;
+    /// # use bollard_core::num::ops::saturating_arithmetic::SaturatingAddVal;
     ///
     /// let a: u8 = 250;
     /// let b: u8 = 10;
-    /// assert_eq!(a.saturating_add(b), 255); // Clamps at u8::MAX
-    ///
-    /// let x: i8 = 120;
-    /// let y: i8 = 10;
-    /// assert_eq!(x.saturating_add(y), 127); // Clamps at i8::MAX
-    ///
-    /// let m: i8 = -120;
-    /// let n: i8 = -20;
-    /// assert_eq!(m.saturating_add(n), -128); // Clamps at i8::MIN
+    /// assert_eq!(a.saturating_add_val(b), 255); // Clamps at u8::MAX
     /// ```
-    fn saturating_add(self, v: Self) -> Self;
+    fn saturating_add_val(self, v: Self) -> Self;
 }
 
-saturating_impl_binary!(SaturatingAdd, saturating_add, u8);
-saturating_impl_binary!(SaturatingAdd, saturating_add, u16);
-saturating_impl_binary!(SaturatingAdd, saturating_add, u32);
-saturating_impl_binary!(SaturatingAdd, saturating_add, u64);
-saturating_impl_binary!(SaturatingAdd, saturating_add, usize);
-saturating_impl_binary!(SaturatingAdd, saturating_add, u128);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, u8, saturating_add);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, u16, saturating_add);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, u32, saturating_add);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, u64, saturating_add);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, usize, saturating_add);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, u128, saturating_add);
 
-saturating_impl_binary!(SaturatingAdd, saturating_add, i8);
-saturating_impl_binary!(SaturatingAdd, saturating_add, i16);
-saturating_impl_binary!(SaturatingAdd, saturating_add, i32);
-saturating_impl_binary!(SaturatingAdd, saturating_add, i64);
-saturating_impl_binary!(SaturatingAdd, saturating_add, isize);
-saturating_impl_binary!(SaturatingAdd, saturating_add, i128);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, i8, saturating_add);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, i16, saturating_add);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, i32, saturating_add);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, i64, saturating_add);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, isize, saturating_add);
+saturating_impl_binary_val!(SaturatingAddVal, saturating_add_val, i128, saturating_add);
 
-/// A trait for types that support saturating subtraction.
+/// Saturating subtraction by value (no references).
 ///
-/// Saturating subtraction clamps the result at the numeric bounds of the type
-/// instead of underflowing/overflowing.
+/// This trait provides a by-value API for saturating subtraction, clamping the
+/// result to the numeric bounds of the type instead of under/overflowing.
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::saturating_arithmetic::SaturatingSub;
+/// # use bollard_core::num::ops::saturating_arithmetic::SaturatingSubVal;
 ///
 /// let a: u8 = 5;
 /// let b: u8 = 10;
-/// assert_eq!(a.saturating_sub(b), 0); // Clamps at u8::MIN
+/// assert_eq!(a.saturating_sub_val(b), 0); // Clamps at u8::MIN
 ///
 /// let x: i8 = -120;
 /// let y: i8 = 20;
-/// assert_eq!(x.saturating_sub(y), -128); // Clamps at i8::MIN
+/// assert_eq!(x.saturating_sub_val(y), -128); // Clamps at i8::MIN
 ///
 /// let m: i8 = 120;
 /// let n: i8 = -20;
-/// assert_eq!(m.saturating_sub(n), 127); // Clamps at i8::MAX
+/// assert_eq!(m.saturating_sub_val(n), 127); // Clamps at i8::MAX
 /// ```
-pub trait SaturatingSub: Sized + Sub<Self, Output = Self> {
-    /// Performs saturating subtraction.
+pub trait SaturatingSubVal: Sized + Sub<Self, Output = Self> {
+    /// Performs saturating subtraction by value.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// # use bollard_core::num::ops::saturating_arithmetic::SaturatingSub;
+    /// # use bollard_core::num::ops::saturating_arithmetic::SaturatingSubVal;
     ///
     /// let a: u8 = 5;
     /// let b: u8 = 10;
-    /// assert_eq!(a.saturating_sub(b), 0); // Clamps at u8::MIN
-    ///
-    /// let x: i8 = -120;
-    /// let y: i8 = 20;
-    /// assert_eq!(x.saturating_sub(y), -128); // Clamps at i8::MIN
-    ///
-    /// let m: i8 = 120;
-    /// let n: i8 = -20;
-    /// assert_eq!(m.saturating_sub(n), 127); // Clamps at i8::MAX
+    /// assert_eq!(a.saturating_sub_val(b), 0); // Clamps at u8::MIN
     /// ```
-    fn saturating_sub(self, v: Self) -> Self;
+    fn saturating_sub_val(self, v: Self) -> Self;
 }
 
-saturating_impl_binary!(SaturatingSub, saturating_sub, u8);
-saturating_impl_binary!(SaturatingSub, saturating_sub, u16);
-saturating_impl_binary!(SaturatingSub, saturating_sub, u32);
-saturating_impl_binary!(SaturatingSub, saturating_sub, u64);
-saturating_impl_binary!(SaturatingSub, saturating_sub, usize);
-saturating_impl_binary!(SaturatingSub, saturating_sub, u128);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, u8, saturating_sub);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, u16, saturating_sub);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, u32, saturating_sub);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, u64, saturating_sub);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, usize, saturating_sub);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, u128, saturating_sub);
 
-saturating_impl_binary!(SaturatingSub, saturating_sub, i8);
-saturating_impl_binary!(SaturatingSub, saturating_sub, i16);
-saturating_impl_binary!(SaturatingSub, saturating_sub, i32);
-saturating_impl_binary!(SaturatingSub, saturating_sub, i64);
-saturating_impl_binary!(SaturatingSub, saturating_sub, isize);
-saturating_impl_binary!(SaturatingSub, saturating_sub, i128);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, i8, saturating_sub);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, i16, saturating_sub);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, i32, saturating_sub);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, i64, saturating_sub);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, isize, saturating_sub);
+saturating_impl_binary_val!(SaturatingSubVal, saturating_sub_val, i128, saturating_sub);
 
-/// A trait for types that support saturating multiplication.
+/// Saturating multiplication by value (no references).
 ///
-/// Saturating multiplication clamps the result at the numeric bounds of the type
-/// instead of overflowing.
+/// This trait provides a by-value API for saturating multiplication, clamping
+/// the result to the numeric bounds of the type instead of overflowing.
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::saturating_arithmetic::SaturatingMul;
+/// # use bollard_core::num::ops::saturating_arithmetic::SaturatingMulVal;
 ///
 /// let a: u8 = 64;
 /// let b: u8 = 10;
-/// assert_eq!(a.saturating_mul(b), 255); // 640 -> clamps at u8::MAX
+/// assert_eq!(a.saturating_mul_val(b), 255); // 640 -> clamps at u8::MAX
 ///
 /// let x: i8 = 30;
 /// let y: i8 = 10;
-/// assert_eq!(x.saturating_mul(y), 127); // 300 -> clamps at i8::MAX
+/// assert_eq!(x.saturating_mul_val(y), 127); // 300 -> clamps at i8::MAX
 ///
 /// let m: i8 = -30;
 /// let n: i8 = 10;
-/// assert_eq!(m.saturating_mul(n), -128); // -300 -> clamps at i8::MIN
+/// assert_eq!(m.saturating_mul_val(n), -128); // -300 -> clamps at i8::MIN
 /// ```
-pub trait SaturatingMul: Sized + Mul<Self, Output = Self> {
-    /// Performs saturating multiplication.
+pub trait SaturatingMulVal: Sized + Mul<Self, Output = Self> {
+    /// Performs saturating multiplication by value.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// # use bollard_core::num::ops::saturating_arithmetic::SaturatingMul;
+    /// # use bollard_core::num::ops::saturating_arithmetic::SaturatingMulVal;
     ///
     /// let a: u8 = 64;
     /// let b: u8 = 10;
-    /// assert_eq!(a.saturating_mul(b), 255); // 640 -> clamps at u8::MAX
-    ///
-    /// let x: i8 = 30;
-    /// let y: i8 = 10;
-    /// assert_eq!(x.saturating_mul(y), 127); // 300 -> clamps at i8::MAX
-    ///
-    /// let m: i8 = -30;
-    /// let n: i8 = 10;
-    /// assert_eq!(m.saturating_mul(n), -128); // -300 -> clamps at i8::MIN
+    /// assert_eq!(a.saturating_mul_val(b), 255); // 640 -> clamps at u8::MAX
     /// ```
-    fn saturating_mul(self, v: Self) -> Self;
+    fn saturating_mul_val(self, v: Self) -> Self;
 }
 
-saturating_impl_binary!(SaturatingMul, saturating_mul, u8);
-saturating_impl_binary!(SaturatingMul, saturating_mul, u16);
-saturating_impl_binary!(SaturatingMul, saturating_mul, u32);
-saturating_impl_binary!(SaturatingMul, saturating_mul, u64);
-saturating_impl_binary!(SaturatingMul, saturating_mul, usize);
-saturating_impl_binary!(SaturatingMul, saturating_mul, u128);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, u8, saturating_mul);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, u16, saturating_mul);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, u32, saturating_mul);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, u64, saturating_mul);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, usize, saturating_mul);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, u128, saturating_mul);
 
-saturating_impl_binary!(SaturatingMul, saturating_mul, i8);
-saturating_impl_binary!(SaturatingMul, saturating_mul, i16);
-saturating_impl_binary!(SaturatingMul, saturating_mul, i32);
-saturating_impl_binary!(SaturatingMul, saturating_mul, i64);
-saturating_impl_binary!(SaturatingMul, saturating_mul, isize);
-saturating_impl_binary!(SaturatingMul, saturating_mul, i128);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, i8, saturating_mul);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, i16, saturating_mul);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, i32, saturating_mul);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, i64, saturating_mul);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, isize, saturating_mul);
+saturating_impl_binary_val!(SaturatingMulVal, saturating_mul_val, i128, saturating_mul);
 
-/// A trait for types that support saturating negation.
+/// Saturating negation by value (no references).
 ///
-/// Saturating negation clamps the result at the numeric bounds of the type.
-/// For signed integers, negating the minimum value would overflow; saturating
-/// negation clamps to the maximum instead.
+/// This trait provides a by-value API for saturating negation. For signed
+/// integers, negating the minimum value would overflow; saturating negation
+/// clamps to the maximum instead.
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::saturating_arithmetic::SaturatingNeg;
+/// # use bollard_core::num::ops::saturating_arithmetic::SaturatingNegVal;
 ///
 /// let a: i8 = 100;
-/// assert_eq!(a.saturating_neg(), -100);
+/// assert_eq!(a.saturating_neg_val(), -100);
 ///
 /// let b: i8 = -128;
-/// assert_eq!(b.saturating_neg(), 127); // Clamps to i8::MAX
+/// assert_eq!(b.saturating_neg_val(), 127); // Clamps to i8::MAX
 /// ```
-pub trait SaturatingNeg: Sized + Neg<Output = Self> {
-    /// Performs saturating negation.
+pub trait SaturatingNegVal: Sized + Neg<Output = Self> {
+    /// Performs saturating negation by value.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// # use bollard_core::num::ops::saturating_arithmetic::SaturatingNeg;
+    /// # use bollard_core::num::ops::saturating_arithmetic::SaturatingNegVal;
     /// let a: i8 = 100;
-    /// assert_eq!(a.saturating_neg(), -100);
-    ///
-    /// let b: i8 = -128;
-    /// assert_eq!(b.saturating_neg(), 127); // Clamps to i8::MAX
+    /// assert_eq!(a.saturating_neg_val(), -100);
     /// ```
-    fn saturating_neg(self) -> Self;
+    fn saturating_neg_val(self) -> Self;
 }
 
-saturating_impl_unary!(SaturatingNeg, saturating_neg, i8);
-saturating_impl_unary!(SaturatingNeg, saturating_neg, i16);
-saturating_impl_unary!(SaturatingNeg, saturating_neg, i32);
-saturating_impl_unary!(SaturatingNeg, saturating_neg, i64);
-saturating_impl_unary!(SaturatingNeg, saturating_neg, isize);
-saturating_impl_unary!(SaturatingNeg, saturating_neg, i128);
+saturating_impl_unary_val!(SaturatingNegVal, saturating_neg_val, i8, saturating_neg);
+saturating_impl_unary_val!(SaturatingNegVal, saturating_neg_val, i16, saturating_neg);
+saturating_impl_unary_val!(SaturatingNegVal, saturating_neg_val, i32, saturating_neg);
+saturating_impl_unary_val!(SaturatingNegVal, saturating_neg_val, i64, saturating_neg);
+saturating_impl_unary_val!(SaturatingNegVal, saturating_neg_val, isize, saturating_neg);
+saturating_impl_unary_val!(SaturatingNegVal, saturating_neg_val, i128, saturating_neg);
 
-#[test]
-fn test_saturating_traits() {
-    fn saturating_add<T: SaturatingAdd>(a: T, b: T) -> T {
-        a.saturating_add(b)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn saturating_add_val<T: SaturatingAddVal>(a: T, b: T) -> T {
+        a.saturating_add_val(b)
     }
-    fn saturating_sub<T: SaturatingSub>(a: T, b: T) -> T {
-        a.saturating_sub(b)
+    fn saturating_sub_val<T: SaturatingSubVal>(a: T, b: T) -> T {
+        a.saturating_sub_val(b)
     }
-    fn saturating_mul<T: SaturatingMul>(a: T, b: T) -> T {
-        a.saturating_mul(b)
+    fn saturating_mul_val<T: SaturatingMulVal>(a: T, b: T) -> T {
+        a.saturating_mul_val(b)
     }
-    fn saturating_neg<T: SaturatingNeg>(a: T) -> T {
-        a.saturating_neg()
+    fn saturating_neg_val<T: SaturatingNegVal>(a: T) -> T {
+        a.saturating_neg_val()
     }
-    assert_eq!(saturating_add(255, 1), 255u8);
-    assert_eq!(saturating_add(127, 1), 127i8);
-    assert_eq!(saturating_add(-128, -1), -128i8);
-    assert_eq!(saturating_sub(0, 1), 0u8);
-    assert_eq!(saturating_sub(-128, 1), -128i8);
-    assert_eq!(saturating_sub(127, -1), 127i8);
-    assert_eq!(saturating_mul(255, 2), 255u8);
-    assert_eq!(saturating_mul(127, 2), 127i8);
-    assert_eq!(saturating_mul(-128, 2), -128i8);
-    assert_eq!(saturating_neg(127i8), -127i8);
+
+    #[test]
+    fn test_saturating_add_val() {
+        assert_eq!(saturating_add_val(255u8, 1u8), 255u8);
+        assert_eq!(saturating_add_val(127i8, 1i8), 127i8);
+        assert_eq!(saturating_add_val(-128i8, -1i8), -128i8);
+    }
+
+    #[test]
+    fn test_saturating_sub_val() {
+        assert_eq!(saturating_sub_val(0u8, 1u8), 0u8);
+        assert_eq!(saturating_sub_val(-128i8, 1i8), -128i8);
+        assert_eq!(saturating_sub_val(127i8, -1i8), 127i8);
+    }
+
+    #[test]
+    fn test_saturating_mul_val() {
+        assert_eq!(saturating_mul_val(255u8, 2u8), 255u8);
+        assert_eq!(saturating_mul_val(127i8, 2i8), 127i8);
+        assert_eq!(saturating_mul_val(-128i8, 2i8), -128i8);
+    }
+
+    #[test]
+    fn test_saturating_neg_val() {
+        assert_eq!(saturating_neg_val(127i8), -127i8);
+        assert_eq!(saturating_neg_val(-128i8), 127i8);
+    }
 }

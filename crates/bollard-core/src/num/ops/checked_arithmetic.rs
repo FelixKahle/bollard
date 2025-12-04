@@ -21,384 +21,293 @@
 
 use core::ops::{Add, Div, Mul, Rem, Shl, Shr, Sub};
 
-/// A trait for types that support checked addition.
+/// A trait for types that support checked addition by value (no references).
+///
+/// This mirrors the semantics of primitive integer `checked_add`, but provides
+/// a trait-based API that does not take references (unlike some num_traits APIs).
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::checked_arithmetic::CheckedAdd;
+/// # use bollard_core::num::ops::checked_arithmetic::CheckedAddVal;
 /// let a: u8 = 200;
 /// let b: u8 = 100;
-/// assert_eq!(a.checked_add(b), None); // Overflow occurs
+/// assert_eq!(a.checked_add_val(b), None); // Overflow occurs
 /// let c: u8 = 50;
-/// assert_eq!(a.checked_add(c), Some(250)); // No overflow
+/// assert_eq!(a.checked_add_val(c), Some(250)); // No overflow
 /// ```
-pub trait CheckedAdd: Sized + Add<Self, Output = Self> {
-    /// Performs checked addition, returning `None` if overflow occurs.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use bollard_core::num::ops::checked_arithmetic::CheckedAdd;
-    /// let a: u8 = 200;
-    /// let b: u8 = 100;
-    /// assert_eq!(a.checked_add(b), None); // Overflow occurs
-    /// let c: u8 = 50;
-    /// assert_eq!(a.checked_add(c), Some(250)); // No overflow
-    /// ```
-    fn checked_add(self, v: Self) -> Option<Self>;
+pub trait CheckedAddVal: Sized + Add<Self, Output = Self> {
+    /// Performs checked addition by value, returning `None` if overflow occurs.
+    fn checked_add_val(self, v: Self) -> Option<Self>;
 }
 
-macro_rules! checked_impl {
-    ($trait_name:ident, $method:ident, $t:ty) => {
+macro_rules! checked_impl_val {
+    ($trait_name:ident, $method:ident, $t:ty, $src_method:ident) => {
         impl $trait_name for $t {
             #[inline(always)]
             fn $method(self, v: $t) -> Option<$t> {
-                <$t>::$method(self, v)
+                <$t>::$src_method(self, v)
             }
         }
     };
 }
 
-checked_impl!(CheckedAdd, checked_add, u8);
-checked_impl!(CheckedAdd, checked_add, u16);
-checked_impl!(CheckedAdd, checked_add, u32);
-checked_impl!(CheckedAdd, checked_add, u64);
-checked_impl!(CheckedAdd, checked_add, usize);
-checked_impl!(CheckedAdd, checked_add, u128);
+checked_impl_val!(CheckedAddVal, checked_add_val, u8, checked_add);
+checked_impl_val!(CheckedAddVal, checked_add_val, u16, checked_add);
+checked_impl_val!(CheckedAddVal, checked_add_val, u32, checked_add);
+checked_impl_val!(CheckedAddVal, checked_add_val, u64, checked_add);
+checked_impl_val!(CheckedAddVal, checked_add_val, usize, checked_add);
+checked_impl_val!(CheckedAddVal, checked_add_val, u128, checked_add);
 
-checked_impl!(CheckedAdd, checked_add, i8);
-checked_impl!(CheckedAdd, checked_add, i16);
-checked_impl!(CheckedAdd, checked_add, i32);
-checked_impl!(CheckedAdd, checked_add, i64);
-checked_impl!(CheckedAdd, checked_add, isize);
-checked_impl!(CheckedAdd, checked_add, i128);
+checked_impl_val!(CheckedAddVal, checked_add_val, i8, checked_add);
+checked_impl_val!(CheckedAddVal, checked_add_val, i16, checked_add);
+checked_impl_val!(CheckedAddVal, checked_add_val, i32, checked_add);
+checked_impl_val!(CheckedAddVal, checked_add_val, i64, checked_add);
+checked_impl_val!(CheckedAddVal, checked_add_val, isize, checked_add);
+checked_impl_val!(CheckedAddVal, checked_add_val, i128, checked_add);
 
-/// A trait for types that support checked subtraction.
+/// A trait for types that support checked subtraction by value (no references).
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::checked_arithmetic::CheckedSub;
+/// # use bollard_core::num::ops::checked_arithmetic::CheckedSubVal;
 ///
 /// let a: u8 = 50;
 /// let b: u8 = 100;
-/// assert_eq!(a.checked_sub(b), None); // Underflow occurs
+/// assert_eq!(a.checked_sub_val(b), None); // Underflow occurs
 /// let c: u8 = 20;
-/// assert_eq!(a.checked_sub(c), Some(30)); // No underflow
+/// assert_eq!(a.checked_sub_val(c), Some(30)); // No underflow
 /// ```
-pub trait CheckedSub: Sized + Sub<Self, Output = Self> {
-    /// Performs checked subtraction, returning `None` if underflow occurs.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use bollard_core::num::ops::checked_arithmetic::CheckedSub;
-    ///
-    /// let a: u8 = 50;
-    /// let b: u8 = 100;
-    /// assert_eq!(a.checked_sub(b), None); // Underflow occurs
-    /// let c: u8 = 20;
-    /// assert_eq!(a.checked_sub(c), Some(30)); // No underflow
-    /// ```
-    fn checked_sub(self, v: Self) -> Option<Self>;
+pub trait CheckedSubVal: Sized + Sub<Self, Output = Self> {
+    /// Performs checked subtraction by value, returning `None` if underflow occurs.
+    fn checked_sub_val(self, v: Self) -> Option<Self>;
 }
 
-checked_impl!(CheckedSub, checked_sub, u8);
-checked_impl!(CheckedSub, checked_sub, u16);
-checked_impl!(CheckedSub, checked_sub, u32);
-checked_impl!(CheckedSub, checked_sub, u64);
-checked_impl!(CheckedSub, checked_sub, usize);
-checked_impl!(CheckedSub, checked_sub, u128);
+checked_impl_val!(CheckedSubVal, checked_sub_val, u8, checked_sub);
+checked_impl_val!(CheckedSubVal, checked_sub_val, u16, checked_sub);
+checked_impl_val!(CheckedSubVal, checked_sub_val, u32, checked_sub);
+checked_impl_val!(CheckedSubVal, checked_sub_val, u64, checked_sub);
+checked_impl_val!(CheckedSubVal, checked_sub_val, usize, checked_sub);
+checked_impl_val!(CheckedSubVal, checked_sub_val, u128, checked_sub);
 
-checked_impl!(CheckedSub, checked_sub, i8);
-checked_impl!(CheckedSub, checked_sub, i16);
-checked_impl!(CheckedSub, checked_sub, i32);
-checked_impl!(CheckedSub, checked_sub, i64);
-checked_impl!(CheckedSub, checked_sub, isize);
-checked_impl!(CheckedSub, checked_sub, i128);
+checked_impl_val!(CheckedSubVal, checked_sub_val, i8, checked_sub);
+checked_impl_val!(CheckedSubVal, checked_sub_val, i16, checked_sub);
+checked_impl_val!(CheckedSubVal, checked_sub_val, i32, checked_sub);
+checked_impl_val!(CheckedSubVal, checked_sub_val, i64, checked_sub);
+checked_impl_val!(CheckedSubVal, checked_sub_val, isize, checked_sub);
+checked_impl_val!(CheckedSubVal, checked_sub_val, i128, checked_sub);
 
-/// A trait for types that support checked multiplication.
+/// A trait for types that support checked multiplication by value (no references).
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::checked_arithmetic::CheckedMul;
+/// # use bollard_core::num::ops::checked_arithmetic::CheckedMulVal;
 ///
 /// let a: u8 = 20;
 /// let b: u8 = 10;
-/// assert_eq!(a.checked_mul(b), Some(200)); // No overflow
+/// assert_eq!(a.checked_mul_val(b), Some(200)); // No overflow
 /// let c: u8 = 20;
-/// assert_eq!(a.checked_mul(c), None); // Overflow occurs (20*20 = 400 > 255)
+/// assert_eq!(a.checked_mul_val(c), None); // Overflow occurs (20*20 = 400 > 255)
 /// ```
-pub trait CheckedMul: Sized + Mul<Self, Output = Self> {
-    /// Performs checked multiplication, returning `None` if overflow occurs.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use bollard_core::num::ops::checked_arithmetic::CheckedMul;
-    ///
-    /// let a: u8 = 20;
-    /// let b: u8 = 10;
-    /// assert_eq!(a.checked_mul(b), Some(200)); // No overflow
-    /// let c: u8 = 20;
-    /// assert_eq!(a.checked_mul(c), None); // Overflow occurs (20*20 = 400 > 255)
-    /// ```
-    fn checked_mul(self, v: Self) -> Option<Self>;
+pub trait CheckedMulVal: Sized + Mul<Self, Output = Self> {
+    /// Performs checked multiplication by value, returning `None` if overflow occurs.
+    fn checked_mul_val(self, v: Self) -> Option<Self>;
 }
 
-checked_impl!(CheckedMul, checked_mul, u8);
-checked_impl!(CheckedMul, checked_mul, u16);
-checked_impl!(CheckedMul, checked_mul, u32);
-checked_impl!(CheckedMul, checked_mul, u64);
-checked_impl!(CheckedMul, checked_mul, usize);
-checked_impl!(CheckedMul, checked_mul, u128);
+checked_impl_val!(CheckedMulVal, checked_mul_val, u8, checked_mul);
+checked_impl_val!(CheckedMulVal, checked_mul_val, u16, checked_mul);
+checked_impl_val!(CheckedMulVal, checked_mul_val, u32, checked_mul);
+checked_impl_val!(CheckedMulVal, checked_mul_val, u64, checked_mul);
+checked_impl_val!(CheckedMulVal, checked_mul_val, usize, checked_mul);
+checked_impl_val!(CheckedMulVal, checked_mul_val, u128, checked_mul);
 
-checked_impl!(CheckedMul, checked_mul, i8);
-checked_impl!(CheckedMul, checked_mul, i16);
-checked_impl!(CheckedMul, checked_mul, i32);
-checked_impl!(CheckedMul, checked_mul, i64);
-checked_impl!(CheckedMul, checked_mul, isize);
-checked_impl!(CheckedMul, checked_mul, i128);
+checked_impl_val!(CheckedMulVal, checked_mul_val, i8, checked_mul);
+checked_impl_val!(CheckedMulVal, checked_mul_val, i16, checked_mul);
+checked_impl_val!(CheckedMulVal, checked_mul_val, i32, checked_mul);
+checked_impl_val!(CheckedMulVal, checked_mul_val, i64, checked_mul);
+checked_impl_val!(CheckedMulVal, checked_mul_val, isize, checked_mul);
+checked_impl_val!(CheckedMulVal, checked_mul_val, i128, checked_mul);
 
-/// A trait for types that support checked division.
+/// A trait for types that support checked division by value (no references).
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::checked_arithmetic::CheckedDiv;
+/// # use bollard_core::num::ops::checked_arithmetic::CheckedDivVal;
 ///
 /// let a: u8 = 100;
 /// let b: u8 = 0;
-/// assert_eq!(a.checked_div(b), None); // Division by zero
+/// assert_eq!(a.checked_div_val(b), None); // Division by zero
 /// let c: u8 = 4;
-/// assert_eq!(a.checked_div(c), Some(25)); // No division by zero
+/// assert_eq!(a.checked_div_val(c), Some(25)); // No division by zero
 /// ```
-pub trait CheckedDiv: Sized + Div<Self, Output = Self> {
-    /// Performs checked division, returning `None` if division by zero occurs.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use bollard_core::num::ops::checked_arithmetic::CheckedDiv;
-    ///
-    /// let a: u8 = 100;
-    /// let b: u8 = 0;
-    /// assert_eq!(a.checked_div(b), None); // Division by zero
-    /// let c: u8 = 4;
-    /// assert_eq!(a.checked_div(c), Some(25)); // No division by zero
-    /// ```
-    fn checked_div(self, v: Self) -> Option<Self>;
+pub trait CheckedDivVal: Sized + Div<Self, Output = Self> {
+    /// Performs checked division by value, returning `None` if division by zero occurs.
+    fn checked_div_val(self, v: Self) -> Option<Self>;
 }
 
-checked_impl!(CheckedDiv, checked_div, u8);
-checked_impl!(CheckedDiv, checked_div, u16);
-checked_impl!(CheckedDiv, checked_div, u32);
-checked_impl!(CheckedDiv, checked_div, u64);
-checked_impl!(CheckedDiv, checked_div, usize);
-checked_impl!(CheckedDiv, checked_div, u128);
+checked_impl_val!(CheckedDivVal, checked_div_val, u8, checked_div);
+checked_impl_val!(CheckedDivVal, checked_div_val, u16, checked_div);
+checked_impl_val!(CheckedDivVal, checked_div_val, u32, checked_div);
+checked_impl_val!(CheckedDivVal, checked_div_val, u64, checked_div);
+checked_impl_val!(CheckedDivVal, checked_div_val, usize, checked_div);
+checked_impl_val!(CheckedDivVal, checked_div_val, u128, checked_div);
 
-checked_impl!(CheckedDiv, checked_div, i8);
-checked_impl!(CheckedDiv, checked_div, i16);
-checked_impl!(CheckedDiv, checked_div, i32);
-checked_impl!(CheckedDiv, checked_div, i64);
-checked_impl!(CheckedDiv, checked_div, isize);
-checked_impl!(CheckedDiv, checked_div, i128);
+checked_impl_val!(CheckedDivVal, checked_div_val, i8, checked_div);
+checked_impl_val!(CheckedDivVal, checked_div_val, i16, checked_div);
+checked_impl_val!(CheckedDivVal, checked_div_val, i32, checked_div);
+checked_impl_val!(CheckedDivVal, checked_div_val, i64, checked_div);
+checked_impl_val!(CheckedDivVal, checked_div_val, isize, checked_div);
+checked_impl_val!(CheckedDivVal, checked_div_val, i128, checked_div);
 
-/// A trait for types that support checked remainder.
+/// A trait for types that support checked remainder by value (no references).
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::checked_arithmetic::CheckedRem;
+/// # use bollard_core::num::ops::checked_arithmetic::CheckedRemVal;
 ///
 /// let a: u8 = 10;
 /// let b: u8 = 0;
-/// assert_eq!(a.checked_rem(b), None); // Division by zero
+/// assert_eq!(a.checked_rem_val(b), None); // Division by zero
 /// let c: u8 = 3;
-/// assert_eq!(a.checked_rem(c), Some(1)); // No division by zero
+/// assert_eq!(a.checked_rem_val(c), Some(1)); // No division by zero
 /// ```
-pub trait CheckedRem: Sized + Rem<Self, Output = Self> {
-    /// Performs checked remainder, returning `None` if division by zero occurs.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use bollard_core::num::ops::checked_arithmetic::CheckedRem;
-    ///
-    /// let a: u8 = 10;
-    /// let b: u8 = 0;
-    /// assert_eq!(a.checked_rem(b), None); // Division by zero
-    /// let c: u8 = 3;
-    /// assert_eq!(a.checked_rem(c), Some(1)); // No division by zero
-    /// ```
-    fn checked_rem(self, v: Self) -> Option<Self>;
+pub trait CheckedRemVal: Sized + Rem<Self, Output = Self> {
+    /// Performs checked remainder by value, returning `None` if division by zero occurs.
+    fn checked_rem_val(self, v: Self) -> Option<Self>;
 }
 
-checked_impl!(CheckedRem, checked_rem, u8);
-checked_impl!(CheckedRem, checked_rem, u16);
-checked_impl!(CheckedRem, checked_rem, u32);
-checked_impl!(CheckedRem, checked_rem, u64);
-checked_impl!(CheckedRem, checked_rem, usize);
-checked_impl!(CheckedRem, checked_rem, u128);
+checked_impl_val!(CheckedRemVal, checked_rem_val, u8, checked_rem);
+checked_impl_val!(CheckedRemVal, checked_rem_val, u16, checked_rem);
+checked_impl_val!(CheckedRemVal, checked_rem_val, u32, checked_rem);
+checked_impl_val!(CheckedRemVal, checked_rem_val, u64, checked_rem);
+checked_impl_val!(CheckedRemVal, checked_rem_val, usize, checked_rem);
+checked_impl_val!(CheckedRemVal, checked_rem_val, u128, checked_rem);
 
-checked_impl!(CheckedRem, checked_rem, i8);
-checked_impl!(CheckedRem, checked_rem, i16);
-checked_impl!(CheckedRem, checked_rem, i32);
-checked_impl!(CheckedRem, checked_rem, i64);
-checked_impl!(CheckedRem, checked_rem, isize);
-checked_impl!(CheckedRem, checked_rem, i128);
+checked_impl_val!(CheckedRemVal, checked_rem_val, i8, checked_rem);
+checked_impl_val!(CheckedRemVal, checked_rem_val, i16, checked_rem);
+checked_impl_val!(CheckedRemVal, checked_rem_val, i32, checked_rem);
+checked_impl_val!(CheckedRemVal, checked_rem_val, i64, checked_rem);
+checked_impl_val!(CheckedRemVal, checked_rem_val, isize, checked_rem);
+checked_impl_val!(CheckedRemVal, checked_rem_val, i128, checked_rem);
 
-macro_rules! checked_impl_unary {
-    ($trait_name:ident, $method:ident, $t:ty) => {
+macro_rules! checked_impl_unary_val {
+    ($trait_name:ident, $method:ident, $t:ty, $src_method:ident) => {
         impl $trait_name for $t {
             #[inline(always)]
             fn $method(self) -> Option<$t> {
-                <$t>::$method(self)
+                <$t>::$src_method(self)
             }
         }
     };
 }
 
-/// A trait for types that support checked negation.
+/// A trait for types that support checked negation by value (no references).
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::checked_arithmetic::CheckedNeg;
+/// # use bollard_core::num::ops::checked_arithmetic::CheckedNegVal;
 ///
 /// let a: i8 = -128;
-/// assert_eq!(a.checked_neg(), None); // Overflow occurs
+/// assert_eq!(a.checked_neg_val(), None); // Overflow occurs
 /// let b: i8 = 100;
-/// assert_eq!(b.checked_neg(), Some(-100)); // No overflow
+/// assert_eq!(b.checked_neg_val(), Some(-100)); // No overflow
 /// ```
-pub trait CheckedNeg: Sized {
-    /// Performs checked negation, returning `None` if overflow occurs.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use bollard_core::num::ops::checked_arithmetic::CheckedNeg;
-    ///
-    /// let a: i8 = -128;
-    /// assert_eq!(a.checked_neg(), None); // Overflow occurs
-    /// let b: i8 = 100;
-    /// assert_eq!(b.checked_neg(), Some(-100)); // No overflow
-    /// ```
-    fn checked_neg(self) -> Option<Self>;
+pub trait CheckedNegVal: Sized {
+    /// Performs checked negation by value, returning `None` if overflow occurs.
+    fn checked_neg_val(self) -> Option<Self>;
 }
 
-checked_impl_unary!(CheckedNeg, checked_neg, u8);
-checked_impl_unary!(CheckedNeg, checked_neg, u16);
-checked_impl_unary!(CheckedNeg, checked_neg, u32);
-checked_impl_unary!(CheckedNeg, checked_neg, u64);
-checked_impl_unary!(CheckedNeg, checked_neg, usize);
-checked_impl_unary!(CheckedNeg, checked_neg, u128);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, u8, checked_neg);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, u16, checked_neg);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, u32, checked_neg);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, u64, checked_neg);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, usize, checked_neg);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, u128, checked_neg);
 
-checked_impl_unary!(CheckedNeg, checked_neg, i8);
-checked_impl_unary!(CheckedNeg, checked_neg, i16);
-checked_impl_unary!(CheckedNeg, checked_neg, i32);
-checked_impl_unary!(CheckedNeg, checked_neg, i64);
-checked_impl_unary!(CheckedNeg, checked_neg, isize);
-checked_impl_unary!(CheckedNeg, checked_neg, i128);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, i8, checked_neg);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, i16, checked_neg);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, i32, checked_neg);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, i64, checked_neg);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, isize, checked_neg);
+checked_impl_unary_val!(CheckedNegVal, checked_neg_val, i128, checked_neg);
 
-/// A trait for types that support checked left shift.
+/// A trait for types that support checked left shift by value (no references).
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::checked_arithmetic::CheckedShl;
+/// # use bollard_core::num::ops::checked_arithmetic::CheckedShlVal;
 ///
 /// let a: u8 = 1;
 /// let b: u32 = 8;
-/// assert_eq!(a.checked_shl(b), None); // Overflow occurs
+/// assert_eq!(a.checked_shl_val(b), None); // Overflow occurs
 /// let c: u32 = 3;
-/// assert_eq!(a.checked_shl(c), Some(8)); // No overflow
+/// assert_eq!(a.checked_shl_val(c), Some(8)); // No overflow
 /// ```
-pub trait CheckedShl: Sized + Shl<u32, Output = Self> {
-    /// Performs checked left shift, returning `None` if overflow occurs.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use bollard_core::num::ops::checked_arithmetic::CheckedShl;
-    ///
-    /// let a: u8 = 1;
-    /// let b: u32 = 8;
-    /// assert_eq!(a.checked_shl(b), None); // Overflow occurs
-    /// let c: u32 = 3;
-    /// assert_eq!(a.checked_shl(c), Some(8)); // No overflow
-    /// ```
-    fn checked_shl(self, rhs: u32) -> Option<Self>;
+pub trait CheckedShlVal: Sized + Shl<u32, Output = Self> {
+    /// Performs checked left shift by value, returning `None` if overflow occurs.
+    fn checked_shl_val(self, rhs: u32) -> Option<Self>;
 }
 
-macro_rules! checked_shift_impl {
-    ($trait_name:ident, $method:ident, $t:ty) => {
+macro_rules! checked_shift_impl_val {
+    ($trait_name:ident, $method:ident, $t:ty, $src_method:ident) => {
         impl $trait_name for $t {
             #[inline(always)]
             fn $method(self, rhs: u32) -> Option<$t> {
-                <$t>::$method(self, rhs)
+                <$t>::$src_method(self, rhs)
             }
         }
     };
 }
 
-checked_shift_impl!(CheckedShl, checked_shl, u8);
-checked_shift_impl!(CheckedShl, checked_shl, u16);
-checked_shift_impl!(CheckedShl, checked_shl, u32);
-checked_shift_impl!(CheckedShl, checked_shl, u64);
-checked_shift_impl!(CheckedShl, checked_shl, usize);
-checked_shift_impl!(CheckedShl, checked_shl, u128);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, u8, checked_shl);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, u16, checked_shl);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, u32, checked_shl);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, u64, checked_shl);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, usize, checked_shl);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, u128, checked_shl);
 
-checked_shift_impl!(CheckedShl, checked_shl, i8);
-checked_shift_impl!(CheckedShl, checked_shl, i16);
-checked_shift_impl!(CheckedShl, checked_shl, i32);
-checked_shift_impl!(CheckedShl, checked_shl, i64);
-checked_shift_impl!(CheckedShl, checked_shl, isize);
-checked_shift_impl!(CheckedShl, checked_shl, i128);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, i8, checked_shl);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, i16, checked_shl);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, i32, checked_shl);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, i64, checked_shl);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, isize, checked_shl);
+checked_shift_impl_val!(CheckedShlVal, checked_shl_val, i128, checked_shl);
 
-/// A trait for types that support checked right shift.
+/// A trait for types that support checked right shift by value (no references).
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_core::num::ops::checked_arithmetic::CheckedShr;
+/// # use bollard_core::num::ops::checked_arithmetic::CheckedShrVal;
 ///
 /// let a: u8 = 1;
 /// let b: u32 = 8;
-/// assert_eq!(a.checked_shr(b), None); // Shift amount >= bit width returns None
+/// assert_eq!(a.checked_shr_val(b), None); // Shift amount >= bit width returns None
 /// let c: u32 = 3;
-/// assert_eq!(a.checked_shr(c), Some(0)); // 1 >> 3 = 0
+/// assert_eq!(a.checked_shr_val(c), Some(0)); // 1 >> 3 = 0
 /// ```
-pub trait CheckedShr: Sized + Shr<u32, Output = Self> {
-    /// Performs checked right shift, returning `None` if the shift amount is
+pub trait CheckedShrVal: Sized + Shr<u32, Output = Self> {
+    /// Performs checked right shift by value, returning `None` if the shift amount is
     /// greater than or equal to the number of bits in the type.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use bollard_core::num::ops::checked_arithmetic::CheckedShr;
-    ///
-    /// let a: u8 = 1;
-    /// let b: u32 = 8;
-    /// assert_eq!(a.checked_shr(b), None); // Shift amount >= bit width returns None
-    /// let c: u32 = 3;
-    /// assert_eq!(a.checked_shr(c), Some(0)); // 1 >> 3 = 0
-    /// ```
-    fn checked_shr(self, rhs: u32) -> Option<Self>;
+    fn checked_shr_val(self, rhs: u32) -> Option<Self>;
 }
 
-checked_shift_impl!(CheckedShr, checked_shr, u8);
-checked_shift_impl!(CheckedShr, checked_shr, u16);
-checked_shift_impl!(CheckedShr, checked_shr, u32);
-checked_shift_impl!(CheckedShr, checked_shr, u64);
-checked_shift_impl!(CheckedShr, checked_shr, usize);
-checked_shift_impl!(CheckedShr, checked_shr, u128);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, u8, checked_shr);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, u16, checked_shr);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, u32, checked_shr);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, u64, checked_shr);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, usize, checked_shr);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, u128, checked_shr);
 
-checked_shift_impl!(CheckedShr, checked_shr, i8);
-checked_shift_impl!(CheckedShr, checked_shr, i16);
-checked_shift_impl!(CheckedShr, checked_shr, i32);
-checked_shift_impl!(CheckedShr, checked_shr, i64);
-checked_shift_impl!(CheckedShr, checked_shr, isize);
-checked_shift_impl!(CheckedShr, checked_shr, i128);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, i8, checked_shr);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, i16, checked_shr);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, i32, checked_shr);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, i64, checked_shr);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, isize, checked_shr);
+checked_shift_impl_val!(CheckedShrVal, checked_shr_val, i128, checked_shr);
