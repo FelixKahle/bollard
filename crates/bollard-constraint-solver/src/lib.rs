@@ -23,5 +23,6 @@ pub mod decision;
 pub mod eval;
 pub mod monitor;
 pub mod solver;
+pub mod stack;
 pub mod state;
 pub mod trail;

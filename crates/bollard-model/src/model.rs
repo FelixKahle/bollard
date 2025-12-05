@@ -1136,18 +1136,26 @@ where
             .map(|range_set| range_set.into_iter().map(|r| r.into()).collect())
             .collect();
 
-        let shortest_processing_times: Vec<ProcessingTime<T>> = self
-            .processing_times
-            .chunks_exact(self.num_berths)
-            .map(|vessel_chunk| {
-                let min_time: Option<T> = vessel_chunk
-                    .iter()
-                    .copied()
-                    .filter_map(|pt| pt.into())
-                    .min();
-                ProcessingTime::from_option(min_time)
-            })
-            .collect();
+        let shortest_processing_times: Vec<ProcessingTime<T>> =
+            match (self.num_berths, self.num_vessels) {
+                (0, 0) => Vec::new(),
+                (0, nv) => std::iter::repeat_with(ProcessingTime::none)
+                    .take(nv)
+                    .collect(),
+                (_, 0) => Vec::new(),
+                (nb, _nv) => self
+                    .processing_times
+                    .chunks_exact(nb)
+                    .map(|vessel_chunk| {
+                        let min_time = vessel_chunk
+                            .iter()
+                            .copied()
+                            .filter_map(|pt| pt.into())
+                            .min();
+                        ProcessingTime::from_option(min_time)
+                    })
+                    .collect(),
+            };
 
         Model {
             arrival_times: self.arrival_times,
@@ -1712,5 +1720,19 @@ mod tests {
         assert!(contains(0) == false);
         assert!(contains(9) == false);
         assert!(contains(10) == true); // immediately after closed block resumes open
+    }
+
+    #[test]
+    fn test_empty_model_builder_build() {
+        let bldr = ModelBuilder::<i64>::new(0, 0);
+        let model = bldr.build();
+        assert_eq!(model.num_berths(), 0);
+        assert_eq!(model.num_vessels(), 0);
+        assert!(model.arrival_times().is_empty());
+        assert!(model.latest_departure_times().is_empty());
+        assert!(model.vessel_weights().is_empty());
+        assert!(model.processing_times().is_empty());
+        assert!(model.opening_times().is_empty());
+        assert!(model.shortest_processing_times().is_empty());
     }
 }

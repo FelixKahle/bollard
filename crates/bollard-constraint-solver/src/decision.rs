@@ -122,6 +122,7 @@ impl std::fmt::Display for Decision {
     }
 }
 
+/// A pluggable decision builder that produces decisions for the solver to explore.
 pub trait DecisionBuilder<T>
 where
     T: PrimInt + Signed,

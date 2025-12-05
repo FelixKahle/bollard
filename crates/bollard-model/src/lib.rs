@@ -21,4 +21,5 @@
 
 pub mod index;
 pub mod model;
+pub mod solution;
 pub mod time;
