@@ -20,4 +20,18 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #[allow(dead_code)]
-pub trait ObjectiveEvaluator<T> {}
+pub trait ObjectiveEvaluator<T> {
+    fn name(&self) -> &str;
+}
+
+impl<T> std::fmt::Debug for dyn ObjectiveEvaluator<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ObjectiveEvaluator({})", self.name())
+    }
+}
+
+impl<T> std::fmt::Display for dyn ObjectiveEvaluator<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ObjectiveEvaluator({})", self.name())
+    }
+}

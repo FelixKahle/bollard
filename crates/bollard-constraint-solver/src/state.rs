@@ -68,7 +68,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if `berth_index` is out not within 0..num_berths().
+    /// Panics if `berth_index` is not within 0..num_berths().
     #[inline]
     pub fn berth_free_time(&self, berth_index: BerthIndex) -> T {
         debug_assert!(berth_index.get() < self.num_berths());
@@ -93,7 +93,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if `berth_index` is out not within 0..num_berths().
+    /// Panics if `berth_index` is not within 0..num_berths().
     #[inline]
     pub fn set_berth_free_time(&mut self, berth_index: BerthIndex, time: T) {
         debug_assert!(berth_index.get() < self.num_berths());
@@ -116,22 +116,10 @@ where
         }
     }
 
-    /// Returns a mutable slice of the berth free times.
-    #[inline]
-    pub fn berth_free_times_mut(&mut self) -> &mut [T] {
-        &mut self.berth_free_times
-    }
-
     /// Returns a slice of the vessel assignments.
     #[inline]
     pub fn vessel_assignments(&self) -> &[bool] {
         &self.vessel_assignments
-    }
-
-    /// Returns a mutable slice of the vessel assignments.
-    #[inline]
-    pub fn vessel_assignments_mut(&mut self) -> &mut [bool] {
-        &mut self.vessel_assignments
     }
 
     /// Returns whether the specified vessel is assigned.
@@ -140,10 +128,10 @@ where
     ///
     /// Panics if `vessel_index` is out not within 0..num_vessels().
     #[inline]
-    pub fn is_vessel_assigned(&self, vessel_index: usize) -> bool {
-        debug_assert!(vessel_index < self.num_vessels());
+    pub fn is_vessel_assigned(&self, vessel_index: VesselIndex) -> bool {
+        debug_assert!(vessel_index.get() < self.num_vessels());
 
-        self.vessel_assignments[vessel_index]
+        self.vessel_assignments[vessel_index.get()]
     }
 
     /// Returns whether the specified vessel is assigned without bounds checking.
@@ -163,10 +151,20 @@ where
     ///
     /// # Panics
     ///
+    /// Panics if the vessel is already assigned or if `vessel_index`
+    /// is not within 0..num_vessels().
+    ///
+    /// # Panics
+    ///
     /// Panics if `vessel_index` is out not within 0..num_vessels().
     #[inline]
     pub fn assign_vessel(&mut self, vessel_index: VesselIndex) {
         debug_assert!(vessel_index.get() < self.num_vessels());
+        debug_assert!(
+            !self.vessel_assignments[vessel_index.get()],
+            "assign_vessel: vessel {} already assigned",
+            vessel_index.get()
+        );
 
         self.vessel_assignments[vessel_index.get()] = true;
         self.num_assigned_vessels += 1;
@@ -176,6 +174,10 @@ where
 
     /// Marks the specified vessel as assigned without bounds checking.
     ///
+    /// # Panics
+    ///
+    /// Panics if the vessel is already assigned.
+    ///
     /// # Safety
     ///
     /// The caller must ensure that `vessel_index` is within 0..num_vessels().
@@ -183,6 +185,11 @@ where
     #[inline]
     pub unsafe fn assign_vessel_unchecked(&mut self, vessel_index: VesselIndex) {
         debug_assert!(vessel_index.get() < self.num_vessels());
+        debug_assert!(
+            !self.vessel_assignments[vessel_index.get()],
+            "assign_vessel: vessel {} already assigned",
+            vessel_index.get()
+        );
 
         unsafe {
             *self
@@ -198,10 +205,16 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if `vessel_index` is out not within 0..num_vessels().
+    /// Panics if `vessel_index` is out not within 0..num_vessels() or if the vessel
+    /// is already unassigned.
     #[inline]
     pub fn unassign_vessel(&mut self, vessel_index: VesselIndex) {
         debug_assert!(vessel_index.get() < self.num_vessels());
+        debug_assert!(
+            self.vessel_assignments[vessel_index.get()],
+            "unassign_vessel: vessel {} already unassigned",
+            vessel_index.get()
+        );
 
         self.vessel_assignments[vessel_index.get()] = false;
         self.num_assigned_vessels -= 1;
@@ -211,16 +224,27 @@ where
 
     /// Marks the specified vessel as unassigned without bounds checking.
     ///
+    /// # Panics
+    ///
+    /// Panics if the vessel is already unassigned.
+    ///
     /// # Safety
     ///
     /// The caller must ensure that `vessel_index` is within 0..num_vessels().
     /// Otherwise this function may cause undefined behavior.
     #[inline]
-    pub unsafe fn unassign_vessel_unchecked(&mut self, vessel_index: usize) {
-        debug_assert!(vessel_index < self.num_vessels());
+    pub unsafe fn unassign_vessel_unchecked(&mut self, vessel_index: VesselIndex) {
+        debug_assert!(vessel_index.get() < self.num_vessels());
+        debug_assert!(
+            self.vessel_assignments[vessel_index.get()],
+            "unassign_vessel: vessel {} already unassigned",
+            vessel_index.get()
+        );
 
         unsafe {
-            *self.vessel_assignments.get_unchecked_mut(vessel_index) = false;
+            *self
+                .vessel_assignments
+                .get_unchecked_mut(vessel_index.get()) = false;
         }
         self.num_assigned_vessels -= 1;
 
@@ -243,6 +267,15 @@ where
     #[inline]
     pub fn set_current_objective(&mut self, objective: T) {
         self.current_objective = objective;
+    }
+
+    /// Resets the state to the initial configuration.
+    #[inline]
+    pub fn reset(&mut self) {
+        self.berth_free_times.fill(T::zero());
+        self.vessel_assignments.fill(false);
+        self.num_assigned_vessels = 0;
+        self.current_objective = T::zero();
     }
 }
 
@@ -306,41 +339,16 @@ mod tests {
         state.assign_vessel(VesselIndex::new(1));
         state.assign_vessel(VesselIndex::new(3));
         assert_eq!(state.num_assigned_vessels(), 2);
-        assert!(state.is_vessel_assigned(1));
-        assert!(state.is_vessel_assigned(3));
-        assert!(!state.is_vessel_assigned(0));
-        assert!(!state.is_vessel_assigned(2));
+        assert!(state.is_vessel_assigned(VesselIndex::new(1)));
+        assert!(state.is_vessel_assigned(VesselIndex::new(3)));
+        assert!(!state.is_vessel_assigned(VesselIndex::new(0)));
+        assert!(!state.is_vessel_assigned(VesselIndex::new(2)));
 
         // Unassign one vessel
         state.unassign_vessel(VesselIndex::new(1));
         assert_eq!(state.num_assigned_vessels(), 1);
-        assert!(!state.is_vessel_assigned(1));
-        assert!(state.is_vessel_assigned(3));
-
-        // Assign and unassign via mutable slice
-        {
-            let assignments = state.vessel_assignments_mut();
-            assignments[0] = true; // directly mark assigned
-        }
-        // Note: modifying the slice does not auto-update num_assigned_vessels
-        // so num_assigned_vessels should still be 1 (only vessel 3 via API)
-        assert_eq!(state.num_assigned_vessels(), 1);
-        assert!(state.is_vessel_assigned(0));
-        assert!(state.is_vessel_assigned(3));
-    }
-
-    #[test]
-    fn test_mutating_berth_free_times_slice() {
-        let mut state = SearchState::<IntegerType>::new(3, 1);
-
-        {
-            let times = state.berth_free_times_mut();
-            times[0] = 10;
-            times[1] = 20;
-            times[2] = 30;
-        }
-
-        assert_eq!(state.berth_free_times(), &[10, 20, 30]);
+        assert!(!state.is_vessel_assigned(VesselIndex::new(1)));
+        assert!(state.is_vessel_assigned(VesselIndex::new(3)));
     }
 
     #[test]

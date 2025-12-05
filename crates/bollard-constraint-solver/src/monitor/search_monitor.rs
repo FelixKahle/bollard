@@ -18,3 +18,43 @@
 // LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchCommand {
+    Continue,
+    Stop,
+}
+
+impl std::fmt::Display for SearchCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SearchCommand::Continue => write!(f, "Continue"),
+            SearchCommand::Stop => write!(f, "Stop"),
+        }
+    }
+}
+
+pub trait SearchMonitor: Send + Sync {
+    fn on_enter_search(&mut self);
+    fn on_restart_search(&mut self);
+    fn on_exit_search(&mut self);
+    fn on_begin_next_decision(&mut self);
+    fn on_end_next_decision(&mut self);
+    fn on_begin_backtrack(&mut self);
+    fn on_end_backtrack(&mut self);
+    fn on_solution(&mut self) -> SearchCommand;
+    fn on_search_tree_exhausted(&mut self);
+    fn name(&self) -> &str;
+}
+
+impl std::fmt::Debug for dyn SearchMonitor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SearchMonitor({})", self.name())
+    }
+}
+
+impl std::fmt::Display for dyn SearchMonitor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SearchMonitor({})", self.name())
+    }
+}
