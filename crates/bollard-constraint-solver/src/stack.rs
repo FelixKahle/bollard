@@ -181,6 +181,12 @@ impl SearchStack {
         let frames_size = self.frames.capacity() * core::mem::size_of::<usize>();
         entries_size + frames_size
     }
+
+    /// Returns an iterator over all decisions in the stack.
+    #[inline]
+    pub fn iter(&self) -> std::slice::Iter<'_, Decision> {
+        self.entries.iter()
+    }
 }
 
 impl std::fmt::Display for SearchStack {

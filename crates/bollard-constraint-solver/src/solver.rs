@@ -331,10 +331,10 @@ where
                 available
             };
 
-            let v = vessel_index.get();
-            if v < num_vessels {
-                berths[v] = berth_index;
-                start_times[v] = start;
+            let vessel_index_usize = vessel_index.get();
+            if vessel_index_usize < num_vessels {
+                berths[vessel_index_usize] = berth_index;
+                start_times[vessel_index_usize] = start;
             }
         }
 
@@ -355,6 +355,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::iter::FusedIterator;
+
     use super::*;
     use crate::{decision::DecisionBuilder, eval::WeightedFlowTimeEvaluator};
     use bollard_model::{
@@ -365,53 +367,79 @@ mod tests {
 
     type IntegerType = i64;
 
-    struct DeterministicIter {
-        vessel: Option<VesselIndex>,
+    /// An iterator that yields every possible (Vessel, Berth) combination.
+    /// It acts as a state machine for a nested loop:
+    /// for vessel in 0..num_vessels {
+    ///     for berth in 0..num_berths {
+    ///         yield Decision(vessel, berth);
+    ///     }
+    /// }
+    pub struct PermutationIter {
+        current_vessel: usize,
         current_berth: usize,
+        num_vessels: usize,
         num_berths: usize,
     }
 
-    impl Iterator for DeterministicIter {
+    impl Iterator for PermutationIter {
         type Item = Decision;
 
         fn next(&mut self) -> Option<Self::Item> {
-            let v = self.vessel?;
-            if self.current_berth < self.num_berths {
-                let d = Decision::new(v, BerthIndex::new(self.current_berth));
+            // Loop condition: while we still have vessels to check
+            if self.current_vessel < self.num_vessels {
+                // Create the decision for the current state
+                let decision = Decision::new(
+                    VesselIndex::new(self.current_vessel),
+                    BerthIndex::new(self.current_berth),
+                );
+
+                // Advance the state machine (Inner loop logic)
                 self.current_berth += 1;
-                Some(d)
+
+                // If we finished all berths for this vessel, move to the next vessel
+                // and reset the berth counter.
+                if self.current_berth >= self.num_berths {
+                    self.current_berth = 0;
+                    self.current_vessel += 1;
+                }
+
+                Some(decision)
             } else {
+                // We have iterated through all vessels and all berths
                 None
             }
         }
     }
 
-    impl std::iter::FusedIterator for DeterministicIter {}
+    // Mark as fused so the solver is safe to call next() after None
+    impl FusedIterator for PermutationIter {}
 
-    struct DeterminsticBuilder;
-    impl DecisionBuilder<IntegerType> for DeterminsticBuilder {
-        type DecisionIterator = DeterministicIter;
+    pub struct OptimalityBuilder;
+
+    impl<T> DecisionBuilder<T> for OptimalityBuilder
+    where
+        T: PrimInt + Signed,
+    {
+        // No Vec, no Box, just our raw struct
+        type DecisionIterator = PermutationIter;
 
         fn name(&self) -> &str {
-            "Deterministic"
+            "OptimalityBuilder (Permutation)"
         }
 
         fn next_decision(
             &mut self,
-            model: &Model<IntegerType>,
-            state: &SearchState<IntegerType>,
+            model: &Model<T>,
+            _state: &SearchState<T>,
         ) -> Self::DecisionIterator {
-            let mut target_vessel = None;
-            for v in 0..model.num_vessels() {
-                let vessel_index = VesselIndex::new(v);
-                if !state.is_vessel_assigned(vessel_index) {
-                    target_vessel = Some(vessel_index);
-                    break;
-                }
-            }
-            DeterministicIter {
-                vessel: target_vessel,
+            // We initialize the iterator state based on the model size.
+            // Note: We ignore 'state' here. We yield ALL possibilities.
+            // The Solver's `is_feasible` check handles filtering out
+            // vessels that are already assigned.
+            PermutationIter {
+                current_vessel: 0,
                 current_berth: 0,
+                num_vessels: model.num_vessels(),
                 num_berths: model.num_berths(),
             }
         }
@@ -445,7 +473,7 @@ mod tests {
 
         let model = mb.build();
         let mut solver = Solver::new();
-        let mut builder = DeterminsticBuilder;
+        let mut builder = OptimalityBuilder;
         let evaluator = WeightedFlowTimeEvaluator::new();
 
         let result = solver.solve(&model, &mut builder, &evaluator);
@@ -474,7 +502,7 @@ mod tests {
 
         let model = mb.build();
         let mut solver = Solver::new();
-        let mut builder = DeterminsticBuilder;
+        let mut builder = OptimalityBuilder;
         let evaluator = WeightedFlowTimeEvaluator::new();
         let result = solver.solve(&model, &mut builder, &evaluator);
         assert!(result.is_none());
@@ -495,7 +523,7 @@ mod tests {
         );
         let model = mb.build();
         let mut solver = Solver::new();
-        let mut builder = DeterminsticBuilder;
+        let mut builder = OptimalityBuilder;
         let evaluator = WeightedFlowTimeEvaluator::new();
         let result = solver.solve(&model, &mut builder, &evaluator);
         assert!(result.is_some());
@@ -503,75 +531,61 @@ mod tests {
     }
 
     #[test]
-    fn test_solve_bigger_instance_3_berths_17_vessels() {
-        let num_berths = 3;
-        let num_vessels = 20;
+    fn test_solve_two_berths_ten_vessels_beats_greedy_baseline() {
+        let num_vessels = 10;
+        let num_berths = 2;
 
         let mut mb = ModelBuilder::<IntegerType>::new(num_berths, num_vessels);
 
-        // Provide processing times for every (v, b) to keep feasibility high.
-        // Use a deterministic pattern to vary durations:
-        // p(v,b) = base_b + (v % 5), with base per berth {4, 7, 10}
-        for v in 0..num_vessels {
-            let vi = VesselIndex::new(v);
-            for b in 0..num_berths {
-                let bi = BerthIndex::new(b);
-                let base = match b {
-                    0 => 4,
-                    1 => 7,
-                    _ => 10,
-                } as IntegerType;
-                let p = base + ((v % 5) as IntegerType);
-                mb.set_processing_time(vi, bi, ProcessingTime::some(p));
-            }
-        }
+        for i in 0..num_vessels {
+            let v = VesselIndex::new(i);
+            let t0 = (i as IntegerType) + 1;
+            let t1 = 2 * ((i as IntegerType) + 1);
 
-        // Optionally, vary arrival times to exercise waiting behavior.
-        // Arrival(v) = v % 6
-        for v in 0..num_vessels {
-            mb.set_arrival_time(VesselIndex::new(v), (v % 6) as IntegerType);
-        }
-
-        // Optionally, vary weights to avoid uniform cost ties.
-        // Weight(v) = 1 + (v % 3)
-        for v in 0..num_vessels {
-            mb.set_vessel_weight(VesselIndex::new(v), 1 + ((v % 3) as IntegerType));
+            mb.set_processing_time(v, BerthIndex::new(0), ProcessingTime::some(t0));
+            mb.set_processing_time(v, BerthIndex::new(1), ProcessingTime::some(t1));
+            mb.set_vessel_weight(v, 1);
+            mb.set_arrival_time(v, 0);
         }
 
         let model = mb.build();
         let mut solver = Solver::new();
-        let mut builder = DeterminsticBuilder;
+
+        let mut builder = OptimalityBuilder;
         let evaluator = WeightedFlowTimeEvaluator::new();
 
         let result = solver.solve(&model, &mut builder, &evaluator);
+
         assert!(
             result.is_some(),
-            "Expected a feasible solution for 3 berths × 17 vessels instance"
+            "Solver failed to find a feasible solution"
         );
-
         let solution = result.unwrap();
-        assert_eq!(
-            solution.num_vessels(),
-            num_vessels,
-            "All vessels should be present in the reconstructed solution"
-        );
 
-        let obj = solution.objective_value();
-        assert!(
-            obj >= 0 && obj < IntegerType::max_value(),
-            "Objective should be finite, got {}",
-            obj
-        );
-
-        // Spot-check a few vessels have assigned berths within range
-        for v in [0usize, 5usize, 11usize, 16usize] {
-            let berth = solution.berth_for_vessel(VesselIndex::new(v)).get();
-            assert!(
-                berth < num_berths,
-                "Assigned berth index {} out of range for vessel {}",
-                berth,
-                v
-            );
+        let mut greedy_cost: IntegerType = 0;
+        let mut current_time: IntegerType = 0;
+        for i in 0..num_vessels {
+            current_time += (i as IntegerType) + 1; // Add processing time
+            greedy_cost += current_time; // Add completion time to objective
         }
+
+        let optimal_cost = solution.objective_value();
+
+        assert!(
+            optimal_cost < greedy_cost,
+            "Solver failed to beat the greedy baseline! It likely behaved like a simulation."
+        );
+
+        let mut on_berth_1 = 0;
+        for i in 0..num_vessels {
+            if solution.berth_for_vessel(VesselIndex::new(i)).get() == 1 {
+                on_berth_1 += 1;
+            }
+        }
+
+        assert!(
+            on_berth_1 > 0,
+            "Optimal solution should utilize the slow berth to reduce waiting time"
+        );
     }
 }

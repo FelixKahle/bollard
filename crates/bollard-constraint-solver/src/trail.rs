@@ -315,6 +315,7 @@ impl<T> SearchTrail<T> {
         }
     }
 
+    /// Returns an iterator over all trail entries.
     #[inline]
     pub fn iter_entries(&self) -> std::slice::Iter<'_, TrailEntry<T>> {
         self.entries.iter()
