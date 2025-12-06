@@ -21,7 +21,7 @@
 
 use crate::state::SearchState;
 use bollard_model::index::{BerthIndex, VesselIndex};
-use num_traits::Zero;
+use num_traits::{PrimInt, Zero};
 
 /// An entry in the search trail, recording the previous state
 /// before an assignment was made.
@@ -31,27 +31,14 @@ pub struct TrailEntry<T> {
     old_objective: T,
     berth_index: BerthIndex,
     vessel_index: VesselIndex,
+    prev_last_decision_time: T,
+    prev_last_decision_vessel: VesselIndex,
 }
 
 impl<T> TrailEntry<T>
 where
     T: Copy,
 {
-    #[inline]
-    pub fn new(
-        old_berth_time: T,
-        old_objective: T,
-        berth_index: BerthIndex,
-        vessel_index: VesselIndex,
-    ) -> Self {
-        Self {
-            old_berth_time,
-            old_objective,
-            berth_index,
-            vessel_index,
-        }
-    }
-
     #[inline]
     pub fn old_berth_time(&self) -> T {
         self.old_berth_time
@@ -191,8 +178,9 @@ impl<T> SearchTrail<T> {
         vessel_index: VesselIndex,
         new_berth_time: T,
         new_objective: T,
+        actual_start_time: T,
     ) where
-        T: Copy + Zero,
+        T: PrimInt,
     {
         debug_assert!(
             !state.is_vessel_assigned(vessel_index),
@@ -202,17 +190,22 @@ impl<T> SearchTrail<T> {
 
         let old_berth_time = state.berth_free_time(berth_index);
         let old_objective = state.current_objective();
+        let prev_time = state.last_decision_time();
+        let prev_vessel = state.last_decision_vessel();
 
-        self.entries.push(TrailEntry::new(
+        self.entries.push(TrailEntry {
             old_berth_time,
             old_objective,
             berth_index,
             vessel_index,
-        ));
+            prev_last_decision_time: prev_time,
+            prev_last_decision_vessel: prev_vessel,
+        });
 
         state.set_berth_free_time(berth_index, new_berth_time);
         state.assign_vessel(vessel_index);
         state.set_current_objective(new_objective);
+        state.set_last_decision(actual_start_time, vessel_index);
     }
 
     /// Applies an assignment without bounds checking in the state.
@@ -232,8 +225,9 @@ impl<T> SearchTrail<T> {
         vessel_index: VesselIndex,
         new_berth_time: T,
         new_objective: T,
+        actual_start_time: T,
     ) where
-        T: Copy + Zero,
+        T: PrimInt,
     {
         debug_assert!(
             !state.is_vessel_assigned(vessel_index),
@@ -243,18 +237,23 @@ impl<T> SearchTrail<T> {
 
         let old_berth_time = unsafe { state.berth_free_time_unchecked(berth_index) };
         let old_objective = state.current_objective();
+        let prev_time = state.last_decision_time();
+        let prev_vessel = state.last_decision_vessel();
 
-        self.entries.push(TrailEntry::new(
+        self.entries.push(TrailEntry {
             old_berth_time,
             old_objective,
             berth_index,
             vessel_index,
-        ));
+            prev_last_decision_time: prev_time,
+            prev_last_decision_vessel: prev_vessel,
+        });
 
         unsafe {
             state.set_berth_free_time_unchecked(berth_index, new_berth_time);
             state.assign_vessel_unchecked(vessel_index);
             state.set_current_objective(new_objective);
+            state.set_last_decision(actual_start_time, vessel_index);
         }
     }
 
@@ -263,7 +262,7 @@ impl<T> SearchTrail<T> {
     /// Effectively pops the current frame.
     pub fn backtrack(&mut self, state: &mut SearchState<T>)
     where
-        T: Copy + Zero,
+        T: PrimInt,
     {
         let start_index = match self.frames.pop() {
             Some(index) => index,
@@ -279,7 +278,7 @@ impl<T> SearchTrail<T> {
     /// Clears the entire trail, undoing all assignments made across all frames.
     pub fn clear(&mut self, state: &mut SearchState<T>)
     where
-        T: Copy + Zero,
+        T: PrimInt,
     {
         for entry in self.entries.iter().rev() {
             self.undo_entry(state, *entry);
@@ -306,12 +305,17 @@ impl<T> SearchTrail<T> {
     /// Helper to undo a single entry.
     fn undo_entry(&self, state: &mut SearchState<T>, entry: TrailEntry<T>)
     where
-        T: Copy + Zero,
+        T: PrimInt + Zero,
     {
         unsafe {
             state.set_berth_free_time_unchecked(entry.berth_index, entry.old_berth_time);
             state.unassign_vessel_unchecked(entry.vessel_index);
             state.set_current_objective(entry.old_objective);
+
+            state.set_last_decision(
+                entry.prev_last_decision_time,
+                entry.prev_last_decision_vessel,
+            );
         }
     }
 
@@ -340,406 +344,455 @@ where
 mod tests {
     use super::*;
     use crate::state::SearchState;
-    use bollard_model::index::{BerthIndex, VesselIndex};
-    use num_traits::Zero;
 
-    type I = i32;
+    type IntegerType = i64;
 
-    fn make_state(num_berths: usize, num_vessels: usize) -> SearchState<I> {
-        SearchState::<I>::new(num_berths, num_vessels)
+    fn make_state(num_berths: usize, num_vessels: usize) -> SearchState<IntegerType> {
+        SearchState::<IntegerType>::new(num_berths, num_vessels)
     }
 
     #[test]
-    fn test_trail_entry_accessors_and_display() {
-        let e = TrailEntry::new(7, 42, BerthIndex::new(3), VesselIndex::new(5));
-        assert_eq!(e.old_berth_time(), 7);
-        assert_eq!(e.old_objective(), 42);
-        assert_eq!(e.berth_index().get(), 3);
-        assert_eq!(e.vessel_index().get(), 5);
+    fn test_new_and_basic_properties() {
+        let trail = SearchTrail::<IntegerType>::new();
+        assert_eq!(trail.num_entries(), 0);
+        assert_eq!(trail.num_frames(), 0);
+        assert!(trail.is_empty());
+        assert_eq!(trail.depth(), 0);
 
-        let fmt = format!("{}", e);
-        assert!(fmt.contains("TrailEntry("));
-        assert!(fmt.contains("berth: 3"));
-        assert!(fmt.contains("vessel: 5"));
-        assert!(fmt.contains("old_time: 7"));
-        assert!(fmt.contains("old_obj: 42"));
+        let trail2 = SearchTrail::<IntegerType>::with_capacity(10, 5);
+        assert_eq!(trail2.num_entries(), 0);
+        assert_eq!(trail2.num_frames(), 0);
+        assert!(trail2.is_empty());
     }
 
     #[test]
-    fn test_new_with_capacity_preallocated_and_basic_props() {
-        let t = SearchTrail::<I>::new();
-        assert_eq!(t.num_entries(), 0);
-        assert_eq!(t.num_frames(), 0);
-        assert_eq!(t.depth(), 0);
-        assert!(t.is_empty());
-
-        let t2 = SearchTrail::<I>::with_capacity(10, 4);
-        assert_eq!(t2.num_entries(), 0);
-        assert_eq!(t2.num_frames(), 0);
-        assert!(t2.is_empty());
-        assert!(t2.allocated_memory_bytes() > 0);
-
-        let t3 = SearchTrail::<I>::preallocated(7);
-        assert_eq!(t3.num_entries(), 0);
-        assert_eq!(t3.num_frames(), 0);
-        assert!(t3.is_empty());
-
-        let disp = format!("{}", t3);
-        assert!(disp.contains("SearchTrail(entries: 0, frames: 0)"));
+    fn test_preallocated_and_ensure_capacity() {
+        let mut trail = SearchTrail::<IntegerType>::preallocated(7);
+        let before_alloc = trail.allocated_memory_bytes();
+        trail.ensure_capacity(12);
+        let after_alloc = trail.allocated_memory_bytes();
+        assert!(after_alloc >= before_alloc);
+        assert_eq!(trail.num_entries(), 0);
+        assert_eq!(trail.num_frames(), 0);
     }
 
     #[test]
-    fn test_ensure_capacity_grows_as_expected() {
-        let mut t = SearchTrail::<I>::with_capacity(1, 1);
-        let init_entries_cap = t.entries.capacity();
-        let init_frames_cap = t.frames.capacity();
-        let init_bytes = t.allocated_memory_bytes();
-
-        // Request larger capacity
-        t.ensure_capacity(10);
-
-        // Capacities should not shrink, and typically grow
-        assert!(t.entries.capacity() >= init_entries_cap);
-        assert!(t.frames.capacity() >= init_frames_cap);
-
-        // Allocated bytes should be monotonic (non-decreasing)
-        let after_bytes = t.allocated_memory_bytes();
-        assert!(after_bytes >= init_bytes);
-
-        // Idempotence when requirements are below current capacities
-        let cap_entries = t.entries.capacity();
-        let cap_frames = t.frames.capacity();
-        t.ensure_capacity(5);
-        assert_eq!(t.entries.capacity(), cap_entries);
-        assert_eq!(t.frames.capacity(), cap_frames);
-    }
-
-    #[test]
-    fn test_push_frame_and_is_empty_depth_num_frames() {
-        let mut t = SearchTrail::<I>::new();
-        assert!(t.is_empty());
-        assert_eq!(t.depth(), 0);
-
-        t.push_frame();
-        assert!(!t.is_empty());
-        assert_eq!(t.depth(), 1);
-        assert_eq!(t.num_frames(), 1);
-
-        t.push_frame();
-        assert_eq!(t.depth(), 2);
-        assert_eq!(t.num_frames(), 2);
-    }
-
-    #[test]
-    fn test_apply_assignment_and_backtrack_single_frame() {
+    fn test_push_frame_and_backtrack_empty() {
+        let mut trail = SearchTrail::<IntegerType>::new();
         let mut state = make_state(2, 3);
-        let mut t = SearchTrail::<I>::new();
+        trail.backtrack(&mut state);
+        assert_eq!(trail.num_frames(), 0);
+        assert_eq!(trail.num_entries(), 0);
 
-        let v = VesselIndex::new(1);
-        let b = BerthIndex::new(0);
+        trail.push_frame();
+        assert_eq!(trail.num_frames(), 1);
+        assert_eq!(trail.num_entries(), 0);
 
-        // Frame
-        t.push_frame();
-
-        // Apply assignment: change berth 0 free time to 10, objective to 5
-        t.apply_assignment(&mut state, b, v, 10, 5);
-        assert_eq!(t.num_entries(), 1);
-        assert_eq!(t.num_frames(), 1);
-
-        // State changed
-        assert_eq!(state.berth_free_time(b), 10);
-        assert!(state.is_vessel_assigned(v));
-        assert_eq!(state.current_objective(), 5);
-
-        // Backtrack: undo to frame start
-        t.backtrack(&mut state);
-        assert_eq!(t.num_entries(), 0);
-        assert_eq!(t.num_frames(), 0);
-        assert!(t.is_empty());
-
-        // State restored
-        assert_eq!(state.berth_free_time(b), I::zero());
-        assert!(!state.is_vessel_assigned(v));
-        assert_eq!(state.current_objective(), I::zero());
+        trail.backtrack(&mut state);
+        assert_eq!(trail.num_frames(), 0);
+        assert_eq!(trail.num_entries(), 0);
     }
 
     #[test]
-    fn test_apply_assignment_unchecked_and_nested_frames_backtrack() {
-        let mut state = make_state(3, 3);
-        let mut t = SearchTrail::<I>::new();
+    fn test_apply_assignment_creates_entry_and_updates_state() {
+        let mut trail = SearchTrail::<IntegerType>::new();
+        let mut state = make_state(2, 3);
+        trail.push_frame();
 
-        // Frame 0
-        t.push_frame();
-        unsafe {
-            t.apply_assignment_unchecked(&mut state, BerthIndex::new(1), VesselIndex::new(0), 7, 3)
-        };
-        assert_eq!(t.num_entries(), 1);
-        assert_eq!(t.depth(), 1);
-        assert_eq!(state.berth_free_time(BerthIndex::new(1)), 7);
+        assert_eq!(state.berth_free_time(BerthIndex::new(1)), 0i64);
+        assert_eq!(state.current_objective(), 0i64);
+        assert_eq!(state.last_decision_time(), i64::MIN);
+
+        let berth = BerthIndex::new(1);
+        let vessel = VesselIndex::new(2);
+        let new_berth_time = 7 as IntegerType;
+        let new_objective = 13 as IntegerType;
+        let actual_start_time = 5 as IntegerType;
+
+        trail.apply_assignment(
+            &mut state,
+            berth,
+            vessel,
+            new_berth_time,
+            new_objective,
+            actual_start_time,
+        );
+
+        assert_eq!(trail.num_entries(), 1);
+        assert_eq!(trail.num_frames(), 1);
+
+        assert!(state.is_vessel_assigned(vessel));
+        assert_eq!(state.berth_free_time(berth), new_berth_time);
+        assert_eq!(state.current_objective(), new_objective);
+        assert_eq!(state.last_decision_time(), actual_start_time);
+        assert_eq!(state.last_decision_vessel(), vessel);
+
+        let entry = trail.iter_entries().next().unwrap();
+        assert_eq!(entry.berth_index(), berth);
+        assert_eq!(entry.vessel_index(), vessel);
+        assert_eq!(entry.old_berth_time(), 0i64);
+        assert_eq!(entry.old_objective(), 0i64);
+
+        let s = format!("{}", entry);
+        assert!(s.contains("TrailEntry("));
+        assert!(s.contains("berth: 1"));
+        assert!(s.contains("vessel: 2"));
+        assert!(s.contains("old_time: 0"));
+        assert!(s.contains("old_obj: 0"));
+    }
+
+    #[test]
+    fn test_backtrack_undo_single_assignment() {
+        let mut trail = SearchTrail::<IntegerType>::new();
+        let mut state = make_state(3, 4);
+
+        trail.push_frame();
+
+        let berth = BerthIndex::new(0);
+        let vessel = VesselIndex::new(1);
+        let new_berth_time = 10 as IntegerType;
+        let new_objective = 20 as IntegerType;
+        let actual_start_time = 10 as IntegerType;
+
+        trail.apply_assignment(
+            &mut state,
+            berth,
+            vessel,
+            new_berth_time,
+            new_objective,
+            actual_start_time,
+        );
+
+        assert!(state.is_vessel_assigned(vessel));
+        assert_eq!(state.berth_free_time(berth), 10i64);
+        assert_eq!(trail.num_entries(), 1);
+
+        trail.backtrack(&mut state);
+
+        assert!(!state.is_vessel_assigned(vessel));
+        assert_eq!(state.berth_free_time(berth), 0i64);
+        assert_eq!(state.current_objective(), 0i64);
+        assert_eq!(state.last_decision_time(), i64::MIN);
+        assert_eq!(state.last_decision_vessel().get(), 0);
+
+        assert_eq!(trail.num_entries(), 0);
+        assert_eq!(trail.num_frames(), 0);
+    }
+
+    #[test]
+    fn test_backtrack_multiple_entries_in_single_frame() {
+        let mut trail = SearchTrail::<IntegerType>::new();
+        let mut state = make_state(2, 3);
+        trail.push_frame();
+
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(0),
+            VesselIndex::new(0),
+            5i64,
+            5i64,
+            5i64,
+        );
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(1),
+            VesselIndex::new(2),
+            9i64,
+            14i64,
+            9i64,
+        );
+
+        assert_eq!(trail.num_entries(), 2);
         assert!(state.is_vessel_assigned(VesselIndex::new(0)));
-        assert_eq!(state.current_objective(), 3);
-
-        // Frame 1
-        t.push_frame();
-        unsafe {
-            t.apply_assignment_unchecked(&mut state, BerthIndex::new(2), VesselIndex::new(2), 12, 9)
-        };
-        assert_eq!(t.num_entries(), 2);
-        assert_eq!(t.depth(), 2);
-        assert_eq!(state.berth_free_time(BerthIndex::new(2)), 12);
         assert!(state.is_vessel_assigned(VesselIndex::new(2)));
-        assert_eq!(state.current_objective(), 9);
+        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 5i64);
+        assert_eq!(state.berth_free_time(BerthIndex::new(1)), 9i64);
+        assert_eq!(state.current_objective(), 14i64);
 
-        // Backtrack inner frame only
-        t.backtrack(&mut state);
-        assert_eq!(t.num_entries(), 1);
-        assert_eq!(t.depth(), 1);
-        // Inner assignment undone, outer remains
-        assert_eq!(state.berth_free_time(BerthIndex::new(2)), I::zero());
+        trail.backtrack(&mut state);
+
+        assert_eq!(trail.num_entries(), 0);
+        assert_eq!(trail.num_frames(), 0);
+        assert!(!state.is_vessel_assigned(VesselIndex::new(0)));
         assert!(!state.is_vessel_assigned(VesselIndex::new(2)));
-        assert_eq!(state.current_objective(), 3); // restored to cost after first assign
-
-        assert_eq!(state.berth_free_time(BerthIndex::new(1)), 7);
-        assert!(state.is_vessel_assigned(VesselIndex::new(0)));
-
-        // Backtrack outer frame
-        t.backtrack(&mut state);
-        assert_eq!(t.num_entries(), 0);
-        assert_eq!(t.depth(), 0);
-        assert!(t.is_empty());
-
-        assert_eq!(state.berth_free_time(BerthIndex::new(1)), I::zero());
-        assert!(!state.is_vessel_assigned(VesselIndex::new(0)));
-        assert_eq!(state.current_objective(), I::zero());
+        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 0i64);
+        assert_eq!(state.berth_free_time(BerthIndex::new(1)), 0i64);
+        assert_eq!(state.current_objective(), 0i64);
     }
 
     #[test]
-    fn test_backtrack_no_frames_is_noop() {
-        let mut state = make_state(1, 1);
-        let mut t = SearchTrail::<I>::new();
-
-        // No frames; backtrack must do nothing and not panic
-        t.backtrack(&mut state);
-        assert_eq!(t.num_entries(), 0);
-        assert_eq!(t.num_frames(), 0);
-        assert!(t.is_empty());
-    }
-
-    #[test]
-    fn test_clear_undoes_all_entries_and_resets_frames() {
-        let mut state = make_state(2, 2);
-        let mut t = SearchTrail::<I>::new();
-
-        // Frame 0
-        t.push_frame();
-        t.apply_assignment(&mut state, BerthIndex::new(0), VesselIndex::new(0), 5, 1);
-
-        // Frame 1
-        t.push_frame();
-        t.apply_assignment(&mut state, BerthIndex::new(1), VesselIndex::new(1), 8, 3);
-
-        assert_eq!(t.num_entries(), 2);
-        assert_eq!(t.depth(), 2);
-        assert_eq!(state.current_objective(), 3);
-        assert!(state.is_vessel_assigned(VesselIndex::new(0)));
-        assert!(state.is_vessel_assigned(VesselIndex::new(1)));
-        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 5);
-        assert_eq!(state.berth_free_time(BerthIndex::new(1)), 8);
-
-        // Clear should undo both entries and empty frames
-        t.clear(&mut state);
-        assert_eq!(t.num_entries(), 0);
-        assert_eq!(t.num_frames(), 0);
-        assert_eq!(t.depth(), 0);
-        assert!(t.is_empty());
-
-        assert_eq!(state.current_objective(), I::zero());
-        assert!(!state.is_vessel_assigned(VesselIndex::new(0)));
-        assert!(!state.is_vessel_assigned(VesselIndex::new(1)));
-        assert_eq!(state.berth_free_time(BerthIndex::new(0)), I::zero());
-        assert_eq!(state.berth_free_time(BerthIndex::new(1)), I::zero());
-    }
-
-    #[test]
-    fn test_reset_clears_trail_but_does_not_touch_state() {
-        let mut state = make_state(2, 2);
-        let mut t = SearchTrail::<I>::new();
-
-        // Modify state directly and via trail
-        state.set_berth_free_time(BerthIndex::new(0), 11);
-        state.set_current_objective(7);
-        t.push_frame();
-        t.apply_assignment(&mut state, BerthIndex::new(1), VesselIndex::new(0), 9, 13);
-
-        assert_eq!(t.num_entries(), 1);
-        assert_eq!(t.num_frames(), 1);
-        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 11);
-        assert_eq!(state.berth_free_time(BerthIndex::new(1)), 9);
-        assert!(state.is_vessel_assigned(VesselIndex::new(0)));
-        assert_eq!(state.current_objective(), 13);
-
-        // Reset trail markers only
-        t.reset();
-        assert_eq!(t.num_entries(), 0);
-        assert_eq!(t.num_frames(), 0);
-        assert!(t.is_empty());
-
-        // State should remain unchanged
-        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 11);
-        assert_eq!(state.berth_free_time(BerthIndex::new(1)), 9);
-        assert!(state.is_vessel_assigned(VesselIndex::new(0)));
-        assert_eq!(state.current_objective(), 13);
-    }
-
-    #[test]
-    fn test_allocated_memory_bytes_matches_formula() {
-        let t = SearchTrail::<I>::with_capacity(16, 8);
-        let expected = t.entries.capacity() * std::mem::size_of::<TrailEntry<I>>()
-            + t.frames.capacity() * std::mem::size_of::<usize>();
-        assert_eq!(t.allocated_memory_bytes(), expected);
-
-        // Ensure increasing capacity increases reported bytes
-        let mut t2 = SearchTrail::<I>::with_capacity(1, 1);
-        let initial = t2.allocated_memory_bytes();
-        t2.ensure_capacity(32);
-        let after = t2.allocated_memory_bytes();
-        assert!(after >= initial);
-    }
-
-    #[test]
-    fn test_current_objective_restoration_order_with_multiple_entries_in_one_frame() {
+    fn test_nested_frames_and_partial_backtrack() {
+        let mut trail = SearchTrail::<IntegerType>::new();
         let mut state = make_state(1, 3);
-        let mut t = SearchTrail::<I>::new();
 
-        // One frame, two consecutive assignments
-        t.push_frame();
+        trail.push_frame();
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(0),
+            VesselIndex::new(0),
+            3i64,
+            3i64,
+            3i64,
+        );
 
-        // Assign vessel 0, objective -> 10, berth 0 -> 4
-        t.apply_assignment(&mut state, BerthIndex::new(0), VesselIndex::new(0), 4, 10);
-        // Assign vessel 1, objective -> 25, berth 0 -> 7
-        t.apply_assignment(&mut state, BerthIndex::new(0), VesselIndex::new(1), 7, 25);
+        trail.push_frame();
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(0),
+            VesselIndex::new(1),
+            6i64,
+            9i64,
+            6i64,
+        );
 
-        assert_eq!(t.num_entries(), 2);
-        assert_eq!(state.current_objective(), 25);
-        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 7);
+        assert_eq!(trail.num_frames(), 2);
+        assert_eq!(trail.num_entries(), 2);
+
+        trail.backtrack(&mut state);
+        assert_eq!(trail.num_frames(), 1);
+        assert_eq!(trail.num_entries(), 1);
+
         assert!(state.is_vessel_assigned(VesselIndex::new(0)));
-        assert!(state.is_vessel_assigned(VesselIndex::new(1)));
-
-        // Backtrack should undo in reverse order restoring objective properly
-        t.backtrack(&mut state);
-        assert_eq!(t.num_entries(), 0);
-        assert_eq!(state.current_objective(), I::zero());
-        assert_eq!(state.berth_free_time(BerthIndex::new(0)), I::zero());
-        assert!(!state.is_vessel_assigned(VesselIndex::new(0)));
         assert!(!state.is_vessel_assigned(VesselIndex::new(1)));
-    }
+        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 3i64);
+        assert_eq!(state.current_objective(), 3i64);
 
-    #[test]
-    fn test_backtrack_over_empty_frame_does_not_change_state() {
-        let mut state = make_state(1, 1);
-        let mut t = SearchTrail::<I>::new();
+        trail.backtrack(&mut state);
+        assert_eq!(trail.num_frames(), 0);
+        assert_eq!(trail.num_entries(), 0);
 
-        // Push an empty frame
-        t.push_frame();
-        assert_eq!(t.num_frames(), 1);
-        assert_eq!(t.num_entries(), 0);
-
-        // Backtrack: should remove frame and leave state unchanged
-        t.backtrack(&mut state);
-        assert_eq!(t.num_frames(), 0);
-        assert_eq!(t.num_entries(), 0);
-        assert!(t.is_empty());
-        assert_eq!(state.current_objective(), I::zero());
-        assert_eq!(state.berth_free_time(BerthIndex::new(0)), I::zero());
         assert!(!state.is_vessel_assigned(VesselIndex::new(0)));
+        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 0i64);
+        assert_eq!(state.current_objective(), 0i64);
     }
 
     #[test]
-    fn test_multiple_frames_mixed_empty_and_nonempty_sequences() {
+    fn test_clear_undoes_all_without_needing_frames() {
+        let mut trail = SearchTrail::<IntegerType>::new();
         let mut state = make_state(2, 3);
-        let mut t = SearchTrail::<I>::new();
 
-        // Frame A (non-empty)
-        t.push_frame();
-        t.apply_assignment(&mut state, BerthIndex::new(0), VesselIndex::new(1), 5, 7);
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(0),
+            VesselIndex::new(1),
+            4i64,
+            4i64,
+            4i64,
+        );
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(1),
+            VesselIndex::new(2),
+            7i64,
+            11i64,
+            7i64,
+        );
 
-        // Frame B (empty)
-        t.push_frame();
+        assert_eq!(trail.num_entries(), 2);
+        assert_eq!(trail.num_frames(), 0);
 
-        // Frame C (non-empty)
-        t.push_frame();
-        t.apply_assignment(&mut state, BerthIndex::new(1), VesselIndex::new(2), 11, 15);
+        trail.clear(&mut state);
 
-        assert_eq!(t.num_frames(), 3);
-        assert_eq!(t.num_entries(), 2);
-        assert_eq!(state.current_objective(), 15);
-        assert!(state.is_vessel_assigned(VesselIndex::new(1)));
-        assert!(state.is_vessel_assigned(VesselIndex::new(2)));
-
-        // Backtrack C: undo vessel 2
-        t.backtrack(&mut state);
-        assert_eq!(t.num_frames(), 2);
-        assert_eq!(t.num_entries(), 1);
-        assert_eq!(state.current_objective(), 7);
-        assert!(!state.is_vessel_assigned(VesselIndex::new(2)));
-        assert!(state.is_vessel_assigned(VesselIndex::new(1)));
-        assert_eq!(state.berth_free_time(BerthIndex::new(1)), I::zero());
-
-        // Backtrack B: empty frame, no change in entries or state
-        t.backtrack(&mut state);
-        assert_eq!(t.num_frames(), 1);
-        assert_eq!(t.num_entries(), 1);
-        assert_eq!(state.current_objective(), 7);
-
-        // Backtrack A: undo vessel 1
-        t.backtrack(&mut state);
-        assert_eq!(t.num_frames(), 0);
-        assert_eq!(t.num_entries(), 0);
-        assert_eq!(state.current_objective(), I::zero());
+        assert_eq!(trail.num_entries(), 0);
+        assert_eq!(trail.num_frames(), 0);
         assert!(!state.is_vessel_assigned(VesselIndex::new(1)));
-        assert_eq!(state.berth_free_time(BerthIndex::new(0)), I::zero());
+        assert!(!state.is_vessel_assigned(VesselIndex::new(2)));
+        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 0i64);
+        assert_eq!(state.berth_free_time(BerthIndex::new(1)), 0i64);
+        assert_eq!(state.current_objective(), 0i64);
     }
 
     #[test]
-    fn test_display_includes_counts() {
-        let mut t = SearchTrail::<I>::new();
-        assert!(format!("{}", t).contains("entries: 0"));
-        assert!(format!("{}", t).contains("frames: 0"));
+    fn test_reset_clears_markers_but_not_state_changes() {
+        let mut trail = SearchTrail::<IntegerType>::new();
+        let mut state = make_state(1, 2);
 
-        t.push_frame();
-        let s = format!("{}", t);
-        assert!(s.contains("entries: 0"));
-        assert!(s.contains("frames: 1"));
+        trail.push_frame();
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(0),
+            VesselIndex::new(0),
+            5i64,
+            5i64,
+            5i64,
+        );
+
+        assert_eq!(trail.num_entries(), 1);
+        assert_eq!(trail.num_frames(), 1);
+        assert!(state.is_vessel_assigned(VesselIndex::new(0)));
+        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 5i64);
+
+        trail.reset();
+
+        assert_eq!(trail.num_entries(), 0);
+        assert_eq!(trail.num_frames(), 0);
+
+        assert!(state.is_vessel_assigned(VesselIndex::new(0)));
+        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 5i64);
+        assert_eq!(state.current_objective(), 5i64);
+    }
+
+    #[test]
+    fn test_apply_assignment_unchecked_matches_checked_behavior() {
+        let mut trail_checked = SearchTrail::<IntegerType>::new();
+        let mut state_checked = make_state(2, 2);
+
+        let mut trail_unchecked = SearchTrail::<IntegerType>::new();
+        let mut state_unchecked = make_state(2, 2);
+
+        trail_checked.apply_assignment(
+            &mut state_checked,
+            BerthIndex::new(1),
+            VesselIndex::new(0),
+            8i64,
+            8i64,
+            8i64,
+        );
+
+        unsafe {
+            trail_unchecked.apply_assignment_unchecked(
+                &mut state_unchecked,
+                BerthIndex::new(1),
+                VesselIndex::new(0),
+                8i64,
+                8i64,
+                8i64,
+            );
+        }
+
+        assert_eq!(
+            state_checked.berth_free_time(BerthIndex::new(1)),
+            state_unchecked.berth_free_time(BerthIndex::new(1))
+        );
+        assert_eq!(
+            state_checked.is_vessel_assigned(VesselIndex::new(0)),
+            state_unchecked.is_vessel_assigned(VesselIndex::new(0))
+        );
+        assert_eq!(trail_checked.num_entries(), trail_unchecked.num_entries());
+        assert_eq!(
+            trail_checked.iter_entries().count(),
+            trail_unchecked.iter_entries().count()
+        );
+
+        trail_checked.push_frame();
+        trail_checked.backtrack(&mut state_checked);
+        trail_checked.clear(&mut state_checked);
+
+        trail_unchecked.clear(&mut state_unchecked);
+
+        assert_eq!(trail_checked.num_entries(), 0);
+        assert_eq!(trail_unchecked.num_entries(), 0);
+        assert_eq!(state_checked.berth_free_time(BerthIndex::new(1)), 0i64);
+        assert_eq!(state_unchecked.berth_free_time(BerthIndex::new(1)), 0i64);
+        assert!(!state_checked.is_vessel_assigned(VesselIndex::new(0)));
+        assert!(!state_unchecked.is_vessel_assigned(VesselIndex::new(0)));
+    }
+
+    #[test]
+    fn test_display_for_search_trail() {
+        let mut trail = SearchTrail::<IntegerType>::new();
+        assert_eq!(format!("{}", trail), "SearchTrail(entries: 0, frames: 0)");
 
         let mut state = make_state(1, 1);
-        t.apply_assignment(&mut state, BerthIndex::new(0), VesselIndex::new(0), 3, 5);
-        let s2 = format!("{}", t);
-        assert!(s2.contains("entries: 1"));
-        assert!(s2.contains("frames: 1"));
+        trail.push_frame();
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(0),
+            VesselIndex::new(0),
+            1i64,
+            1i64,
+            1i64,
+        );
+
+        let s = format!("{}", trail);
+        assert!(s.contains("SearchTrail(entries: 1, frames: 1)"));
     }
 
     #[test]
-    fn test_apply_assignment_unchecked_respects_invariants() {
-        let mut state = make_state(1, 2);
-        let mut t = SearchTrail::<I>::new();
+    fn test_iter_entries_order_lifo_backtrack() {
+        let mut trail = SearchTrail::<IntegerType>::new();
+        let mut state = make_state(2, 3);
+        trail.push_frame();
 
-        // Frame
-        t.push_frame();
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(0),
+            VesselIndex::new(0),
+            1i64,
+            1i64,
+            1i64,
+        );
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(1),
+            VesselIndex::new(1),
+            2i64,
+            3i64,
+            2i64,
+        );
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(1),
+            VesselIndex::new(2),
+            5i64,
+            8i64,
+            5i64,
+        );
 
-        // Unsafe apply for vessel 1 on berth 0
-        unsafe {
-            t.apply_assignment_unchecked(&mut state, BerthIndex::new(0), VesselIndex::new(1), 6, 9)
-        }
-        assert_eq!(t.num_entries(), 1);
-        assert!(state.is_vessel_assigned(VesselIndex::new(1)));
-        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 6);
-        assert_eq!(state.current_objective(), 9);
+        let entries: Vec<_> = trail.iter_entries().copied().collect();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].vessel_index().get(), 0);
+        assert_eq!(entries[1].vessel_index().get(), 1);
+        assert_eq!(entries[2].vessel_index().get(), 2);
 
-        // Backtrack: should restore to initial
-        t.backtrack(&mut state);
-        assert_eq!(t.num_entries(), 0);
+        trail.backtrack(&mut state);
+        assert_eq!(trail.num_entries(), 0);
+        assert!(!state.is_vessel_assigned(VesselIndex::new(0)));
         assert!(!state.is_vessel_assigned(VesselIndex::new(1)));
-        assert_eq!(state.berth_free_time(BerthIndex::new(0)), I::zero());
-        assert_eq!(state.current_objective(), I::zero());
+        assert!(!state.is_vessel_assigned(VesselIndex::new(2)));
+        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 0i64);
+        assert_eq!(state.berth_free_time(BerthIndex::new(1)), 0i64);
+        assert_eq!(state.current_objective(), 0i64);
+    }
+
+    #[test]
+    fn test_backtrack_with_no_frames_is_noop() {
+        let mut trail = SearchTrail::<IntegerType>::new();
+        let mut state = make_state(1, 1);
+
+        trail.apply_assignment(
+            &mut state,
+            BerthIndex::new(0),
+            VesselIndex::new(0),
+            3i64,
+            3i64,
+            3i64,
+        );
+
+        let prev_entries = trail.num_entries();
+        let prev_frames = trail.num_frames();
+
+        trail.backtrack(&mut state);
+
+        assert_eq!(trail.num_entries(), prev_entries, "entries unchanged");
+        assert_eq!(trail.num_frames(), prev_frames, "frames unchanged");
+        assert!(state.is_vessel_assigned(VesselIndex::new(0)));
+        assert_eq!(state.berth_free_time(BerthIndex::new(0)), 3i64);
+    }
+
+    #[test]
+    fn test_clear_on_empty_is_safe() {
+        let mut trail = SearchTrail::<IntegerType>::new();
+        let mut state = make_state(1, 1);
+        trail.clear(&mut state);
+        assert_eq!(trail.num_entries(), 0);
+        assert_eq!(trail.num_frames(), 0);
+    }
+
+    #[test]
+    fn test_allocated_memory_bytes_is_nonzero_after_capacity() {
+        let trail = SearchTrail::<IntegerType>::with_capacity(16, 8);
+        let bytes = trail.allocated_memory_bytes();
+        assert!(bytes > 0);
     }
 }

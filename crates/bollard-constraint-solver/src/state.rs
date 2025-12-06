@@ -20,19 +20,21 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bollard_model::index::{BerthIndex, VesselIndex};
-use num_traits::Zero;
+use num_traits::PrimInt;
 
 #[derive(Debug, Clone)]
 pub struct SearchState<T> {
+    current_objective: T,
+    last_decision_time: T,
+    last_decision_vessel: VesselIndex,
+    num_assigned_vessels: usize,
     berth_free_times: Vec<T>,      // len = num_berths
     vessel_assignments: Vec<bool>, // len = num_vessels
-    num_assigned_vessels: usize,
-    current_objective: T,
 }
 
 impl<T> SearchState<T>
 where
-    T: Copy + Zero,
+    T: PrimInt,
 {
     /// Creates a new initial search state with all berths free at time zero
     /// and no vessels assigned.
@@ -43,6 +45,8 @@ where
             vessel_assignments: vec![false; num_vessels],
             num_assigned_vessels: 0,
             current_objective: T::zero(),
+            last_decision_time: T::min_value(),
+            last_decision_vessel: VesselIndex::new(0),
         }
     }
 
@@ -251,6 +255,25 @@ where
         debug_assert!(self.num_assigned_vessels <= self.num_vessels());
     }
 
+    #[inline]
+    pub fn last_decision_time(&self) -> T {
+        self.last_decision_time
+    }
+
+    #[inline]
+    pub fn last_decision_vessel(&self) -> VesselIndex {
+        self.last_decision_vessel
+    }
+
+    /// Updates the chronological frontier of the search state.
+    #[inline]
+    pub fn set_last_decision(&mut self, time: T, vessel_index: VesselIndex) {
+        debug_assert!(vessel_index.get() < self.num_vessels());
+
+        self.last_decision_time = time;
+        self.last_decision_vessel = vessel_index;
+    }
+
     /// Returns the number of assigned vessels.
     #[inline]
     pub fn num_assigned_vessels(&self) -> usize {
@@ -327,6 +350,10 @@ mod tests {
         // No vessels assigned, objective zero
         assert_eq!(state.num_assigned_vessels(), 0);
         assert_eq!(state.current_objective(), IntegerType::zero());
+
+        // Chronological frontier defaults
+        assert_eq!(state.last_decision_time(), IntegerType::min_value());
+        assert_eq!(state.last_decision_vessel().get(), 0);
     }
 
     #[test]
@@ -363,5 +390,35 @@ mod tests {
         // Example: "State(objective: 0, assigned_vessels: 2/3)"
         assert!(formatted.contains("State(objective: "));
         assert!(formatted.contains("assigned_vessels: 2/3"));
+    }
+
+    #[test]
+    fn test_set_last_decision_and_reset_behavior() {
+        let mut state = SearchState::<IntegerType>::new(2, 3);
+
+        // Set a custom chronological frontier
+        state.set_last_decision(42, VesselIndex::new(2));
+        assert_eq!(state.last_decision_time(), 42);
+        assert_eq!(state.last_decision_vessel().get(), 2);
+
+        // Mutate other state
+        state.set_current_objective(99);
+        state.set_berth_free_time(BerthIndex::new(0), 7);
+        state.assign_vessel(VesselIndex::new(1));
+        assert_eq!(state.num_assigned_vessels(), 1);
+
+        // Reset should clear berth times, vessel assignments, objective, counts,
+        // but KEEP last_decision_time and last_decision_vessel unchanged.
+        state.reset();
+
+        // Cleared fields
+        assert_eq!(state.current_objective(), 0);
+        assert!(state.berth_free_times().iter().all(|&t| t == 0));
+        assert!(state.vessel_assignments().iter().all(|&a| a == false));
+        assert_eq!(state.num_assigned_vessels(), 0);
+
+        // Chronological frontier preserved
+        assert_eq!(state.last_decision_time(), 42);
+        assert_eq!(state.last_decision_vessel().get(), 2);
     }
 }

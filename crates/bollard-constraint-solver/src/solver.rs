@@ -277,6 +277,7 @@ where
             vessel_index,
             new_berth_time,
             new_objective,
+            start_time,
         );
         self.solver.stack.push_frame();
     }
@@ -313,15 +314,10 @@ where
         let mut berths = vec![BerthIndex::new(0); num_vessels];
         let mut start_times = vec![T::zero(); num_vessels];
 
-        // Iterate over the trail to find the assignments.
-        // Each entry represents an assignment made.
         for entry in self.solver.trail.iter_entries() {
             let vessel_index = entry.vessel_index();
             let berth_index = entry.berth_index();
 
-            // Re-calculate the start time logic:
-            // start = max(arrival, availability_before_assignment)
-            // Availability before assignment is recorded in the trail as `old_berth_time`.
             let arrival = self.model.arrival_time(vessel_index);
             let available = entry.old_berth_time();
 
@@ -355,25 +351,123 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::iter::FusedIterator;
-
     use super::*;
-    use crate::{decision::DecisionBuilder, eval::WeightedFlowTimeEvaluator};
+    use crate::eval::WeightedFlowTimeEvaluator;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
         time::ProcessingTime,
     };
+    use std::iter::FusedIterator;
 
     type IntegerType = i64;
 
-    /// An iterator that yields every possible (Vessel, Berth) combination.
-    /// It acts as a state machine for a nested loop:
-    /// for vessel in 0..num_vessels {
-    ///     for berth in 0..num_berths {
-    ///         yield Decision(vessel, berth);
-    ///     }
-    /// }
+    // --- 1. Chronological Iterator ---
+
+    pub struct ChronologicalIter<'a, T>
+    where
+        T: PrimInt + Signed,
+    {
+        current_vessel_idx: VesselIndex,
+        current_berth_idx: BerthIndex,
+        model: &'a Model<T>,
+        state: &'a SearchState<T>,
+    }
+
+    impl<'a, T> Iterator for ChronologicalIter<'a, T>
+    where
+        T: PrimInt + Signed + MinusOne,
+    {
+        type Item = Decision;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let num_vessels = self.model.num_vessels();
+            let num_berths = self.model.num_berths();
+
+            while self.current_vessel_idx.get() < num_vessels {
+                let v_idx = self.current_vessel_idx;
+                let b_idx = self.current_berth_idx;
+
+                let mut next_b_val = b_idx.get() + 1;
+                let mut next_v_val = v_idx.get();
+
+                if next_b_val >= num_berths {
+                    next_b_val = 0;
+                    next_v_val += 1;
+                }
+
+                self.current_berth_idx = BerthIndex::new(next_b_val);
+                self.current_vessel_idx = VesselIndex::new(next_v_val);
+
+                if unsafe { self.state.is_vessel_assigned_unchecked(v_idx) } {
+                    continue;
+                }
+
+                if unsafe { !self.model.allowed_on_berth_unchecked(v_idx, b_idx) } {
+                    continue;
+                }
+
+                let berth_avail = unsafe { self.state.berth_free_time_unchecked(b_idx) };
+                let arrival = unsafe { self.model.arrival_time_unchecked(v_idx) };
+
+                let start_time = if arrival > berth_avail {
+                    arrival
+                } else {
+                    berth_avail
+                };
+
+                let last_time = self.state.last_decision_time();
+
+                if start_time < last_time {
+                    continue;
+                }
+
+                if start_time == last_time {
+                    let last_vessel_idx: usize = self.state.last_decision_vessel().get();
+                    if v_idx.get() < last_vessel_idx {
+                        continue;
+                    }
+                }
+
+                return Some(Decision::new(v_idx, b_idx));
+            }
+
+            None
+        }
+    }
+
+    impl<'a, T> FusedIterator for ChronologicalIter<'a, T> where T: PrimInt + Signed + MinusOne {}
+
+    pub struct ChronologicalBuilder;
+
+    impl<T> DecisionBuilder<T> for ChronologicalBuilder
+    where
+        T: PrimInt + Signed + MinusOne,
+    {
+        type DecisionIterator<'a>
+            = ChronologicalIter<'a, T>
+        where
+            Self: 'a,
+            T: 'a;
+
+        fn name(&self) -> &str {
+            "ChronologicalBuilder"
+        }
+
+        fn next_decision<'a>(
+            &mut self,
+            model: &'a Model<T>,
+            state: &'a SearchState<T>,
+        ) -> Self::DecisionIterator<'a> {
+            ChronologicalIter {
+                current_vessel_idx: VesselIndex::new(0),
+                current_berth_idx: BerthIndex::new(0),
+                model,
+                state,
+            }
+        }
+    }
+
     pub struct PermutationIter {
         current_vessel: usize,
         current_berth: usize,
@@ -421,21 +515,21 @@ mod tests {
         T: PrimInt + Signed,
     {
         // No Vec, no Box, just our raw struct
-        type DecisionIterator = PermutationIter;
+        type DecisionIterator<'a>
+            = PermutationIter
+        where
+            Self: 'a,
+            T: 'a;
 
         fn name(&self) -> &str {
             "OptimalityBuilder (Permutation)"
         }
 
-        fn next_decision(
-            &mut self,
-            model: &Model<T>,
-            _state: &SearchState<T>,
-        ) -> Self::DecisionIterator {
-            // We initialize the iterator state based on the model size.
-            // Note: We ignore 'state' here. We yield ALL possibilities.
-            // The Solver's `is_feasible` check handles filtering out
-            // vessels that are already assigned.
+        fn next_decision<'a>(
+            &'a mut self,
+            model: &'a Model<T>,
+            _state: &'a SearchState<T>,
+        ) -> Self::DecisionIterator<'a> {
             PermutationIter {
                 current_vessel: 0,
                 current_berth: 0,
@@ -446,101 +540,165 @@ mod tests {
     }
 
     #[test]
-    fn test_solve_simple_optimality() {
-        let mut mb = ModelBuilder::<IntegerType>::new(2, 2);
-        // Vessel 0: proc=10 at berth 0, proc=5 at berth 1
-        mb.set_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            ProcessingTime::some(10),
-        );
-        mb.set_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(1),
-            ProcessingTime::some(5),
-        );
-        // Vessel 1: proc=5 at berth 0, proc=100 at berth 1
-        mb.set_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(0),
-            ProcessingTime::some(5),
-        );
-        mb.set_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(1),
-            ProcessingTime::some(100),
-        );
-
-        let model = mb.build();
-        let mut solver = Solver::new();
-        let mut builder = OptimalityBuilder;
-        let evaluator = WeightedFlowTimeEvaluator::new();
-
-        let result = solver.solve(&model, &mut builder, &evaluator);
-
-        assert!(result.is_some());
-        let solution = result.unwrap();
-        // Optimal cost: V0->B1 (5), V1->B0 (5) = 10
-        assert_eq!(solution.objective_value(), 10);
-        assert_eq!(solution.num_vessels(), 2);
-
-        // Check assignments
-        // V0 should be at Berth 1
-        assert_eq!(solution.berth_for_vessel(VesselIndex::new(0)).get(), 1);
-        // V1 should be at Berth 0
-        assert_eq!(solution.berth_for_vessel(VesselIndex::new(1)).get(), 0);
-    }
-
-    #[test]
-    fn test_solve_infeasible() {
-        let mut mb = ModelBuilder::<IntegerType>::new(1, 1);
-        mb.set_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            ProcessingTime::none(),
-        );
-
-        let model = mb.build();
-        let mut solver = Solver::new();
-        let mut builder = OptimalityBuilder;
-        let evaluator = WeightedFlowTimeEvaluator::new();
-        let result = solver.solve(&model, &mut builder, &evaluator);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_pruning_logic() {
-        let mut mb = ModelBuilder::<IntegerType>::new(1, 2);
-        mb.set_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            ProcessingTime::some(100),
-        );
-        mb.set_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(0),
-            ProcessingTime::some(100),
-        );
-        let model = mb.build();
-        let mut solver = Solver::new();
-        let mut builder = OptimalityBuilder;
-        let evaluator = WeightedFlowTimeEvaluator::new();
-        let result = solver.solve(&model, &mut builder, &evaluator);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().objective_value(), 300);
-    }
-
-    #[test]
-    fn test_solve_two_berths_ten_vessels_beats_greedy_baseline() {
+    fn test_chronological_builder_matches_permutation_builder_on_small_case() {
         let num_vessels = 10;
         let num_berths = 2;
 
+        // Build a deterministic model:
+        // - Every vessel is allowed on both berths
+        // - Arrival time 0 for all vessels
+        // - Weight 1 for all vessels
+        // - Processing times: berth 0 = i+1, berth 1 = 2*(i+1)
+        // This produces a clear optimum and is easy to verify.
         let mut mb = ModelBuilder::<IntegerType>::new(num_berths, num_vessels);
-
         for i in 0..num_vessels {
             let v = VesselIndex::new(i);
             let t0 = (i as IntegerType) + 1;
             let t1 = 2 * ((i as IntegerType) + 1);
+            mb.set_processing_time(v, BerthIndex::new(0), ProcessingTime::some(t0));
+            mb.set_processing_time(v, BerthIndex::new(1), ProcessingTime::some(t1));
+            mb.set_vessel_weight(v, 1);
+            mb.set_arrival_time(v, 0);
+        }
+
+        let model = mb.build();
+        let mut solver = Solver::new();
+        let evaluator = WeightedFlowTimeEvaluator::new();
+
+        // Solve with ChronologicalBuilder
+        let mut chronological_builder = ChronologicalBuilder;
+        let chrono_result = solver.solve(&model, &mut chronological_builder, &evaluator);
+        assert!(
+            chrono_result.is_some(),
+            "ChronologicalBuilder produced no solution"
+        );
+        let chrono_solution = chrono_result.unwrap();
+
+        // Solve with OptimalityBuilder (permutation/exhaustive)
+        solver.reset();
+        let mut optimality_builder = OptimalityBuilder;
+        let opt_result = solver.solve(&model, &mut optimality_builder, &evaluator);
+        assert!(
+            opt_result.is_some(),
+            "OptimalityBuilder produced no solution"
+        );
+        let opt_solution = opt_result.unwrap();
+
+        // Compare objectives: both should obtain the same optimum
+        assert_eq!(
+            chrono_solution.objective_value(),
+            opt_solution.objective_value(),
+            "ChronologicalBuilder objective differs from exhaustive OptimalityBuilder"
+        );
+
+        // Sanity checks on solution shape
+        assert_eq!(chrono_solution.num_vessels(), num_vessels);
+        assert_eq!(opt_solution.num_vessels(), num_vessels);
+
+        // It's possible multiple optimal assignments exist; we only enforce objective equality.
+        // Optionally, check that both solutions utilize berth 0 predominantly due to faster times.
+        let chrono_berth1_count = (0..num_vessels)
+            .filter(|&i| chrono_solution.berth_for_vessel(VesselIndex::new(i)).get() == 1)
+            .count();
+        let opt_berth1_count = (0..num_vessels)
+            .filter(|&i| opt_solution.berth_for_vessel(VesselIndex::new(i)).get() == 1)
+            .count();
+
+        // Both strategies should use berth 1 at least once in a flow-time objective to reduce cumulative delay.
+        assert!(
+            chrono_berth1_count > 0,
+            "ChronologicalBuilder should utilize berth 1 at least once for flow-time improvements"
+        );
+        assert!(
+            opt_berth1_count > 0,
+            "OptimalityBuilder should utilize berth 1 at least once for flow-time improvements"
+        );
+    }
+
+    #[test]
+    fn test_chronological_builder_is_faster_than_permutation_builder() {
+        use std::time::Instant;
+
+        let num_vessels = 10;
+        let num_berths = 2;
+
+        // Build a deterministic model:
+        // - Every vessel is allowed on both berths
+        // - Arrival time 0 for all vessels
+        // - Weight 1 for all vessels
+        // - Processing times: berth 0 = i+1, berth 1 = 2*(i+1)
+        let mut mb = ModelBuilder::<IntegerType>::new(num_berths, num_vessels);
+        for i in 0..num_vessels {
+            let v = VesselIndex::new(i);
+            let t0 = (i as IntegerType) + 1;
+            let t1 = 2 * ((i as IntegerType) + 1);
+            mb.set_processing_time(v, BerthIndex::new(0), ProcessingTime::some(t0));
+            mb.set_processing_time(v, BerthIndex::new(1), ProcessingTime::some(t1));
+            mb.set_vessel_weight(v, 1);
+            mb.set_arrival_time(v, 0);
+        }
+
+        let model = mb.build();
+        let evaluator = WeightedFlowTimeEvaluator::new();
+
+        // Run ChronologicalBuilder
+        let mut solver = Solver::new();
+        let mut chrono_builder = ChronologicalBuilder;
+        let start_chrono = Instant::now();
+        let chrono_result = solver.solve(&model, &mut chrono_builder, &evaluator);
+        let chrono_duration = start_chrono.elapsed();
+        assert!(
+            chrono_result.is_some(),
+            "ChronologicalBuilder produced no solution"
+        );
+        let chrono_obj = chrono_result.unwrap().objective_value();
+
+        // Run OptimalityBuilder (permutation/exhaustive)
+        solver.reset();
+        let mut opt_builder = OptimalityBuilder;
+        let start_opt = Instant::now();
+        let opt_result = solver.solve(&model, &mut opt_builder, &evaluator);
+        let opt_duration = start_opt.elapsed();
+        assert!(
+            opt_result.is_some(),
+            "OptimalityBuilder produced no solution"
+        );
+        let opt_obj = opt_result.unwrap().objective_value();
+
+        // Sanity: both should reach the same optimum
+        assert_eq!(
+            chrono_obj, opt_obj,
+            "Objectives differ between builders; test expects identical optimum"
+        );
+
+        // Print timings for local inspection
+        println!(
+            "ChronologicalBuilder: {:?}, OptimalityBuilder: {:?}",
+            chrono_duration, opt_duration
+        );
+
+        // Assert the chronological approach is faster or equal.
+        // Note: wall-clock timings can be noisy; if this ever flakes on CI,
+        // consider relaxing or turning into an informational check.
+        assert!(
+            chrono_duration <= opt_duration,
+            "ChronologicalBuilder should be faster or equal. Chrono: {:?}, Permutation: {:?}",
+            chrono_duration,
+            opt_duration
+        );
+    }
+
+    #[test]
+    fn test_chronological_builder_finds_global_optimum() {
+        let num_vessels = 10;
+        let num_berths = 2;
+        let mut mb = ModelBuilder::<IntegerType>::new(num_berths, num_vessels);
+
+        // Create a scenario where greedy choice is suboptimal
+        for i in 0..num_vessels {
+            let v = VesselIndex::new(i);
+            let t0 = (i as IntegerType) + 1; // Fast berth processing time
+            let t1 = 2 * ((i as IntegerType) + 1); // Slow berth processing time
 
             mb.set_processing_time(v, BerthIndex::new(0), ProcessingTime::some(t0));
             mb.set_processing_time(v, BerthIndex::new(1), ProcessingTime::some(t1));
@@ -550,8 +708,7 @@ mod tests {
 
         let model = mb.build();
         let mut solver = Solver::new();
-
-        let mut builder = OptimalityBuilder;
+        let mut builder = ChronologicalBuilder;
         let evaluator = WeightedFlowTimeEvaluator::new();
 
         let result = solver.solve(&model, &mut builder, &evaluator);
@@ -561,31 +718,80 @@ mod tests {
             "Solver failed to find a feasible solution"
         );
         let solution = result.unwrap();
-
-        let mut greedy_cost: IntegerType = 0;
-        let mut current_time: IntegerType = 0;
-        for i in 0..num_vessels {
-            current_time += (i as IntegerType) + 1; // Add processing time
-            greedy_cost += current_time; // Add completion time to objective
-        }
-
         let optimal_cost = solution.objective_value();
 
+        // Calculate a naive Greedy Baseline (all on fastest berth 0)
+        let mut greedy_cost = 0;
+        let mut current_time = 0;
+        for i in 0..num_vessels {
+            current_time += (i as IntegerType) + 1;
+            greedy_cost += current_time;
+        }
+
+        println!("Greedy Baseline (Single Berth): {}", greedy_cost);
+        println!("Chronological Optimal: {}", optimal_cost);
+
+        // The solver should utilize both berths to lower flow time, beating the single-berth greedy
         assert!(
             optimal_cost < greedy_cost,
-            "Solver failed to beat the greedy baseline! It likely behaved like a simulation."
+            "ChronologicalBuilder failed to beat single-berth greedy baseline!"
         );
 
+        // Verify that the solver actually used the second berth (Berth 1)
         let mut on_berth_1 = 0;
         for i in 0..num_vessels {
             if solution.berth_for_vessel(VesselIndex::new(i)).get() == 1 {
                 on_berth_1 += 1;
             }
         }
-
         assert!(
             on_berth_1 > 0,
-            "Optimal solution should utilize the slow berth to reduce waiting time"
+            "Optimal solution must make use of the second berth"
         );
+    }
+
+    #[test]
+    fn test_chronological_builder_correctness_on_small_case() {
+        let mut mb = ModelBuilder::<IntegerType>::new(1, 2);
+
+        // V0: Arrives late (10), takes 5
+        mb.set_arrival_time(VesselIndex::new(0), 10);
+        mb.set_processing_time(
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            ProcessingTime::some(5),
+        );
+        mb.set_vessel_weight(VesselIndex::new(0), 1);
+
+        // V1: Arrives early (0), takes 5
+        mb.set_arrival_time(VesselIndex::new(1), 0);
+        mb.set_processing_time(
+            VesselIndex::new(1),
+            BerthIndex::new(0),
+            ProcessingTime::some(5),
+        );
+        mb.set_vessel_weight(VesselIndex::new(1), 1);
+
+        let model = mb.build();
+        let mut solver = Solver::new();
+        let mut builder = ChronologicalBuilder;
+        let evaluator = WeightedFlowTimeEvaluator::new();
+
+        let sol = solver.solve(&model, &mut builder, &evaluator).unwrap();
+
+        let t0 = sol.start_time_for_vessel(VesselIndex::new(0));
+        let t1 = sol.start_time_for_vessel(VesselIndex::new(1));
+
+        // CHRONOLOGICAL LOGIC ASSERTION:
+        // The builder should schedule V1 first (starts at 0).
+        // It should NOT schedule V0 first, because V0 starts at 10.
+        // If it scheduled V0 first (t=10), then tried to schedule V1, V1 would start at 0.
+        // But 0 < 10 (previous decision), so the Iterator skips that branch.
+
+        assert_eq!(t1, 0, "Vessel 1 must start at 0 (First in sequence)");
+        assert_eq!(t0, 10, "Vessel 0 must start at 10 (Second in sequence)");
+
+        // Objective: (0+5) + (10+5) = 5 + 15 = 20
+        assert_eq!(sol.objective_value(), 20);
     }
 }

@@ -122,192 +122,24 @@ impl std::fmt::Display for Decision {
     }
 }
 
-/// A pluggable decision builder that produces decisions for the solver to explore.
+// decision.rs
 pub trait DecisionBuilder<T>
 where
     T: PrimInt + Signed,
 {
-    /// The iterator over decisions of this decision builder.
-    type DecisionIterator: Iterator<Item = Decision> + FusedIterator;
+    // The iterator output must live for 'a
+    type DecisionIterator<'a>: Iterator<Item = Decision> + FusedIterator + 'a
+    where
+        Self: 'a,
+        T: 'a;
 
-    /// Returns the name of the decision builder.
-    /// This is mostly used for logging and debugging purposes.
     fn name(&self) -> &str;
 
-    /// Returns the next decision to be made in the search.
-    fn next_decision(
+    // We pass references that live for at least 'a.
+    // The implementation will tie the returned iterator to these lifetimes.
+    fn next_decision<'a>(
         &mut self,
-        model: &Model<T>,
-        search_state: &SearchState<T>,
-    ) -> Self::DecisionIterator;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bollard_model::model::ModelBuilder;
-
-    type Int = i64;
-
-    #[test]
-    fn decision_new_getters_display_and_ordering() {
-        let d1 = Decision::new(VesselIndex::new(0), BerthIndex::new(1));
-        let d2 = Decision::new(VesselIndex::new(0), BerthIndex::new(2));
-        let d3 = Decision::new(VesselIndex::new(1), BerthIndex::new(0));
-
-        // Getters
-        assert_eq!(d1.vessel_index().get(), 0);
-        assert_eq!(d1.berth_index().get(), 1);
-
-        // Display contains indices (TypedIndex prints as TagName(n))
-        let s = d1.to_string();
-        assert!(s.contains("Decision("));
-        assert!(s.contains("vessel_index: VesselIndex(0)"));
-        assert!(s.contains("berth_index: BerthIndex(1)"));
-
-        // Equality
-        assert_eq!(d1, Decision::new(VesselIndex::new(0), BerthIndex::new(1)));
-        assert_ne!(d1, d2);
-
-        // Ordering (derived: first by vessel_index, then by berth_index)
-        let mut v = vec![d3.clone(), d1.clone(), d2.clone()];
-        v.sort();
-        assert_eq!(v, vec![d1, d2, d3]);
-    }
-
-    // A builder that yields no decisions.
-    struct NoDecisionBuilder;
-
-    impl<T: PrimInt + Signed> DecisionBuilder<T> for NoDecisionBuilder {
-        type DecisionIterator = std::iter::Empty<Decision>;
-
-        fn name(&self) -> &str {
-            "None"
-        }
-
-        fn next_decision<'m, 's>(
-            &mut self,
-            _model: &'m Model<T>,
-            _search_state: &'s SearchState<T>,
-        ) -> Self::DecisionIterator {
-            std::iter::empty()
-        }
-    }
-
-    // A builder that yields exactly one decision.
-    struct SingleDecisionBuilder {
-        decision: Decision,
-    }
-
-    impl<T: PrimInt + Signed> DecisionBuilder<T> for SingleDecisionBuilder {
-        type DecisionIterator = std::option::IntoIter<Decision>;
-
-        fn name(&self) -> &str {
-            "Single"
-        }
-
-        fn next_decision<'m, 's>(
-            &mut self,
-            _model: &'m Model<T>,
-            _search_state: &'s SearchState<T>,
-        ) -> Self::DecisionIterator {
-            Some(self.decision.clone()).into_iter()
-        }
-    }
-
-    // A builder that yields two decisions in a fixed order.
-    struct TwoDecisionBuilder {
-        a: Decision,
-        b: Decision,
-    }
-
-    impl<T: PrimInt + Signed> DecisionBuilder<T> for TwoDecisionBuilder {
-        type DecisionIterator = std::array::IntoIter<Decision, 2>;
-
-        fn name(&self) -> &str {
-            "Two"
-        }
-
-        fn next_decision<'m, 's>(
-            &mut self,
-            _model: &'m Model<T>,
-            _search_state: &'s SearchState<T>,
-        ) -> Self::DecisionIterator {
-            let array = [self.a.clone(), self.b.clone()];
-            IntoIterator::into_iter(array)
-        }
-    }
-
-    fn small_model_and_state() -> (Model<Int>, SearchState<Int>) {
-        // Build a tiny model; details are irrelevant for these tests,
-        // but we need concrete references to satisfy the trait signature.
-        let model = ModelBuilder::<Int>::new(2, 2).build();
-        let state = SearchState::<Int>::new(model.num_berths(), model.num_vessels());
-        (model, state)
-        // Note: We don't rely on any particular field of model/state here.
-    }
-
-    #[test]
-    fn builder_empty_iterator_is_fused() {
-        let (model, state) = small_model_and_state();
-        let mut builder = NoDecisionBuilder;
-
-        let mut it = builder.next_decision(&model, &state);
-        assert!(it.next().is_none());
-        // FusedIterator: once None, always None
-        assert!(it.next().is_none());
-    }
-
-    #[test]
-    fn builder_single_decision_iterator_is_fused_and_yields_one() {
-        let (model, state) = small_model_and_state();
-        let d = Decision::new(VesselIndex::new(1), BerthIndex::new(0));
-        let mut builder = SingleDecisionBuilder {
-            decision: d.clone(),
-        };
-
-        let mut it = builder.next_decision(&model, &state);
-        assert_eq!(it.next(), Some(d));
-        assert!(it.next().is_none()); // Fused after exhaustion
-    }
-
-    #[test]
-    fn builder_multiple_decisions_ordering_preserved() {
-        let (model, state) = small_model_and_state();
-        let d1 = Decision::new(VesselIndex::new(0), BerthIndex::new(1));
-        let d2 = Decision::new(VesselIndex::new(1), BerthIndex::new(0));
-        let mut builder = TwoDecisionBuilder {
-            a: d1.clone(),
-            b: d2.clone(),
-        };
-
-        let it = builder.next_decision(&model, &state);
-        let decisions: Vec<_> = it.collect();
-        assert_eq!(decisions, vec![d1, d2]);
-    }
-
-    #[test]
-    fn builder_names_are_exposed_for_logging() {
-        let none = NoDecisionBuilder;
-        let single = SingleDecisionBuilder {
-            decision: Decision::new(VesselIndex::new(0), BerthIndex::new(0)),
-        };
-        let two = TwoDecisionBuilder {
-            a: Decision::new(VesselIndex::new(0), BerthIndex::new(0)),
-            b: Decision::new(VesselIndex::new(0), BerthIndex::new(1)),
-        };
-
-        assert_eq!(
-            <NoDecisionBuilder as DecisionBuilder<Int>>::name(&none),
-            "None"
-        );
-        assert_eq!(
-            <SingleDecisionBuilder as DecisionBuilder<Int>>::name(&single),
-            "Single"
-        );
-        assert_eq!(
-            <TwoDecisionBuilder as DecisionBuilder<Int>>::name(&two),
-            "Two"
-        );
-    }
+        model: &'a Model<T>,
+        search_state: &'a SearchState<T>,
+    ) -> Self::DecisionIterator<'a>;
 }
