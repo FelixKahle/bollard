@@ -22,8 +22,8 @@
 use crate::{
     branching::decision::{Decision, DecisionBuilder},
     eval::evaluator::ObjectiveEvaluator,
-    monitor::search_monitor::{SearchCommand, TreeSearchMonitor},
-    result::{SearchOutcome, SolverResult, TerminationReason},
+    monitor::search_monitor::TreeSearchMonitor,
+    result::BnbSolverResult,
     stack::SearchStack,
     state::SearchState,
     stats::BnbSolverStatistics,
@@ -32,6 +32,10 @@ use crate::{
 use bollard_core::num::{constants::MinusOne, ops::saturating_arithmetic};
 use bollard_model::index::{BerthIndex, VesselIndex};
 use bollard_model::{model::Model, solution::Solution};
+use bollard_search::{
+    monitor::search_monitor::SearchCommand,
+    result::{SolverResult, TerminationReason},
+};
 use num_traits::{FromPrimitive, PrimInt, Signed};
 
 /// A constraint branch and bound solver for the berth scheduling problem using
@@ -97,7 +101,7 @@ where
         builder: &mut B,
         evaluator: &mut E,
         monitor: S,
-    ) -> SolverResult<T>
+    ) -> BnbSolverResult<T>
     where
         B: DecisionBuilder<T, E>,
         E: ObjectiveEvaluator<T>,
@@ -274,16 +278,17 @@ where
 
     /// Run the search session.
     #[inline]
-    fn run(mut self) -> SolverResult<T>
+    fn run(mut self) -> BnbSolverResult<T>
     where
         T: FromPrimitive,
     {
         self.monitor.on_enter_search(self.model);
         self.initialize();
 
-        let termination_reason = loop {
-            if let SearchCommand::Stop = self.monitor.check_termination(&self.state, &self.stats) {
-                break TerminationReason::Aborted;
+        let termination_reason: TerminationReason = loop {
+            match self.monitor.check_termination(&self.state, &self.stats) {
+                SearchCommand::Continue => { /* proceed */ }
+                SearchCommand::Terminate(msg) => break TerminationReason::Aborted(msg),
             }
 
             match self.step() {
@@ -306,25 +311,31 @@ where
     /// Finalize the solver result based on the best solution found
     /// and the termination reason.
     #[inline]
-    fn finalize_result(self, reason: TerminationReason) -> SolverResult<T> {
-        let outcome = match (&self.best_solution, reason) {
-            (Some(_), TerminationReason::OptimalityProven) => SearchOutcome::Optimal,
-            (Some(_), TerminationReason::Aborted) => SearchOutcome::Feasible,
-            (None, TerminationReason::InfeasibilityProven) => SearchOutcome::Infeasible,
-            (None, TerminationReason::Aborted) => SearchOutcome::Unknown,
-            _ => {
-                // If everything is implemented correctly, this case should never occur!
-                panic!("internal error: inconsistent solver result state");
+    fn finalize_result(self, reason: TerminationReason) -> BnbSolverResult<T> {
+        let result: SolverResult<T> = match &reason {
+            TerminationReason::OptimalityProven => {
+                // This must have a solution; otherwise it's a logic error.
+                let solution = self
+                    .best_solution
+                    .as_ref()
+                    .expect("OptimalityProven without a solution");
+                SolverResult::Optimal(solution.clone())
+            }
+            TerminationReason::InfeasibilityProven => SolverResult::Infeasible,
+            TerminationReason::Aborted(_) => {
+                // If we aborted and have a solution, it’s feasible; otherwise unknown.
+                self.best_solution
+                    .as_ref()
+                    .map_or(SolverResult::Unknown, |sol| {
+                        SolverResult::Feasible(sol.clone())
+                    })
             }
         };
 
-        SolverResult {
-            outcome,
-            reason,
-            solution: self.best_solution,
+        BnbSolverResult {
+            result,
+            termination_reason: reason,
             statistics: self.stats,
-            objective_evaluator: self.evaluator.name().to_string(),
-            tree_builder: self.builder.name().to_string(),
         }
     }
 
@@ -640,6 +651,7 @@ mod tests {
         model::ModelBuilder,
         time::ProcessingTime,
     };
+    use bollard_search::result::SolverResult;
 
     type IntegerType = i64;
 
@@ -700,16 +712,16 @@ mod tests {
         let result = solver.solve(&model, &mut builder, &mut evaluator, composite_monitor);
 
         // 2. Print the rich result (Outcome, Reason, Objective, Stats Table)
-        println!("{}", result);
+        // You can print the whole BnbSolverResult or just the inner SolverResult:
+        println!("{}", result.result); // prints just the solver result summary
 
-        // 3. Assertions
-        assert!(
-            result.solution.is_some(),
-            "solver should find a feasible solution"
-        );
-
-        // Unwrap the solution from the result struct
-        let solution = result.solution.as_ref().unwrap();
+        // 3. Assertions: unwrap the solution from the inner SolverResult
+        let solution = match &result.result {
+            SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
+            SolverResult::Infeasible | SolverResult::Unknown => {
+                panic!("solver should find a feasible solution")
+            }
+        };
 
         assert_eq!(solution.num_vessels(), model.num_vessels());
 

@@ -19,7 +19,7 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use bollard_model::solution::Solution;
+use bollard_model::{model::Model, solution::Solution};
 use num_traits::{PrimInt, Signed};
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -43,6 +43,8 @@ where
     T: PrimInt + Signed,
 {
     fn name(&self) -> &str;
+    fn on_enter_search(&mut self, model: &Model<T>);
+    fn on_exit_search(&mut self);
     fn on_solution_found(&mut self, solution: &Solution<T>);
     fn on_step(&mut self);
     fn search_command(&self) -> SearchCommand;

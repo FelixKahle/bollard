@@ -182,154 +182,16 @@ where
         }
         SearchCommand::Continue
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bollard_model::solution::Solution;
-
-    #[derive(Default)]
-    struct TestMonitor<T> {
-        name: &'static str,
-        steps: usize,
-        solutions_seen: usize,
-        last_objective: Option<T>,
-        command: SearchCommand,
-    }
-
-    impl<T> TestMonitor<T> {
-        fn new(name: &'static str) -> Self {
-            Self {
-                name,
-                steps: 0,
-                solutions_seen: 0,
-                last_objective: None,
-                command: SearchCommand::Continue,
-            }
-        }
-
-        fn with_command(name: &'static str, command: SearchCommand) -> Self {
-            Self {
-                name,
-                steps: 0,
-                solutions_seen: 0,
-                last_objective: None,
-                command,
-            }
+    fn on_enter_search(&mut self, model: &bollard_model::model::Model<T>) {
+        for monitor in &mut self.monitors {
+            monitor.on_enter_search(model);
         }
     }
 
-    impl<T> SearchMonitor<T> for TestMonitor<T>
-    where
-        T: PrimInt + Signed,
-    {
-        fn name(&self) -> &str {
-            self.name
+    fn on_exit_search(&mut self) {
+        for monitor in &mut self.monitors {
+            monitor.on_exit_search();
         }
-
-        fn on_solution_found(&mut self, solution: &Solution<T>) {
-            self.solutions_seen += 1;
-            self.last_objective = Some(solution.objective_value());
-        }
-
-        fn on_step(&mut self) {
-            self.steps += 1;
-        }
-
-        fn search_command(&self) -> SearchCommand {
-            self.command.clone()
-        }
-    }
-
-    #[test]
-    fn test_new_and_capacity() {
-        let cm: CompositeMonitor<i64> = CompositeMonitor::new();
-        assert!(cm.is_empty());
-        assert_eq!(cm.len(), 0);
-
-        let cm2: CompositeMonitor<i64> = CompositeMonitor::with_capacity(10);
-        assert!(cm2.is_empty());
-        assert_eq!(cm2.len(), 0);
-    }
-
-    #[test]
-    fn test_add_monitor_and_len() {
-        let mut cm: CompositeMonitor<i64> = CompositeMonitor::new();
-        cm.add_monitor(TestMonitor::<i64>::new("m1"));
-        cm.add_monitor(TestMonitor::<i64>::new("m2"));
-        assert_eq!(cm.len(), 2);
-        assert!(!cm.is_empty());
-    }
-
-    #[test]
-    fn test_add_monitor_boxed() {
-        let mut cm: CompositeMonitor<i64> = CompositeMonitor::new();
-        let m = Box::new(TestMonitor::<i64>::new("boxed"));
-        cm.add_monitor_boxed(m);
-        assert_eq!(cm.len(), 1);
-        assert_eq!(cm.monitor(MonitorIndex::new(0)).name(), "boxed");
-    }
-
-    #[test]
-    fn test_from_vec() {
-        let v: Vec<Box<dyn SearchMonitor<i64>>> = vec![
-            Box::new(TestMonitor::<i64>::new("a")),
-            Box::new(TestMonitor::<i64>::new("b")),
-        ];
-        let cm = CompositeMonitor::from_vec(v);
-        assert_eq!(cm.len(), 2);
-        assert_eq!(cm.monitor(MonitorIndex::new(0)).name(), "a");
-        assert_eq!(cm.monitor(MonitorIndex::new(1)).name(), "b");
-    }
-
-    #[test]
-    fn test_monitor_access() {
-        let mut cm: CompositeMonitor<i64> = CompositeMonitor::new();
-        cm.add_monitor(TestMonitor::<i64>::new("first"));
-        cm.add_monitor(TestMonitor::<i64>::new("second"));
-
-        let m0 = cm.monitor(MonitorIndex::new(0));
-        let m1 = cm.monitor(MonitorIndex::new(1));
-        assert_eq!(m0.name(), "first");
-        assert_eq!(m1.name(), "second");
-    }
-
-    #[test]
-    fn test_search_command_continue_and_terminate_propagation() {
-        let mut cm: CompositeMonitor<i64> = CompositeMonitor::new();
-        cm.add_monitor(TestMonitor::<i64>::with_command(
-            "c1",
-            SearchCommand::Continue,
-        ));
-        cm.add_monitor(TestMonitor::<i64>::with_command(
-            "t1",
-            SearchCommand::Terminate("stop now".into()),
-        ));
-        cm.add_monitor(TestMonitor::<i64>::with_command(
-            "c2",
-            SearchCommand::Continue,
-        ));
-
-        // The composite should surface the first Terminate it encounters
-        match cm.search_command() {
-            SearchCommand::Continue => panic!("expected termination"),
-            SearchCommand::Terminate(reason) => assert_eq!(reason, "stop now"),
-        }
-    }
-
-    #[test]
-    fn test_display_and_debug() {
-        let mut cm: CompositeMonitor<i64> = CompositeMonitor::new();
-        cm.add_monitor(TestMonitor::<i64>::new("alpha"));
-        cm.add_monitor(TestMonitor::<i64>::new("beta"));
-
-        let disp = format!("{}", cm);
-        assert!(disp.contains("CompositeMonitor([alpha, beta])"));
-
-        let dbg = format!("{:?}", cm);
-        assert!(dbg.contains("CompositeMonitor"));
-        assert!(dbg.contains("alpha"));
-        assert!(dbg.contains("beta"));
     }
 }

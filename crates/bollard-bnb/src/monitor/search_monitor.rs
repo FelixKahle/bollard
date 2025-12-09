@@ -21,28 +21,11 @@
 
 use crate::{state::SearchState, stats::BnbSolverStatistics};
 use bollard_model::{model::Model, solution::Solution};
+use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
 
-/// Command returned by the monitor to control the search process.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchCommand {
-    /// Stop the search process.
-    Continue,
-    /// Continue the search process.
-    Stop,
-}
-
-impl std::fmt::Display for SearchCommand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SearchCommand::Continue => write!(f, "Continue"),
-            SearchCommand::Stop => write!(f, "Stop"),
-        }
-    }
-}
-
 /// Trait for monitoring and controlling the search process of the solver.
-pub trait TreeSearchMonitor<T>: Send + Sync
+pub trait TreeSearchMonitor<T>
 where
     T: PrimInt + Signed,
 {

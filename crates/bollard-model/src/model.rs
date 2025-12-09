@@ -31,70 +31,6 @@ fn flatten_index(num_berths: usize, vessel_index: VesselIndex, berth_index: Bert
     vessel_index.get() * num_berths + berth_index.get()
 }
 
-/// A compact representation of vessel data, pre-sorted for chronological scanning.
-#[derive(Clone, Copy, Debug)]
-pub struct ChronologicalVesselData<T> {
-    /// The original index of the vessel (to link back to the State).
-    index: VesselIndex,
-    /// The arrival time.
-    arrival_time: T,
-    /// The shortest possible processing time across ANY berth (pre-calculated).
-    min_processing_time: T,
-    /// The weight/priority of the vessel.
-    weight: T,
-}
-
-impl<T> ChronologicalVesselData<T>
-where
-    T: PrimInt + Signed,
-{
-    /// Creates a new `ChronologicalVesselData` instance.
-    pub fn new(index: VesselIndex, arrival_time: T, min_processing_time: T, weight: T) -> Self {
-        Self {
-            index,
-            arrival_time,
-            min_processing_time,
-            weight,
-        }
-    }
-
-    /// Returns the original index of the vessel.
-    pub fn index(&self) -> VesselIndex {
-        self.index
-    }
-
-    /// Returns the arrival time of the vessel.
-    pub fn arrival_time(&self) -> T {
-        self.arrival_time
-    }
-
-    /// Returns the shortest possible processing time across any berth.
-    pub fn min_processing_time(&self) -> T {
-        self.min_processing_time
-    }
-
-    /// Returns the weight/priority of the vessel.
-    pub fn weight(&self) -> T {
-        self.weight
-    }
-}
-
-impl<T> std::fmt::Display for ChronologicalVesselData<T>
-where
-    T: PrimInt + Signed + std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "VesselIndex: {}, ArrivalTime: {}, MinProcessingTime: {}, Weight: {}",
-            self.index.get(),
-            self.arrival_time,
-            self.min_processing_time,
-            self.weight
-        )
-    }
-}
-
 /// The immutable data model describing vessels, berths, opening times, and processing times.
 ///
 /// This struct holds all pre-validated, queryable data:
@@ -114,18 +50,17 @@ pub struct Model<T>
 where
     T: PrimInt + Signed,
 {
-    arrival_times: Vec<T>,                                   // len = num_vessels
-    latest_departure_times: Vec<T>,                          // len = num_vessels
-    vessel_weights: Vec<T>,                                  // len = num_vessels
-    processing_times: Vec<ProcessingTime<T>>,                // len = num_vessels * num_berths
-    opening_times: Vec<Vec<ClosedOpenInterval<T>>>,          // len = num_berths.
-    shortest_processing_times: Vec<ProcessingTime<T>>,       // len = num_vessels
-    arrival_sorted_vessels: Vec<ChronologicalVesselData<T>>, // len = num_vessels
+    arrival_times: Vec<T>,                             // len = num_vessels
+    latest_departure_times: Vec<T>,                    // len = num_vessels
+    vessel_weights: Vec<T>,                            // len = num_vessels
+    processing_times: Vec<ProcessingTime<T>>,          // len = num_vessels * num_berths
+    opening_times: Vec<Vec<ClosedOpenInterval<T>>>,    // len = num_berths.
+    shortest_processing_times: Vec<ProcessingTime<T>>, // len = num_vessels
 }
 
 impl<T> Model<T>
 where
-    T: PrimInt + Signed + Copy,
+    T: PrimInt + Signed,
 {
     /// Returns the number of vessels in the model.
     ///
@@ -711,127 +646,6 @@ where
         unsafe { self.vessel_processing_time_unchecked(vessel_index, berth_index) }.is_some()
     }
 
-    /// Returns a slice of all vessels sorted by arrival time.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use bollard_model::model::ModelBuilder;
-    ///
-    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
-    /// builder.set_vessel_arrival_time(bollard_model::index::VesselIndex::new(0), 20);
-    /// builder.set_vessel_arrival_time(bollard_model::index::VesselIndex::new(1), 10);
-    /// // Ensure both vessels have processing times so they are included in the sorted list
-    /// builder
-    ///     .set_vessel_processing_time(
-    ///         bollard_model::index::VesselIndex::new(0),
-    ///         bollard_model::index::BerthIndex::new(0),
-    ///         bollard_model::time::ProcessingTime::some(5),
-    ///     )
-    ///     .set_vessel_processing_time(
-    ///         bollard_model::index::VesselIndex::new(1),
-    ///         bollard_model::index::BerthIndex::new(0),
-    ///         bollard_model::time::ProcessingTime::some(3),
-    ///     );
-    /// let model = builder.build();
-    /// let sorted_vessels = model.vessel_arrival_sorted_vessels();
-    /// assert_eq!(sorted_vessels[0].index().get(), 1);
-    /// assert_eq!(sorted_vessels[1].index().get(), 0);
-    /// ```
-    #[inline]
-    pub fn vessel_arrival_sorted_vessels(&self) -> &[ChronologicalVesselData<T>] {
-        &self.arrival_sorted_vessels
-    }
-
-    /// Panics if `sorted_index` is not in `0..num_vessels()`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use bollard_model::model::ModelBuilder;
-    ///
-    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
-    /// builder.set_vessel_arrival_time(bollard_model::index::VesselIndex::new(0), 20);
-    /// builder.set_vessel_arrival_time(bollard_model::index::VesselIndex::new(1), 10);
-    /// // Ensure vessels are included in the sorted list
-    /// builder
-    ///     .set_vessel_processing_time(
-    ///         bollard_model::index::VesselIndex::new(0),
-    ///         bollard_model::index::BerthIndex::new(0),
-    ///         bollard_model::time::ProcessingTime::some(5),
-    ///     )
-    ///     .set_vessel_processing_time(
-    ///         bollard_model::index::VesselIndex::new(1),
-    ///         bollard_model::index::BerthIndex::new(0),
-    ///         bollard_model::time::ProcessingTime::some(3),
-    ///     );
-    /// let model = builder.build();
-    ///
-    /// assert_eq!(model.vessel_arrival_time_sorted_vessel(0), 10);
-    /// assert_eq!(model.vessel_arrival_time_sorted_vessel(1), 20);
-    /// ```
-    #[inline]
-    pub fn vessel_arrival_time_sorted_vessel(&self, sorted_index: usize) -> T {
-        debug_assert!(
-            sorted_index < self.arrival_sorted_vessels.len(),
-            "called `Model::vessel_arrival_time_sorted_vessel` with sorted index out of bounds: the len is {} but the index is {}",
-            sorted_index,
-            self.arrival_sorted_vessels.len()
-        );
-
-        self.arrival_sorted_vessels[sorted_index].arrival_time()
-    }
-
-    /// # Examples
-    ///
-    /// # Panics
-    ///
-    /// In debug builds, this function will panic if `sorted_index` is not in `0..num_vessels()`.
-    /// In release builds, no bounds checking is performed.
-    ///
-    /// # Safety
-    ///
-    /// This function is unsafe because it does not perform bounds checking on `sorted_index`.
-    /// The caller must ensure that `sorted_index` is in `0..num_vessels()`. Undefined behavior
-    /// may occur if this precondition is violated.
-    ///
-    /// ```rust
-    /// # use bollard_model::model::ModelBuilder;
-    ///
-    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
-    /// builder.set_vessel_arrival_time(bollard_model::index::VesselIndex::new(0), 20);
-    /// builder.set_vessel_arrival_time(bollard_model::index::VesselIndex::new(1), 10);
-    /// // Ensure vessels are included in the sorted list
-    /// builder
-    ///     .set_vessel_processing_time(
-    ///         bollard_model::index::VesselIndex::new(0),
-    ///         bollard_model::index::BerthIndex::new(0),
-    ///         bollard_model::time::ProcessingTime::some(5),
-    ///     )
-    ///     .set_vessel_processing_time(
-    ///         bollard_model::index::VesselIndex::new(1),
-    ///         bollard_model::index::BerthIndex::new(0),
-    ///         bollard_model::time::ProcessingTime::some(3),
-    ///     );
-    /// let model = builder.build();
-    ///
-    /// unsafe {
-    ///     assert_eq!(model.vessel_arrival_time_sorted_vessel_unchecked(0), 10);
-    ///     assert_eq!(model.vessel_arrival_time_sorted_vessel_unchecked(1), 20);
-    /// }
-    /// ```
-    #[inline]
-    pub unsafe fn vessel_arrival_time_sorted_vessel_unchecked(&self, sorted_index: usize) -> T {
-        debug_assert!(
-            sorted_index < self.arrival_sorted_vessels.len(),
-            "called `Model::vessel_arrival_time_sorted_vessel_unchecked` with sorted index out of bounds: the len is {} but the index is {}",
-            sorted_index,
-            self.arrival_sorted_vessels.len()
-        );
-
-        unsafe { self.arrival_sorted_vessels.get_unchecked(sorted_index) }.arrival_time()
-    }
-
     /// Returns the opening times for the specified berth.
     ///
     /// # Panics
@@ -1001,7 +815,7 @@ where
 
 impl<T> std::fmt::Debug for Model<T>
 where
-    T: PrimInt + Signed + Copy + MinusOne + std::fmt::Debug,
+    T: PrimInt + Signed + MinusOne + std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Model")
@@ -1017,7 +831,7 @@ where
 
 impl<T> std::fmt::Display for Model<T>
 where
-    T: PrimInt + Signed + Copy + MinusOne + std::fmt::Display,
+    T: PrimInt + Signed + MinusOne + std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -1044,7 +858,10 @@ where
 }
 
 #[inline(always)]
-fn unconstrained_berth<T: PrimInt + Copy>() -> rangemap::RangeSet<T> {
+fn unconstrained_berth<T>() -> rangemap::RangeSet<T>
+where
+    T: PrimInt + Signed,
+{
     let mut r = rangemap::RangeSet::new();
     r.insert(T::zero()..T::max_value());
     r
@@ -1519,20 +1336,6 @@ where
                     .collect(),
             };
 
-        let mut chronological_vessels: Vec<_> = (0..self.num_vessels)
-            .filter_map(|i| {
-                shortest_processing_times[i]
-                    .into_option()
-                    .map(|min_processing_time| ChronologicalVesselData {
-                        index: VesselIndex::new(i),
-                        arrival_time: self.arrival_times[i],
-                        min_processing_time,
-                        weight: self.vessel_weights[i],
-                    })
-            })
-            .collect();
-        chronological_vessels.sort_unstable_by_key(|v| (v.arrival_time, v.min_processing_time));
-
         Model {
             arrival_times: self.arrival_times,
             latest_departure_times: self.latest_departure_times,
@@ -1540,14 +1343,13 @@ where
             processing_times: self.processing_times,
             opening_times: opening_times_model,
             shortest_processing_times,
-            arrival_sorted_vessels: chronological_vessels,
         }
     }
 }
 
 impl<T> std::fmt::Debug for ModelBuilder<T>
 where
-    T: PrimInt + Signed + Copy + MinusOne + std::fmt::Debug,
+    T: PrimInt + Signed + MinusOne + std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ModelBuilder")
@@ -1564,7 +1366,7 @@ where
 
 impl<T> std::fmt::Display for ModelBuilder<T>
 where
-    T: PrimInt + Signed + Copy + MinusOne,
+    T: PrimInt + Signed + MinusOne,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -2134,109 +1936,5 @@ mod tests {
         assert!(model.vessel_processing_times().is_empty());
         assert!(model.vessel_opening_times().is_empty());
         assert!(model.vessel_shortest_processing_times().is_empty());
-    }
-
-    #[test]
-    fn test_arrival_sorted_vessels_basic_order() {
-        // 4 vessels, set arrivals out of order; only some have processing times
-        let mut bldr = ModelBuilder::<i64>::new(2, 4);
-        // arrivals: v0=30, v1=10, v2=20, v3=40
-        bldr.set_vessel_arrival_time(VesselIndex::new(0), 30)
-            .set_vessel_arrival_time(VesselIndex::new(1), 10)
-            .set_vessel_arrival_time(VesselIndex::new(2), 20)
-            .set_vessel_arrival_time(VesselIndex::new(3), 40);
-
-        // Provide processing times so shortest exists for v0, v1, v2; leave v3 with None to ensure exclusion
-        bldr.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            ProcessingTime::some(7),
-        )
-        .set_vessel_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(0),
-            ProcessingTime::some(5),
-        )
-        .set_vessel_processing_time(
-            VesselIndex::new(2),
-            BerthIndex::new(1),
-            ProcessingTime::some(9),
-        );
-        // v3: no processing times => excluded
-
-        let m = bldr.build();
-        let sorted = m.vessel_arrival_sorted_vessels();
-
-        // Expect indices in arrival order: v1 (10), v2 (20), v0 (30). v3 excluded.
-        let indices: Vec<usize> = sorted.iter().map(|v| v.index().get()).collect();
-        assert_eq!(indices, vec![1, 2, 0]);
-
-        // Sanity-check payloads (arrival and min_processing_time match)
-        assert_eq!(sorted[0].arrival_time(), 10);
-        assert_eq!(sorted[0].min_processing_time(), 5);
-        assert_eq!(sorted[1].arrival_time(), 20);
-        assert_eq!(sorted[1].min_processing_time(), 9);
-        assert_eq!(sorted[2].arrival_time(), 30);
-        assert_eq!(sorted[2].min_processing_time(), 7);
-    }
-
-    #[test]
-    fn test_arrival_sorted_vessels_tiebreaker_and_exclusion() {
-        // Create vessels with same arrival, differing shortest processing times,
-        // and ensure vessels with None are excluded.
-        let mut bldr = ModelBuilder::<i64>::new(3, 5);
-        // arrivals: v0=50, v1=50, v2=10, v3=50, v4=60
-        bldr.set_vessel_arrival_time(VesselIndex::new(0), 50)
-            .set_vessel_arrival_time(VesselIndex::new(1), 50)
-            .set_vessel_arrival_time(VesselIndex::new(2), 10)
-            .set_vessel_arrival_time(VesselIndex::new(3), 50)
-            .set_vessel_arrival_time(VesselIndex::new(4), 60);
-
-        // Processing times:
-        // v2 has shortest = 3 (arrival 10) => should be first
-        bldr.set_vessel_processing_time(
-            VesselIndex::new(2),
-            BerthIndex::new(1),
-            ProcessingTime::some(3),
-        );
-
-        // v0, v1, v3 all have same arrival (50), tie-break on shortest processing time
-        bldr.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            ProcessingTime::some(10),
-        ) // min=10
-        .set_vessel_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(2),
-            ProcessingTime::some(7),
-        ) // min=7
-        .set_vessel_processing_time(
-            VesselIndex::new(3),
-            BerthIndex::new(1),
-            ProcessingTime::some(12),
-        ); // min=12
-
-        // v4: leave without any processing time => excluded
-        let m = bldr.build();
-        let sorted = m.vessel_arrival_sorted_vessels();
-
-        // Expected order:
-        // - v2 first (arrival 10)
-        // - among arrival=50: v1 (min=7), v0 (min=10), v3 (min=12)
-        // - v4 excluded
-        let indices: Vec<usize> = sorted.iter().map(|v| v.index().get()).collect();
-        assert_eq!(indices, vec![2, 1, 0, 3]);
-
-        // Validate tie-break ordering by min_processing_time for the arrival=50 group
-        assert_eq!(sorted[1].arrival_time(), 50);
-        assert_eq!(sorted[1].min_processing_time(), 7);
-        assert_eq!(sorted[2].arrival_time(), 50);
-        assert_eq!(sorted[2].min_processing_time(), 10);
-        assert_eq!(sorted[3].arrival_time(), 50);
-        assert_eq!(sorted[3].min_processing_time(), 12);
-
-        // Ensure no vessel with None shortest processing time is present
-        assert!(sorted.iter().all(|v| v.min_processing_time() >= 0));
     }
 }

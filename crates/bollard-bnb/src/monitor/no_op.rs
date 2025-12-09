@@ -20,24 +20,23 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
-    monitor::search_monitor::{SearchCommand, TreeSearchMonitor},
-    state::SearchState,
-    stats::BnbSolverStatistics,
+    monitor::search_monitor::TreeSearchMonitor, state::SearchState, stats::BnbSolverStatistics,
 };
 use bollard_model::{model::Model, solution::Solution};
+use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoOpMonitor<T>
 where
-    T: Send + Sync + PrimInt + Signed,
+    T: PrimInt + Signed,
 {
     _marker: std::marker::PhantomData<T>,
 }
 
 impl<T> NoOpMonitor<T>
 where
-    T: Send + Sync + PrimInt + Signed,
+    T: PrimInt + Signed,
 {
     pub fn new() -> Self {
         NoOpMonitor {
@@ -48,7 +47,7 @@ where
 
 impl<T> Default for NoOpMonitor<T>
 where
-    T: Send + Sync + PrimInt + Signed,
+    T: PrimInt + Signed,
 {
     fn default() -> Self {
         Self::new()
@@ -57,7 +56,7 @@ where
 
 impl<T> TreeSearchMonitor<T> for NoOpMonitor<T>
 where
-    T: Send + Sync + PrimInt + Signed,
+    T: PrimInt + Signed,
 {
     fn on_enter_search(&mut self, _model: &Model<T>) {}
     fn check_termination(

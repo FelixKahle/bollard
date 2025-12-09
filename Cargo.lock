@@ -14,6 +14,7 @@ version = "0.1.0"
 dependencies = [
  "bollard_core",
  "bollard_model",
+ "bollard_search",
  "fixedbitset",
  "num-traits",
  "tracing",

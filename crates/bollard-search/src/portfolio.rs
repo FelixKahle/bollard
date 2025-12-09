@@ -22,6 +22,7 @@
 use crate::{
     incumbent::SharedIncumbent, monitor::search_monitor::SearchMonitor, result::SolverResult,
 };
+use bollard_core::num::constants::MinusOne;
 use bollard_model::model::Model;
 use num_traits::{PrimInt, Signed};
 use std::sync::atomic::AtomicBool;
@@ -36,6 +37,55 @@ where
     pub stop: &'a AtomicBool,
 }
 
+impl<'a, T> PortfolioSolverContext<'a, T>
+where
+    T: PrimInt + Signed,
+{
+    #[inline(always)]
+    pub fn new(
+        model: &'a Model<T>,
+        incumbent: &'a SharedIncumbent<T>,
+        monitor: &'a mut dyn SearchMonitor<T>,
+        stop: &'a AtomicBool,
+    ) -> Self {
+        Self {
+            model,
+            incumbent,
+            monitor,
+            stop,
+        }
+    }
+}
+
+impl<'a, T> std::fmt::Debug for PortfolioSolverContext<'a, T>
+where
+    T: PrimInt + Signed + Copy + MinusOne + std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PortfolioSolverContext")
+            .field("model", &self.model)
+            .field("incumbent", &self.incumbent)
+            .field("monitor", &self.monitor.name())
+            .field("stop", &self.stop)
+            .finish()
+    }
+}
+
+impl<'a, T> std::fmt::Display for PortfolioSolverContext<'a, T>
+where
+    T: PrimInt + Signed + Copy + MinusOne + std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PortfolioSolverContext(model: {}, monitor: {})",
+            self.model,
+            self.monitor.name(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortfolioSolverTerminationReason {
     /// The solver found and proved optimality of a solution.
     OptimalityProven,
@@ -48,12 +98,59 @@ pub enum PortfolioSolverTerminationReason {
     Interrupted,
 }
 
+impl std::fmt::Display for PortfolioSolverTerminationReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PortfolioSolverTerminationReason::OptimalityProven => {
+                write!(f, "Optimality Proven")
+            }
+            PortfolioSolverTerminationReason::InfeasibilityProven => {
+                write!(f, "Infeasibility Proven")
+            }
+            PortfolioSolverTerminationReason::Aborted(reason) => {
+                write!(f, "Aborted: {}", reason)
+            }
+            PortfolioSolverTerminationReason::Interrupted => write!(f, "Interrupted"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortfolioSolverResult<T>
 where
     T: PrimInt + Signed,
 {
     pub result: SolverResult<T>,
     pub termination_reason: PortfolioSolverTerminationReason,
+}
+
+impl<T> PortfolioSolverResult<T>
+where
+    T: PrimInt + Signed,
+{
+    #[inline(always)]
+    pub fn new(
+        result: SolverResult<T>,
+        termination_reason: PortfolioSolverTerminationReason,
+    ) -> Self {
+        Self {
+            result,
+            termination_reason,
+        }
+    }
+}
+
+impl<T> std::fmt::Display for PortfolioSolverResult<T>
+where
+    T: PrimInt + Signed + std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PortfolioSolverResult(result: {}, termination_reason: {})",
+            self.result, self.termination_reason
+        )
+    }
 }
 
 pub trait PortofolioSolver<T>

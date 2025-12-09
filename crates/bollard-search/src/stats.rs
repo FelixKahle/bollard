@@ -35,7 +35,14 @@ pub struct SolverStatisticsBuilder {
     solve_duration: std::time::Duration,
 }
 
+impl Default for SolverStatisticsBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SolverStatisticsBuilder {
+    #[inline(always)]
     pub fn new() -> Self {
         Self {
             solutions_found: 0,
@@ -45,26 +52,31 @@ impl SolverStatisticsBuilder {
         }
     }
 
+    #[inline(always)]
     pub fn solutions_found(mut self, solutions_found: u64) -> Self {
         self.solutions_found = solutions_found;
         self
     }
 
+    #[inline(always)]
     pub fn used_threads(mut self, used_threads: usize) -> Self {
         self.used_threads = used_threads;
         self
     }
 
+    #[inline(always)]
     pub fn max_memory_bytes(mut self, max_memory_bytes: usize) -> Self {
         self.max_memory_bytes = max_memory_bytes;
         self
     }
 
+    #[inline(always)]
     pub fn solve_duration(mut self, solve_duration: std::time::Duration) -> Self {
         self.solve_duration = solve_duration;
         self
     }
 
+    #[inline(always)]
     pub fn build(self) -> SolverStatistics {
         SolverStatistics {
             solutions_found: self.solutions_found,

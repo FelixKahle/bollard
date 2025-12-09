@@ -20,10 +20,9 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
-    monitor::search_monitor::{SearchCommand, TreeSearchMonitor},
-    state::SearchState,
-    stats::BnbSolverStatistics,
+    monitor::search_monitor::TreeSearchMonitor, state::SearchState, stats::BnbSolverStatistics,
 };
+use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
 
 /// A composite monitor that aggregates multiple search monitors.
@@ -115,11 +114,13 @@ where
         state: &SearchState<T>,
         stats: &BnbSolverStatistics,
     ) -> SearchCommand {
-        self.monitors
-            .iter_mut()
-            .map(|m| m.check_termination(state, stats))
-            .find(|&c| c != SearchCommand::Continue)
-            .unwrap_or(SearchCommand::Continue)
+        for monitor in &mut self.monitors {
+            let command = monitor.check_termination(state, stats);
+            if command != SearchCommand::Continue {
+                return command;
+            }
+        }
+        SearchCommand::Continue
     }
 
     fn on_solution(

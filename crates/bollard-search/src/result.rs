@@ -89,6 +89,7 @@ impl<T> SolverOutcome<T>
 where
     T: PrimInt + Signed + Copy,
 {
+    #[inline]
     pub fn new(
         result: SolverResult<T>,
         reason: TerminationReason,
@@ -101,18 +102,22 @@ where
         }
     }
 
+    #[inline]
     pub fn is_optimal(&self) -> bool {
         matches!(self.result, SolverResult::Optimal(_))
     }
 
+    #[inline]
     pub fn is_feasible(&self) -> bool {
         matches!(self.result, SolverResult::Feasible(_))
     }
 
+    #[inline]
     pub fn is_infeasible(&self) -> bool {
         matches!(self.result, SolverResult::Infeasible)
     }
 
+    #[inline]
     pub fn has_solution(&self) -> bool {
         matches!(
             self.result,

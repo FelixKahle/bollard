@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone)]
 pub struct LogMonitor<T>
 where
-    T: std::fmt::Display + std::fmt::Debug + Send + Sync + PrimInt + Signed,
+    T: std::fmt::Display + std::fmt::Debug + PrimInt + Signed,
 {
     start_time: Instant,
     last_log_time: Instant,
@@ -40,7 +40,7 @@ where
 
 impl<T> LogMonitor<T>
 where
-    T: std::fmt::Display + std::fmt::Debug + Send + Sync + PrimInt + Signed,
+    T: std::fmt::Display + std::fmt::Debug + PrimInt + Signed,
 {
     pub fn new(log_interval: Duration, clock_check_mask: u64) -> Self {
         Self {
@@ -97,7 +97,7 @@ where
 
 impl<T> Default for LogMonitor<T>
 where
-    T: std::fmt::Display + std::fmt::Debug + Send + Sync + PrimInt + Signed,
+    T: std::fmt::Display + std::fmt::Debug + PrimInt + Signed,
 {
     fn default() -> Self {
         Self::new(Duration::from_secs(1), 4095)
@@ -106,7 +106,7 @@ where
 
 impl<T> std::fmt::Display for LogMonitor<T>
 where
-    T: std::fmt::Display + std::fmt::Debug + Send + Sync + PrimInt + Signed,
+    T: std::fmt::Display + std::fmt::Debug + PrimInt + Signed,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -120,7 +120,7 @@ where
 
 impl<T> TreeSearchMonitor<T> for LogMonitor<T>
 where
-    T: std::fmt::Display + std::fmt::Debug + Send + Sync + PrimInt + Signed,
+    T: std::fmt::Display + std::fmt::Debug + PrimInt + Signed,
 {
     fn on_enter_search(&mut self, _model: &Model<T>) {
         self.start_time = Instant::now();

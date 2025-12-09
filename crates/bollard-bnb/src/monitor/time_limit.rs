@@ -19,11 +19,12 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::monitor::search_monitor::{SearchCommand, TreeSearchMonitor};
+use crate::monitor::search_monitor::TreeSearchMonitor;
 use crate::state::SearchState;
 use crate::stats::BnbSolverStatistics;
 use bollard_core::num::ops::saturating_arithmetic::SaturatingAddVal;
 use bollard_model::{model::Model, solution::Solution};
+use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
@@ -33,7 +34,7 @@ use std::time::{Duration, Instant};
 /// Checks the clock only every `check_interval` nodes to minimize overhead.
 pub struct TimeLimitMonitor<T>
 where
-    T: PrimInt + Signed + Send + Sync,
+    T: PrimInt + Signed,
 {
     time_limit: Duration,
     start_time: Option<Instant>,
@@ -44,7 +45,7 @@ where
 
 impl<T> TimeLimitMonitor<T>
 where
-    T: PrimInt + Signed + Send + Sync,
+    T: PrimInt + Signed,
 {
     /// Creates a new `TimeLimitMonitor` with the specified duration and check interval.
     /// `check_interval` specifies how many steps to take between time checks.
@@ -67,7 +68,7 @@ where
 
 impl<T> TreeSearchMonitor<T> for TimeLimitMonitor<T>
 where
-    T: PrimInt + Signed + Send + Sync,
+    T: PrimInt + Signed,
 {
     fn on_enter_search(&mut self, _model: &Model<T>) {
         self.start_time = Some(Instant::now());
@@ -87,7 +88,10 @@ where
             if let Some(start) = self.start_time
                 && start.elapsed() > self.time_limit
             {
-                return SearchCommand::Stop;
+                return SearchCommand::Terminate(format!(
+                    "Time limit of {} seconds exceeded",
+                    self.time_limit.as_secs()
+                ));
             }
         }
 
