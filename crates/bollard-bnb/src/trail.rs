@@ -428,7 +428,7 @@ impl<T> SearchTrail<T> {
     #[inline]
     pub fn allocated_memory_bytes(&self) -> usize {
         let entries_size = self.entries.capacity() * std::mem::size_of::<TrailEntry<T>>();
-        let frames_size = self.frames.capacity() * std::mem::size_of::<usize>();
+        let frames_size = self.frames.capacity() * std::mem::size_of::<FrameEntry<T>>();
         entries_size + frames_size
     }
 

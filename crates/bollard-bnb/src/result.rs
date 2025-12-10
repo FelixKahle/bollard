@@ -32,12 +32,12 @@ use num_traits::{PrimInt, Signed};
 pub struct BnbSolverOutcome<T> {
     result: SolverResult<T>,
     termination_reason: TerminationReason,
-    statistics: BnbSolverStatistics,
+    statistics: BnbSolverStatistics<T>,
 }
 
 impl<T> BnbSolverOutcome<T> {
     #[inline]
-    pub fn optimal(solution: Solution<T>, statistics: BnbSolverStatistics) -> Self {
+    pub fn optimal(solution: Solution<T>, statistics: BnbSolverStatistics<T>) -> Self {
         Self {
             result: SolverResult::Optimal(solution),
             termination_reason: TerminationReason::OptimalityProven,
@@ -46,7 +46,7 @@ impl<T> BnbSolverOutcome<T> {
     }
 
     #[inline]
-    pub fn infeasible(statistics: BnbSolverStatistics) -> Self {
+    pub fn infeasible(statistics: BnbSolverStatistics<T>) -> Self {
         Self {
             result: SolverResult::Infeasible,
             termination_reason: TerminationReason::InfeasibilityProven,
@@ -58,7 +58,7 @@ impl<T> BnbSolverOutcome<T> {
     pub fn aborted<R>(
         solution: Option<Solution<T>>,
         reason: R,
-        statistics: BnbSolverStatistics,
+        statistics: BnbSolverStatistics<T>,
     ) -> Self
     where
         R: Into<String>,
@@ -91,7 +91,7 @@ impl<T> BnbSolverOutcome<T> {
 
     /// Returns the solver statistics.
     #[inline]
-    pub fn statistics(&self) -> &BnbSolverStatistics {
+    pub fn statistics(&self) -> &BnbSolverStatistics<T> {
         &self.statistics
     }
 }
@@ -132,7 +132,7 @@ mod tests {
     type I = i64;
 
     // Helper to build minimal stats; assumes Default is implemented for BnbSolverStatistics.
-    fn stats() -> BnbSolverStatistics {
+    fn stats() -> BnbSolverStatistics<I> {
         // If BnbSolverStatistics doesn't implement Default, replace this with a concrete constructor.
         BnbSolverStatistics::default()
     }

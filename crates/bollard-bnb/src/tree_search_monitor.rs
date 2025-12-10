@@ -19,7 +19,7 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::{branching::decision::Decision, state::SearchState};
+use crate::{branching::decision::Decision, state::SearchState, stats::BnbSolverStatistics};
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
@@ -50,15 +50,19 @@ where
     /// Returns the name of the monitor.
     fn name(&self) -> &str;
     /// Called when the search starts.
-    fn on_enter_search(&mut self, model: &Model<T>);
+    fn on_enter_search(&mut self, model: &Model<T>, statistics: &BnbSolverStatistics<T>);
     /// Called when the search ends.
-    fn on_exit_search(&mut self);
+    fn on_exit_search(&mut self, statistics: &BnbSolverStatistics<T>);
     /// Called to determine the next action of the search.
-    fn search_command(&mut self, _state: &SearchState<T>) -> SearchCommand {
+    fn search_command(
+        &mut self,
+        _state: &SearchState<T>,
+        _statistics: &BnbSolverStatistics<T>,
+    ) -> SearchCommand {
         SearchCommand::Continue
     }
     /// Called at each step of the search.
-    fn on_step(&mut self, state: &SearchState<T>);
+    fn on_step(&mut self, state: &SearchState<T>, statistics: &BnbSolverStatistics<T>);
     /// Called when a lower bound is computed for a search state.
     /// `lower_bound` is the computed lower bound,
     /// `estimated_remaining` is an estimate of the remaining cost
@@ -68,17 +72,33 @@ where
         state: &SearchState<T>,
         lower_bound: T,
         estimated_remaining: T,
+        statistics: &BnbSolverStatistics<T>,
     );
     /// Called when a search state is pruned.
-    fn on_prune(&mut self, state: &SearchState<T>, reason: PruneReason);
+    fn on_prune(
+        &mut self,
+        state: &SearchState<T>,
+        reason: PruneReason,
+        statistics: &BnbSolverStatistics<T>,
+    );
     /// Called when decisions are enqueued for exploration.
-    fn on_decisions_enqueued(&mut self, state: &SearchState<T>, count: usize);
+    fn on_decisions_enqueued(
+        &mut self,
+        state: &SearchState<T>,
+        count: usize,
+        statistics: &BnbSolverStatistics<T>,
+    );
     /// Called when descending into a child state.
-    fn on_descend(&mut self, state: &SearchState<T>, decision: Decision);
+    fn on_descend(
+        &mut self,
+        state: &SearchState<T>,
+        decision: Decision,
+        statistics: &BnbSolverStatistics<T>,
+    );
     /// Called when backtracking to a parent state.
-    fn on_backtrack(&mut self, state: &SearchState<T>);
+    fn on_backtrack(&mut self, state: &SearchState<T>, statistics: &BnbSolverStatistics<T>);
     /// Called when a new solution is found.
-    fn on_solution_found(&mut self, solution: &Solution<T>);
+    fn on_solution_found(&mut self, solution: &Solution<T>, statistics: &BnbSolverStatistics<T>);
 }
 
 impl<T> std::fmt::Debug for dyn TreeSearchMonitor<T>
@@ -134,27 +154,38 @@ where
     }
 
     #[inline(always)]
-    fn on_enter_search(&mut self, _model: &Model<T>) {}
+    fn on_enter_search(&mut self, _model: &Model<T>, _statistics: &BnbSolverStatistics<T>) {}
 
     #[inline(always)]
-    fn on_solution_found(&mut self, _solution: &Solution<T>) {}
+    fn on_solution_found(&mut self, _solution: &Solution<T>, _statistics: &BnbSolverStatistics<T>) {
+    }
 
     #[inline(always)]
-    fn on_backtrack(&mut self, _state: &SearchState<T>) {}
+    fn on_backtrack(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics<T>) {}
 
     #[inline(always)]
-    fn on_descend(&mut self, _state: &SearchState<T>, _decision: Decision) {}
+    fn on_descend(
+        &mut self,
+        _state: &SearchState<T>,
+        _decision: Decision,
+        _statistics: &BnbSolverStatistics<T>,
+    ) {
+    }
 
     #[inline(always)]
-    fn on_exit_search(&mut self) {}
+    fn on_exit_search(&mut self, _statistics: &BnbSolverStatistics<T>) {}
 
     #[inline(always)]
-    fn search_command(&mut self, _state: &SearchState<T>) -> SearchCommand {
+    fn search_command(
+        &mut self,
+        _state: &SearchState<T>,
+        _statistics: &BnbSolverStatistics<T>,
+    ) -> SearchCommand {
         SearchCommand::Continue
     }
 
     #[inline(always)]
-    fn on_step(&mut self, _state: &SearchState<T>) {}
+    fn on_step(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics<T>) {}
 
     #[inline(always)]
     fn on_lower_bound_computed(
@@ -162,12 +193,25 @@ where
         _state: &SearchState<T>,
         _lower_bound: T,
         _estimated_remaining: T,
+        _statistics: &BnbSolverStatistics<T>,
     ) {
     }
 
     #[inline(always)]
-    fn on_prune(&mut self, _state: &SearchState<T>, _reason: PruneReason) {}
+    fn on_prune(
+        &mut self,
+        _state: &SearchState<T>,
+        _reason: PruneReason,
+        _statistics: &BnbSolverStatistics<T>,
+    ) {
+    }
 
     #[inline(always)]
-    fn on_decisions_enqueued(&mut self, _state: &SearchState<T>, _count: usize) {}
+    fn on_decisions_enqueued(
+        &mut self,
+        _state: &SearchState<T>,
+        _count: usize,
+        _statistics: &BnbSolverStatistics<T>,
+    ) {
+    }
 }

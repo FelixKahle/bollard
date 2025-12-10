@@ -20,7 +20,8 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
-    branching::decision::Decision, state::SearchState, tree_search_monitor::TreeSearchMonitor,
+    branching::decision::Decision, state::SearchState, stats::BnbSolverStatistics,
+    tree_search_monitor::TreeSearchMonitor,
 };
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::monitor::search_monitor::{SearchCommand, SearchMonitor};
@@ -56,32 +57,42 @@ where
     }
 
     #[inline(always)]
-    fn on_enter_search(&mut self, model: &Model<T>) {
+    fn on_enter_search(&mut self, model: &Model<T>, _statistics: &BnbSolverStatistics<T>) {
         self.inner.on_enter_search(model);
     }
 
     #[inline(always)]
-    fn on_solution_found(&mut self, solution: &Solution<T>) {
+    fn on_solution_found(&mut self, solution: &Solution<T>, _statistics: &BnbSolverStatistics<T>) {
         self.inner.on_solution_found(solution);
     }
 
     #[inline(always)]
-    fn on_backtrack(&mut self, _state: &SearchState<T>) {}
+    fn on_backtrack(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics<T>) {}
     #[inline(always)]
-    fn on_descend(&mut self, _state: &SearchState<T>, _decision: Decision) {}
+    fn on_descend(
+        &mut self,
+        _state: &SearchState<T>,
+        _decision: Decision,
+        _statistics: &BnbSolverStatistics<T>,
+    ) {
+    }
 
     #[inline(always)]
-    fn on_exit_search(&mut self) {
+    fn on_exit_search(&mut self, _statistics: &BnbSolverStatistics<T>) {
         self.inner.on_exit_search();
     }
 
     #[inline(always)]
-    fn search_command(&mut self, _state: &SearchState<T>) -> SearchCommand {
+    fn search_command(
+        &mut self,
+        _state: &SearchState<T>,
+        _statistics: &BnbSolverStatistics<T>,
+    ) -> SearchCommand {
         self.inner.search_command()
     }
 
     #[inline(always)]
-    fn on_step(&mut self, _state: &SearchState<T>) {
+    fn on_step(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics<T>) {
         self.inner.on_step();
     }
 
@@ -91,6 +102,7 @@ where
         _state: &SearchState<T>,
         _lower_bound: T,
         _estimated_remaining: T,
+        _statistics: &BnbSolverStatistics<T>,
     ) {
     }
 
@@ -99,9 +111,16 @@ where
         &mut self,
         _state: &SearchState<T>,
         _reason: crate::tree_search_monitor::PruneReason,
+        _statistics: &BnbSolverStatistics<T>,
     ) {
     }
 
     #[inline(always)]
-    fn on_decisions_enqueued(&mut self, _state: &SearchState<T>, _count: usize) {}
+    fn on_decisions_enqueued(
+        &mut self,
+        _state: &SearchState<T>,
+        _count: usize,
+        _statistics: &BnbSolverStatistics<T>,
+    ) {
+    }
 }
