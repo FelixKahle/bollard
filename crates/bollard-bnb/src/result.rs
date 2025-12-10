@@ -21,7 +21,11 @@
 
 use crate::stats::BnbSolverStatistics;
 use bollard_model::solution::Solution;
-use bollard_search::result::{SolverResult, TerminationReason};
+use bollard_search::{
+    portfolio::PortfolioSolverResult,
+    result::{SolverResult, TerminationReason},
+};
+use num_traits::{PrimInt, Signed};
 
 /// Result of the solver after termination.
 #[derive(Debug, Clone)]
@@ -89,5 +93,91 @@ impl<T> BnbSolverOutcome<T> {
     #[inline]
     pub fn statistics(&self) -> &BnbSolverStatistics {
         &self.statistics
+    }
+}
+
+impl<T> From<BnbSolverOutcome<T>> for PortfolioSolverResult<T>
+where
+    T: PrimInt + Signed,
+{
+    fn from(val: BnbSolverOutcome<T>) -> Self {
+        match val.termination_reason {
+            TerminationReason::OptimalityProven => {
+                assert!(
+                    matches!(val.result, SolverResult::Optimal(_)),
+                    "called `BnbSolverOutcome::into()` with inconsistent state: termination reason is OptimalityProven but result is not Optimal"
+                );
+                if let SolverResult::Optimal(solution) = val.result {
+                    PortfolioSolverResult::optimal(solution)
+                } else {
+                    PortfolioSolverResult::infeasible()
+                }
+            }
+            TerminationReason::InfeasibilityProven => PortfolioSolverResult::infeasible(),
+            TerminationReason::Aborted(reason) => match val.result {
+                SolverResult::Feasible(solution) => {
+                    PortfolioSolverResult::aborted(Some(solution), reason)
+                }
+                _ => PortfolioSolverResult::aborted(None, reason),
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use bollard_search::result::SolverResult as PortSolverResult;
+
+        type I = i64;
+
+        // Helper to build minimal stats; assumes Default is implemented for BnbSolverStatistics.
+        fn stats() -> BnbSolverStatistics {
+            // If BnbSolverStatistics doesn't implement Default, replace this with a concrete constructor.
+            BnbSolverStatistics::default()
+        }
+
+        #[test]
+        fn test_into_portfolio_infeasible_maps_correctly() {
+            let outcome = BnbSolverOutcome::<I>::infeasible(stats());
+            let portfolio: PortfolioSolverResult<I> = outcome.into();
+
+            assert!(matches!(portfolio.result(), PortSolverResult::Infeasible));
+            assert!(matches!(
+                portfolio.termination_reason(),
+                TerminationReason::InfeasibilityProven
+            ));
+        }
+
+        #[test]
+        fn test_into_portfolio_aborted_no_solution_maps_to_infeasible_with_reason() {
+            let outcome = BnbSolverOutcome::<I>::aborted::<&str>(None, "time limit", stats());
+            let portfolio: PortfolioSolverResult<I> = outcome.into();
+
+            assert!(matches!(portfolio.result(), PortSolverResult::Infeasible));
+            match portfolio.termination_reason() {
+                TerminationReason::Aborted(msg) => assert_eq!(msg, "time limit"),
+                _ => panic!("expected Aborted termination reason"),
+            }
+        }
+
+        #[test]
+        #[should_panic(
+            expected = "termination reason is OptimalityProven but result is not Optimal"
+        )]
+        fn test_into_portfolio_optimality_invariant_panics_on_inconsistent_state() {
+            // Construct an inconsistent outcome: termination says OptimalityProven, but result isn't Optimal.
+            let inconsistent = BnbSolverOutcome::<I> {
+                result: SolverResult::Infeasible,
+                termination_reason: TerminationReason::OptimalityProven,
+                statistics: stats(),
+            };
+            // This should panic due to the assert guarding the invariant.
+            let _portfolio: PortfolioSolverResult<I> = inconsistent.into();
+        }
     }
 }

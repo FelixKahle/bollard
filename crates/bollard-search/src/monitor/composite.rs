@@ -26,6 +26,7 @@ use crate::monitor::{
 use bollard_model::solution::Solution;
 use num_traits::{PrimInt, Signed};
 
+/// A composite monitor that aggregates multiple monitors and forwards events to all of them.
 pub struct CompositeMonitor<'a, T> {
     monitors: Vec<Box<dyn SearchMonitor<T> + 'a>>,
 }
@@ -77,6 +78,7 @@ impl<'a, T> CompositeMonitor<'a, T>
 where
     T: PrimInt + Signed,
 {
+    /// Creates a new empty `CompositeMonitor`.
     #[inline]
     pub fn new() -> CompositeMonitor<'a, T> {
         CompositeMonitor {
@@ -84,6 +86,7 @@ where
         }
     }
 
+    /// Creates a new `CompositeMonitor` with the specified capacity.
     #[inline]
     pub fn with_capacity(capacity: usize) -> CompositeMonitor<'a, T> {
         CompositeMonitor {
@@ -91,11 +94,13 @@ where
         }
     }
 
+    /// Creates a new `CompositeMonitor` from a vector of boxed monitors.
     #[inline]
     pub fn from_vec(monitors: Vec<Box<dyn SearchMonitor<T>>>) -> CompositeMonitor<'a, T> {
         CompositeMonitor { monitors }
     }
 
+    /// Adds a new monitor to the composite monitor.
     #[inline]
     pub fn add_monitor<M>(&mut self, monitor: M)
     where
@@ -104,21 +109,29 @@ where
         self.monitors.push(Box::new(monitor));
     }
 
+    /// Adds a new boxed monitor to the composite monitor.
     #[inline]
     pub fn add_monitor_boxed(&mut self, monitor: Box<dyn SearchMonitor<T> + 'a>) {
         self.monitors.push(monitor);
     }
 
+    /// Returns the number of monitors in the composite monitor.
     #[inline]
     pub fn len(&self) -> usize {
         self.monitors.len()
     }
 
+    /// Returns `true` if the composite monitor contains no monitors.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.monitors.is_empty()
     }
 
+    /// Returns a reference to the monitor at the specified index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `monitor_index` is out of bounds.
     #[inline]
     pub fn monitor(&'a self, monitor_index: MonitorIndex) -> &'a dyn SearchMonitor<T> {
         let index = monitor_index.get();
@@ -132,6 +145,12 @@ where
         self.monitors[index].as_ref()
     }
 
+    /// Returns a mutable reference to the monitor at the specified index.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if `monitor_index` is out of bounds.
+    ///
     /// # Safety
     ///
     /// The caller mus ensure tha `monitor_index` is within bounds
@@ -174,9 +193,13 @@ where
     }
 
     fn search_command(&self) -> SearchCommand {
+        // We could have used `Iterator::find_map` here, but that would require
+        // creating an iterator, an more importantly, an `Option` on each iteration.
+        // We can safe those few cycles by using a simple for loop.
+        // Seems overengineered, but in high-performance scenarios every cycle counts,
+        // and this line here is suspected to be called incredibly often.
         for monitor in &self.monitors {
-            let command = monitor.search_command();
-            if let SearchCommand::Terminate(reason) = command {
+            if let SearchCommand::Terminate(reason) = monitor.search_command() {
                 return SearchCommand::Terminate(reason);
             }
         }

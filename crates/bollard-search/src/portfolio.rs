@@ -27,34 +27,35 @@ use crate::{
 use bollard_core::num::constants::MinusOne;
 use bollard_model::{model::Model, solution::Solution};
 use num_traits::{PrimInt, Signed};
-use std::sync::atomic::AtomicBool;
 
+/// Context provided to a portfolio solver during its `solve` method.
 pub struct PortfolioSolverContext<'a, T>
 where
     T: PrimInt + Signed,
 {
+    /// The model to be solved.
     pub model: &'a Model<T>,
+    /// The shared incumbent solution.
     pub incumbent: &'a SharedIncumbent<T>,
+    /// The search monitor for reporting progress.
     pub monitor: &'a mut dyn SearchMonitor<T>,
-    pub stop: &'a AtomicBool,
 }
 
 impl<'a, T> PortfolioSolverContext<'a, T>
 where
     T: PrimInt + Signed,
 {
+    /// Creates a new `PortfolioSolverContext`.
     #[inline(always)]
     pub fn new(
         model: &'a Model<T>,
         incumbent: &'a SharedIncumbent<T>,
         monitor: &'a mut dyn SearchMonitor<T>,
-        stop: &'a AtomicBool,
     ) -> Self {
         Self {
             model,
             incumbent,
             monitor,
-            stop,
         }
     }
 }
@@ -68,7 +69,6 @@ where
             .field("model", &self.model)
             .field("incumbent", &self.incumbent)
             .field("monitor", &self.monitor.name())
-            .field("stop", &self.stop)
             .finish()
     }
 }
@@ -87,6 +87,7 @@ where
     }
 }
 
+/// The result of a portfolio solver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortfolioSolverResult<T>
 where
@@ -100,6 +101,7 @@ impl<T> PortfolioSolverResult<T>
 where
     T: PrimInt + Signed,
 {
+    /// Creates a new `PortfolioSolverResult` representing an optimal solution.
     #[inline]
     pub fn optimal(solution: Solution<T>) -> Self {
         Self {
@@ -108,6 +110,7 @@ where
         }
     }
 
+    /// Creates a new `PortfolioSolverResult` representing a feasible solution.
     #[inline]
     pub fn infeasible() -> Self {
         Self {
@@ -116,6 +119,8 @@ where
         }
     }
 
+    /// Creates a new `PortfolioSolverResult` representing an aborted solve.
+    /// If a solution is provided, it is treated as feasible; otherwise, the result is infeasible.
     #[inline]
     pub fn aborted<R>(solution: Option<Solution<T>>, reason: R) -> Self
     where
@@ -134,10 +139,14 @@ where
         }
     }
 
+    /// Returns a reference to the solver result.
+    #[inline]
     pub fn result(&self) -> &SolverResult<T> {
         &self.result
     }
 
+    /// Returns a reference to the termination reason.
+    #[inline]
     pub fn termination_reason(&self) -> &TerminationReason {
         &self.termination_reason
     }
@@ -156,10 +165,15 @@ where
     }
 }
 
+/// A trait representing a portfolio solver.
+/// Such solvers can be runned in parallel as part
+/// of a portfolio approach to solving the Berth Allocation Problem.
 pub trait PortofolioSolver<T>
 where
     T: PrimInt + Signed,
 {
-    fn solve<'a>(&mut self, context: PortfolioSolverContext<'a, T>) -> PortfolioSolverResult<T>;
+    /// Solves the given model within the provided context.
+    fn invoke<'a>(&mut self, context: PortfolioSolverContext<'a, T>) -> PortfolioSolverResult<T>;
+    /// Returns the name of the portfolio solver.
     fn name(&self) -> &str;
 }

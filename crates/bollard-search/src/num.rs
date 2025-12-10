@@ -39,6 +39,7 @@ pub trait SolverNumeric:
     + Signed
     + FromPrimitive
     + From<i64>
+    + Into<i64>
     + std::fmt::Debug
     + std::fmt::Display
     + MinusOne
@@ -58,5 +59,33 @@ pub trait SolverNumeric:
     + checked_arithmetic::CheckedShrVal
     + Send
     + Sync
+{
+}
+
+impl<T> SolverNumeric for T where
+    T: PrimInt
+        + Signed
+        + FromPrimitive
+        + From<i64>
+        + Into<i64>
+        + std::fmt::Debug
+        + std::fmt::Display
+        + MinusOne
+        + PlusOne
+        + Zero
+        + saturating_arithmetic::SaturatingAddVal
+        + saturating_arithmetic::SaturatingSubVal
+        + saturating_arithmetic::SaturatingMulVal
+        + saturating_arithmetic::SaturatingNegVal
+        + checked_arithmetic::CheckedAddVal
+        + checked_arithmetic::CheckedSubVal
+        + checked_arithmetic::CheckedMulVal
+        + checked_arithmetic::CheckedNegVal
+        + checked_arithmetic::CheckedDivVal
+        + checked_arithmetic::CheckedRemVal
+        + checked_arithmetic::CheckedShlVal
+        + checked_arithmetic::CheckedShrVal
+        + Send
+        + Sync
 {
 }

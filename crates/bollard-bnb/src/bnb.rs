@@ -20,20 +20,23 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
+    backing::{IncumbentBacking, NoSharedIncumbent, SharedIncumbentAdapter},
     branching::decision::{Decision, DecisionBuilder},
     eval::evaluator::ObjectiveEvaluator,
-    monitor::tree_search_monitor::TreeSearchMonitor,
     result::BnbSolverOutcome,
     stack::SearchStack,
     state::SearchState,
     stats::BnbSolverStatistics,
     trail::SearchTrail,
+    tree_search_monitor::{PruneReason, TreeSearchMonitor},
 };
-use bollard_core::num::{constants::MinusOne, ops::saturating_arithmetic};
 use bollard_model::index::{BerthIndex, VesselIndex};
 use bollard_model::{model::Model, solution::Solution};
-use bollard_search::{monitor::search_monitor::SearchCommand, result::TerminationReason};
-use num_traits::{FromPrimitive, PrimInt, Signed};
+use bollard_search::{
+    incumbent::SharedIncumbent, monitor::search_monitor::SearchCommand, num::SolverNumeric,
+    result::TerminationReason,
+};
+use num_traits::{PrimInt, Signed};
 
 /// A constraint branch and bound solver for the berth scheduling problem using
 /// a backtracking search algorithm with constraint propagation and bounding.
@@ -89,8 +92,6 @@ where
         }
     }
 
-    /// Solve the given model using the provided decision builder,
-    /// objective evaluator, and search monitor.
     #[inline]
     pub fn solve<B, E, S>(
         &mut self,
@@ -103,15 +104,49 @@ where
         B: DecisionBuilder<T, E>,
         E: ObjectiveEvaluator<T>,
         S: TreeSearchMonitor<T>,
-        T: MinusOne
-            + saturating_arithmetic::SaturatingAddVal
-            + saturating_arithmetic::SaturatingMulVal
-            + saturating_arithmetic::SaturatingSubVal
-            + std::fmt::Display
-            + FromPrimitive,
+        T: SolverNumeric,
     {
-        let mut monitor = monitor;
-        let session = BnbSolverSearchSession::new(self, model, builder, evaluator, &mut monitor);
+        let backing = NoSharedIncumbent::new();
+        self.solve_internal(model, builder, evaluator, monitor, backing)
+    }
+
+    #[inline]
+    pub fn solve_with_incumbent<B, E, S>(
+        &mut self,
+        model: &Model<T>,
+        builder: &mut B,
+        evaluator: &mut E,
+        monitor: S,
+        incumbent: &SharedIncumbent<T>,
+    ) -> BnbSolverOutcome<T>
+    where
+        B: DecisionBuilder<T, E>,
+        E: ObjectiveEvaluator<T>,
+        S: TreeSearchMonitor<T>,
+        T: SolverNumeric,
+    {
+        let backing = SharedIncumbentAdapter::new(incumbent);
+        self.solve_internal(model, builder, evaluator, monitor, backing)
+    }
+
+    #[inline(always)]
+    fn solve_internal<B, E, S, I>(
+        &mut self,
+        model: &Model<T>,
+        builder: &mut B,
+        evaluator: &mut E,
+        mut monitor: S,
+        backing: I,
+    ) -> BnbSolverOutcome<T>
+    where
+        B: DecisionBuilder<T, E>,
+        E: ObjectiveEvaluator<T>,
+        S: TreeSearchMonitor<T>,
+        I: IncumbentBacking<T>,
+        T: SolverNumeric,
+    {
+        let session =
+            BnbSolverSearchSession::new(self, model, builder, evaluator, &mut monitor, backing);
         let res = session.run();
         self.reset();
         res
@@ -182,15 +217,17 @@ impl std::fmt::Display for SearchStep {
 /// A search session for the constraint solver.
 /// This struct encapsulates the state and logic
 /// of a single search run.
-struct BnbSolverSearchSession<'a, T, B, E, S>
+struct BnbSolverSearchSession<'a, T, B, E, S, I>
 where
-    T: PrimInt + Signed,
+    T: SolverNumeric,
+    I: IncumbentBacking<T>,
 {
     solver: &'a mut BnbSolver<T>,
     model: &'a Model<T>,
     builder: &'a mut B,
     evaluator: &'a mut E,
     monitor: &'a mut S,
+    incumbent_backing: I,
     state: SearchState<T>,
     best_objective: T,
     best_solution: Option<Solution<T>>,
@@ -198,12 +235,13 @@ where
     start_time: std::time::Instant,
 }
 
-impl<'a, T, B, E, S> std::fmt::Debug for BnbSolverSearchSession<'a, T, B, E, S>
+impl<'a, T, B, E, S, I> std::fmt::Debug for BnbSolverSearchSession<'a, T, B, E, S, I>
 where
-    T: PrimInt + Signed + std::fmt::Debug + MinusOne,
+    T: SolverNumeric,
     B: DecisionBuilder<T, E>,
     E: ObjectiveEvaluator<T>,
     S: TreeSearchMonitor<T>,
+    I: IncumbentBacking<T>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SearchSession")
@@ -216,12 +254,13 @@ where
     }
 }
 
-impl<'a, T, B, E, S> std::fmt::Display for BnbSolverSearchSession<'a, T, B, E, S>
+impl<'a, T, B, E, S, I> std::fmt::Display for BnbSolverSearchSession<'a, T, B, E, S, I>
 where
-    T: PrimInt + Signed + std::fmt::Display + MinusOne,
+    T: SolverNumeric,
     B: DecisionBuilder<T, E>,
     E: ObjectiveEvaluator<T>,
     S: TreeSearchMonitor<T>,
+    I: IncumbentBacking<T>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let solution_str = match &self.best_solution {
@@ -236,18 +275,13 @@ where
     }
 }
 
-impl<'a, T, B, E, S> BnbSolverSearchSession<'a, T, B, E, S>
+impl<'a, T, B, E, S, I> BnbSolverSearchSession<'a, T, B, E, S, I>
 where
-    T: PrimInt
-        + Signed
-        + MinusOne
-        + saturating_arithmetic::SaturatingAddVal
-        + saturating_arithmetic::SaturatingMulVal
-        + saturating_arithmetic::SaturatingSubVal
-        + std::fmt::Display,
+    T: SolverNumeric,
     B: DecisionBuilder<T, E>,
     E: ObjectiveEvaluator<T>,
     S: TreeSearchMonitor<T>,
+    I: IncumbentBacking<T>,
 {
     /// Create a new search session.
     #[inline]
@@ -257,8 +291,11 @@ where
         builder: &'a mut B,
         evaluator: &'a mut E,
         monitor: &'a mut S,
+        incumbent_backing: I,
     ) -> Self {
         let state = SearchState::new(model.num_berths(), model.num_vessels());
+        let best_objective = incumbent_backing.initial_upper_bound();
+
         Self {
             solver,
             model,
@@ -266,7 +303,8 @@ where
             evaluator,
             state,
             monitor,
-            best_objective: T::max_value(),
+            incumbent_backing,
+            best_objective,
             best_solution: None,
             stats: BnbSolverStatistics::default(),
             start_time: std::time::Instant::now(),
@@ -275,24 +313,20 @@ where
 
     /// Run the search session.
     #[inline]
-    fn run(mut self) -> BnbSolverOutcome<T>
-    where
-        T: FromPrimitive,
-    {
+    fn run(mut self) -> BnbSolverOutcome<T> {
         self.monitor.on_enter_search(self.model);
         self.initialize();
 
         let termination_reason: TerminationReason = loop {
-            if let SearchCommand::Terminate(msg) =
-                self.monitor.check_termination(&self.state, &self.stats)
-            {
+            self.best_objective = self.incumbent_backing.sync_upper_bound(self.best_objective);
+            self.monitor.on_step(&self.state);
+
+            if let SearchCommand::Terminate(msg) = self.monitor.search_command(&self.state) {
                 break TerminationReason::Aborted(msg);
             }
 
             match self.step() {
-                SearchStep::Continue => {
-                    // Just continue the search
-                }
+                SearchStep::Continue => {}
                 SearchStep::Finished => {
                     break if self.best_solution.is_some() {
                         TerminationReason::OptimalityProven
@@ -304,7 +338,7 @@ where
         };
 
         self.stats.set_total_time(self.start_time.elapsed());
-        self.monitor.on_exit_search(&self.stats);
+        self.monitor.on_exit_search();
         self.finalize_result(termination_reason)
     }
 
@@ -333,10 +367,7 @@ where
 
     /// Perform a single search step.
     #[inline]
-    fn step(&mut self) -> SearchStep
-    where
-        T: FromPrimitive,
-    {
+    fn step(&mut self) -> SearchStep {
         if self.solver.stack.is_current_level_empty() {
             if self.solver.stack.depth() <= 1 {
                 return SearchStep::Finished;
@@ -367,21 +398,22 @@ where
         // Root frame. Crucial to have this before pushing decisions!
         self.solver.trail.push_frame(&self.state);
         self.solver.stack.push_frame();
-
-        // Root node is effectively node #0
         self.stats.on_node_explored();
 
-        self.solver.stack.extend(self.builder.next_decision(
-            self.evaluator,
-            self.model,
-            &self.state,
-        ));
+        let decisions = self
+            .builder
+            .next_decision(self.evaluator, self.model, &self.state);
+        let count_before = self.solver.stack.num_entries();
+        self.solver.stack.extend(decisions);
+        let count_after = self.solver.stack.num_entries();
+        self.monitor
+            .on_decisions_enqueued(&self.state, count_after - count_before);
     }
 
     #[inline]
     fn backtrack_step(&mut self) {
         self.stats.on_backtrack();
-        self.monitor.on_backtrack(&self.state, &self.stats);
+        self.monitor.on_backtrack(&self.state);
 
         self.solver.trail.backtrack(&mut self.state);
         self.solver.stack.pop_frame();
@@ -399,10 +431,7 @@ where
     /// The caller must ensure that the current decision stack level
     /// is not empty.
     #[inline(always)]
-    unsafe fn process_next_decision(&mut self)
-    where
-        T: FromPrimitive,
-    {
+    unsafe fn process_next_decision(&mut self) {
         debug_assert!(
             !self.solver.stack.is_current_level_empty(),
             "called `ConstraintSolverSearchSession::process_next_decision` with empty decision stack"
@@ -418,7 +447,7 @@ where
             None => return,
         };
 
-        self.descend(child);
+        self.descend(child, decision);
     }
 
     /// Build a child node from the given decision.
@@ -451,6 +480,7 @@ where
 
         if !self.is_structurally_feasible(decision) {
             self.stats.on_pruning_infeasible();
+            self.monitor.on_prune(&self.state, PruneReason::Infeasible);
             return None;
         }
 
@@ -467,6 +497,8 @@ where
 
         if new_objective >= self.best_objective {
             self.stats.on_pruning_local();
+            self.monitor
+                .on_prune(&self.state, PruneReason::BoundDominated);
             return None;
         }
 
@@ -496,10 +528,7 @@ where
     /// Descend into the given child node, applying its assignment
     /// to the current state.
     #[inline(always)]
-    fn descend(&mut self, child: ChildNode<T>)
-    where
-        T: FromPrimitive,
-    {
+    fn descend(&mut self, child: ChildNode<T>, original_decision: Decision) {
         self.solver.trail.push_frame(&self.state);
         self.solver.trail.apply_assignment(
             &mut self.state,
@@ -514,7 +543,7 @@ where
         self.stats.on_node_explored();
         self.stats.on_decision_applied();
         self.stats.on_depth_update(self.solver.stack.depth() as u64);
-        self.monitor.on_descend(&self.state, &self.stats);
+        self.monitor.on_descend(&self.state, original_decision);
 
         if self.state.num_assigned_vessels() == self.model.num_vessels() {
             self.handle_complete_solution(child.new_objective);
@@ -586,7 +615,7 @@ where
             if let Ok(solution) = self.state.clone().try_into() {
                 self.best_objective = new_objective;
                 self.stats.on_solution_found();
-                self.monitor.on_solution(&solution, &self.stats);
+                self.monitor.on_solution_found(&solution);
                 self.best_solution = Some(solution);
             } else {
                 // In this part of te tree we have a complete assignment,
@@ -601,13 +630,13 @@ where
 
     /// Determine whether to backtrack after expanding the current node.
     #[inline(always)]
-    fn should_backtrack_after_expand(&mut self) -> bool
-    where
-        T: FromPrimitive,
-    {
+    fn should_backtrack_after_expand(&mut self) -> bool {
         let lower_bound_remaining_opt = self.evaluator.lower_bound(self.model, &self.state);
         let lower_bound_remaining = match lower_bound_remaining_opt {
-            None => return true,
+            None => {
+                self.monitor.on_prune(&self.state, PruneReason::Infeasible);
+                return true;
+            }
             Some(lower_bound) => lower_bound,
         };
 
@@ -616,14 +645,24 @@ where
             .current_objective()
             .saturating_add_val(lower_bound_remaining);
 
+        self.monitor
+            .on_lower_bound_computed(&self.state, node_lower_bound, lower_bound_remaining);
+
         if node_lower_bound >= self.best_objective {
+            self.monitor
+                .on_prune(&self.state, PruneReason::BoundDominated);
             return true;
         }
 
         let decisions = self
             .builder
             .next_decision(self.evaluator, self.model, &self.state);
+
+        let count_before = self.solver.stack.num_entries();
         self.solver.stack.extend(decisions);
+        let count_after = self.solver.stack.num_entries();
+        let added_count = count_after - count_before;
+        self.monitor.on_decisions_enqueued(&self.state, added_count);
 
         false
     }
@@ -632,12 +671,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::BnbSolver;
+    use crate::branching::chronological::ChronologicalExhaustiveBuilder;
     use crate::eval::wtft::WeightedFlowTimeEvaluator;
-    use crate::monitor::composite::CompositeMonitor;
-    use crate::monitor::time_limit::TimeLimitMonitor;
-    use crate::{
-        branching::chronological::ChronologicalExhaustiveBuilder, monitor::log::LogMonitor,
-    };
+    use crate::tree_search_monitor::NoOperationMonitor;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
@@ -693,15 +729,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let composite_monitor = CompositeMonitor::default()
-            .add_monitor(LogMonitor::default())
-            .add_monitor(TimeLimitMonitor::<IntegerType>::new(
-                std::time::Duration::from_secs(1000),
-                10_000,
-            ));
-
         // 1. Run the solver (timing is now handled internally in result.statistics)
-        let outcome = solver.solve(&model, &mut builder, &mut evaluator, composite_monitor);
+        let outcome = solver.solve(
+            &model,
+            &mut builder,
+            &mut evaluator,
+            NoOperationMonitor::new(),
+        );
 
         // 2. Print the rich result (Outcome, Reason, Objective, Stats Table)
         // Print just the inner SolverResult summary
