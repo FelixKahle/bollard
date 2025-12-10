@@ -373,8 +373,5 @@ mod tests {
         // Demonstrate correct free; we DO NOT double-free in tests.
         let ptr = bollard_model_new(1, 1);
         unsafe { bollard_model_free(ptr) };
-        // Intentionally do not free again.
-        // If we were to free again, it would be UB, hence omitted by design.
-        assert!(true);
     }
 }

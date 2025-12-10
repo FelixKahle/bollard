@@ -947,11 +947,9 @@ mod tests {
     #[test]
     fn test_into_iterator_ref_trait() {
         let a = ClosedOpenInterval::new(0, 3);
-        let mut count = 0;
-        for i in &a {
+        for (count, i) in (&a).into_iter().enumerate() {
             // Borrows a
             assert_eq!(i, count);
-            count += 1;
         }
         // a is still valid here
         assert_eq!(a.len(), 3);

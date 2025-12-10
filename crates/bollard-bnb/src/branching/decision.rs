@@ -531,13 +531,7 @@ mod decision_tests {
             3,
             |v, b| !(v.get() == 1 && b.get() == 0),
             |_v, b| {
-                if b.get() == 0 {
-                    5
-                } else if b.get() == 1 {
-                    5
-                } else {
-                    9
-                }
+                if b.get() == 0 || b.get() == 1 { 5 } else { 9 }
             },
         );
         let mut state: SearchState<T> = SearchState::new(model.num_berths(), model.num_vessels());

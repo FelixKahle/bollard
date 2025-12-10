@@ -1919,9 +1919,9 @@ mod tests {
         let opening = m.berth_opening_times(b(0));
         let contains = |val| opening.iter().any(|i| i.contains_point(val));
         // Before 0 not open (unconstrained starts at 0)
-        assert!(contains(0) == false);
-        assert!(contains(9) == false);
-        assert!(contains(10) == true); // immediately after closed block resumes open
+        assert!(!contains(0));
+        assert!(!contains(9));
+        assert!(contains(10)); // immediately after closed block resumes open
     }
 
     #[test]

@@ -127,57 +127,50 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bollard_search::result::SolverResult as PortSolverResult;
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use bollard_search::result::SolverResult as PortSolverResult;
+    type I = i64;
 
-        type I = i64;
+    // Helper to build minimal stats; assumes Default is implemented for BnbSolverStatistics.
+    fn stats() -> BnbSolverStatistics {
+        // If BnbSolverStatistics doesn't implement Default, replace this with a concrete constructor.
+        BnbSolverStatistics::default()
+    }
 
-        // Helper to build minimal stats; assumes Default is implemented for BnbSolverStatistics.
-        fn stats() -> BnbSolverStatistics {
-            // If BnbSolverStatistics doesn't implement Default, replace this with a concrete constructor.
-            BnbSolverStatistics::default()
+    #[test]
+    fn test_into_portfolio_infeasible_maps_correctly() {
+        let outcome = BnbSolverOutcome::<I>::infeasible(stats());
+        let portfolio: PortfolioSolverResult<I> = outcome.into();
+
+        assert!(matches!(portfolio.result(), PortSolverResult::Infeasible));
+        assert!(matches!(
+            portfolio.termination_reason(),
+            TerminationReason::InfeasibilityProven
+        ));
+    }
+
+    #[test]
+    fn test_into_portfolio_aborted_no_solution_maps_to_infeasible_with_reason() {
+        let outcome = BnbSolverOutcome::<I>::aborted::<&str>(None, "time limit", stats());
+        let portfolio: PortfolioSolverResult<I> = outcome.into();
+
+        assert!(matches!(portfolio.result(), PortSolverResult::Infeasible));
+        match portfolio.termination_reason() {
+            TerminationReason::Aborted(msg) => assert_eq!(msg, "time limit"),
+            _ => panic!("expected Aborted termination reason"),
         }
+    }
 
-        #[test]
-        fn test_into_portfolio_infeasible_maps_correctly() {
-            let outcome = BnbSolverOutcome::<I>::infeasible(stats());
-            let portfolio: PortfolioSolverResult<I> = outcome.into();
-
-            assert!(matches!(portfolio.result(), PortSolverResult::Infeasible));
-            assert!(matches!(
-                portfolio.termination_reason(),
-                TerminationReason::InfeasibilityProven
-            ));
-        }
-
-        #[test]
-        fn test_into_portfolio_aborted_no_solution_maps_to_infeasible_with_reason() {
-            let outcome = BnbSolverOutcome::<I>::aborted::<&str>(None, "time limit", stats());
-            let portfolio: PortfolioSolverResult<I> = outcome.into();
-
-            assert!(matches!(portfolio.result(), PortSolverResult::Infeasible));
-            match portfolio.termination_reason() {
-                TerminationReason::Aborted(msg) => assert_eq!(msg, "time limit"),
-                _ => panic!("expected Aborted termination reason"),
-            }
-        }
-
-        #[test]
-        #[should_panic(
-            expected = "termination reason is OptimalityProven but result is not Optimal"
-        )]
-        fn test_into_portfolio_optimality_invariant_panics_on_inconsistent_state() {
-            // Construct an inconsistent outcome: termination says OptimalityProven, but result isn't Optimal.
-            let inconsistent = BnbSolverOutcome::<I> {
-                result: SolverResult::Infeasible,
-                termination_reason: TerminationReason::OptimalityProven,
-                statistics: stats(),
-            };
-            // This should panic due to the assert guarding the invariant.
-            let _portfolio: PortfolioSolverResult<I> = inconsistent.into();
-        }
+    #[test]
+    #[should_panic(expected = "termination reason is OptimalityProven but result is not Optimal")]
+    fn test_into_portfolio_optimality_invariant_panics_on_inconsistent_state() {
+        // Construct an inconsistent outcome: termination says OptimalityProven, but result isn't Optimal.
+        let inconsistent = BnbSolverOutcome::<I> {
+            result: SolverResult::Infeasible,
+            termination_reason: TerminationReason::OptimalityProven,
+            statistics: stats(),
+        };
+        // This should panic due to the assert guarding the invariant.
+        let _portfolio: PortfolioSolverResult<I> = inconsistent.into();
     }
 }
