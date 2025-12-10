@@ -19,7 +19,7 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::monitor::search_monitor::TreeSearchMonitor;
+use crate::monitor::tree_search_monitor::TreeSearchMonitor;
 use crate::state::SearchState;
 use crate::stats::BnbSolverStatistics;
 use bollard_core::num::ops::saturating_arithmetic::SaturatingAddVal;

@@ -20,7 +20,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
-    monitor::search_monitor::TreeSearchMonitor, state::SearchState, stats::BnbSolverStatistics,
+    monitor::tree_search_monitor::TreeSearchMonitor, state::SearchState, stats::BnbSolverStatistics,
 };
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::monitor::search_monitor::SearchCommand;

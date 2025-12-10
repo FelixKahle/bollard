@@ -21,6 +21,7 @@
 
 pub mod incumbent;
 pub mod monitor;
+pub mod num;
 pub mod portfolio;
 pub mod result;
 pub mod stats;

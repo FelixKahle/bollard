@@ -21,4 +21,5 @@
 
 pub mod composite;
 pub mod index;
+pub mod interrupt;
 pub mod search_monitor;

@@ -20,10 +20,12 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
-    incumbent::SharedIncumbent, monitor::search_monitor::SearchMonitor, result::SolverResult,
+    incumbent::SharedIncumbent,
+    monitor::search_monitor::SearchMonitor,
+    result::{SolverResult, TerminationReason},
 };
 use bollard_core::num::constants::MinusOne;
-use bollard_model::model::Model;
+use bollard_model::{model::Model, solution::Solution};
 use num_traits::{PrimInt, Signed};
 use std::sync::atomic::AtomicBool;
 
@@ -86,57 +88,58 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PortfolioSolverTerminationReason {
-    /// The solver found and proved optimality of a solution.
-    OptimalityProven,
-    /// The solver proved that the problem is infeasible.
-    InfeasibilityProven,
-    /// The solver aborted due to a search limit (time, iterations, etc.).
-    /// The string contains information about the reason for abortion.
-    Aborted(String),
-    /// The solver was interrupted by the stop flag.
-    Interrupted,
-}
-
-impl std::fmt::Display for PortfolioSolverTerminationReason {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PortfolioSolverTerminationReason::OptimalityProven => {
-                write!(f, "Optimality Proven")
-            }
-            PortfolioSolverTerminationReason::InfeasibilityProven => {
-                write!(f, "Infeasibility Proven")
-            }
-            PortfolioSolverTerminationReason::Aborted(reason) => {
-                write!(f, "Aborted: {}", reason)
-            }
-            PortfolioSolverTerminationReason::Interrupted => write!(f, "Interrupted"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortfolioSolverResult<T>
 where
     T: PrimInt + Signed,
 {
-    pub result: SolverResult<T>,
-    pub termination_reason: PortfolioSolverTerminationReason,
+    result: SolverResult<T>,
+    termination_reason: TerminationReason,
 }
 
 impl<T> PortfolioSolverResult<T>
 where
     T: PrimInt + Signed,
 {
-    #[inline(always)]
-    pub fn new(
-        result: SolverResult<T>,
-        termination_reason: PortfolioSolverTerminationReason,
-    ) -> Self {
+    #[inline]
+    pub fn optimal(solution: Solution<T>) -> Self {
+        Self {
+            result: SolverResult::Optimal(solution),
+            termination_reason: TerminationReason::OptimalityProven,
+        }
+    }
+
+    #[inline]
+    pub fn infeasible() -> Self {
+        Self {
+            result: SolverResult::Infeasible,
+            termination_reason: TerminationReason::InfeasibilityProven,
+        }
+    }
+
+    #[inline]
+    pub fn aborted<R>(solution: Option<Solution<T>>, reason: R) -> Self
+    where
+        R: Into<String>,
+    {
+        let termination_reason = TerminationReason::Aborted(reason.into());
+
+        let result = match solution {
+            Some(sol) => SolverResult::Feasible(sol),
+            None => SolverResult::Infeasible,
+        };
+
         Self {
             result,
             termination_reason,
         }
+    }
+
+    pub fn result(&self) -> &SolverResult<T> {
+        &self.result
+    }
+
+    pub fn termination_reason(&self) -> &TerminationReason {
+        &self.termination_reason
     }
 }
 

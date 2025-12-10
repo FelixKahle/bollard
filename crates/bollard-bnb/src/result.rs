@@ -20,12 +20,74 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::stats::BnbSolverStatistics;
+use bollard_model::solution::Solution;
 use bollard_search::result::{SolverResult, TerminationReason};
 
 /// Result of the solver after termination.
 #[derive(Debug, Clone)]
-pub struct BnbSolverResult<T> {
-    pub result: SolverResult<T>,
-    pub termination_reason: TerminationReason,
-    pub statistics: BnbSolverStatistics,
+pub struct BnbSolverOutcome<T> {
+    result: SolverResult<T>,
+    termination_reason: TerminationReason,
+    statistics: BnbSolverStatistics,
+}
+
+impl<T> BnbSolverOutcome<T> {
+    #[inline]
+    pub fn optimal(solution: Solution<T>, statistics: BnbSolverStatistics) -> Self {
+        Self {
+            result: SolverResult::Optimal(solution),
+            termination_reason: TerminationReason::OptimalityProven,
+            statistics,
+        }
+    }
+
+    #[inline]
+    pub fn infeasible(statistics: BnbSolverStatistics) -> Self {
+        Self {
+            result: SolverResult::Infeasible,
+            termination_reason: TerminationReason::InfeasibilityProven,
+            statistics,
+        }
+    }
+
+    #[inline]
+    pub fn aborted<R>(
+        solution: Option<Solution<T>>,
+        reason: R,
+        statistics: BnbSolverStatistics,
+    ) -> Self
+    where
+        R: Into<String>,
+    {
+        let termination_reason = TerminationReason::Aborted(reason.into());
+
+        let result = match solution {
+            Some(sol) => SolverResult::Feasible(sol),
+            None => SolverResult::Infeasible,
+        };
+
+        Self {
+            result,
+            termination_reason,
+            statistics,
+        }
+    }
+
+    /// Returns the solver result.
+    #[inline]
+    pub fn result(&self) -> &SolverResult<T> {
+        &self.result
+    }
+
+    /// Returns the termination reason.
+    #[inline]
+    pub fn termination_reason(&self) -> &TerminationReason {
+        &self.termination_reason
+    }
+
+    /// Returns the solver statistics.
+    #[inline]
+    pub fn statistics(&self) -> &BnbSolverStatistics {
+        &self.statistics
+    }
 }

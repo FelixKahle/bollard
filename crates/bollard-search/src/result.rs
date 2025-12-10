@@ -23,6 +23,7 @@ use crate::stats::SolverStatistics;
 use bollard_model::solution::Solution;
 use num_traits::{PrimInt, Signed};
 
+/// The result of the solver after termination.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SolverResult<T> {
     /// We have proven that the problem is infeasible.
@@ -54,6 +55,7 @@ where
     }
 }
 
+/// The reason for the solver's termination.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminationReason {
     /// The solver found and proved optimality of a solution.
@@ -75,48 +77,115 @@ impl std::fmt::Display for TerminationReason {
     }
 }
 
+/// The complete outcome of the solver after termination,
+/// including result, termination reason, and statistics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SolverOutcome<T>
 where
     T: PrimInt + Signed + Copy,
 {
-    pub result: SolverResult<T>,
-    pub reason: TerminationReason,
-    pub statistics: SolverStatistics,
+    result: SolverResult<T>,
+    reason: TerminationReason,
+    statistics: SolverStatistics,
 }
 
 impl<T> SolverOutcome<T>
 where
     T: PrimInt + Signed + Copy,
 {
+    /// Creates a new `SolverOutcome` representing an optimal solution.
     #[inline]
-    pub fn new(
-        result: SolverResult<T>,
-        reason: TerminationReason,
-        statistics: SolverStatistics,
-    ) -> Self {
+    pub fn optimal(solution: Solution<T>, statistics: SolverStatistics) -> Self {
         Self {
-            result,
-            reason,
+            result: SolverResult::Optimal(solution),
+            reason: TerminationReason::OptimalityProven,
             statistics,
         }
     }
 
+    /// Creates a new `SolverOutcome` representing an infeasible problem.
+    #[inline]
+    pub fn infeasible(statistics: SolverStatistics) -> Self {
+        Self {
+            result: SolverResult::Infeasible,
+            reason: TerminationReason::InfeasibilityProven,
+            statistics,
+        }
+    }
+
+    /// Creates a new `SolverOutcome` representing a feasible solution
+    /// found before abortion. It may or may not be optimal.
+    #[inline]
+    pub fn feasible<R>(
+        solution: bollard_model::solution::Solution<T>,
+        abort_reason: R,
+        statistics: SolverStatistics,
+    ) -> Self
+    where
+        R: Into<String>,
+    {
+        Self {
+            result: SolverResult::Feasible(solution),
+            reason: TerminationReason::Aborted(abort_reason.into()),
+            statistics,
+        }
+    }
+
+    /// Creates a new `SolverOutcome` representing an unknown result
+    /// due to abortion without any solution found.
+    #[inline]
+    pub fn unknown<R>(abort_reason: R, statistics: SolverStatistics) -> Self
+    where
+        R: Into<String>,
+    {
+        Self {
+            result: SolverResult::Unknown,
+            reason: TerminationReason::Aborted(abort_reason.into()),
+            statistics,
+        }
+    }
+
+    /// Returns the solver result.
+    #[inline]
+    pub fn result(&self) -> &SolverResult<T> {
+        &self.result
+    }
+
+    /// Returns the termination reason.
+    #[inline]
+    pub fn reason(&self) -> &TerminationReason {
+        &self.reason
+    }
+
+    /// Returns the solver statistics.
+    #[inline]
+    pub fn statistics(&self) -> &SolverStatistics {
+        &self.statistics
+    }
+
+    /// Returns `true` if the solver found an optimal solution
+    /// and proved its optimality, `false` otherwise.
     #[inline]
     pub fn is_optimal(&self) -> bool {
         matches!(self.result, SolverResult::Optimal(_))
     }
 
+    /// Returns `true` if the solver found a feasible solution
+    /// (optimal or not), `false` otherwise.
     #[inline]
     pub fn is_feasible(&self) -> bool {
         matches!(self.result, SolverResult::Feasible(_))
     }
 
+    /// Returns `true` if the solver proved that the problem is infeasible,
+    /// `false` otherwise.
     #[inline]
     pub fn is_infeasible(&self) -> bool {
         matches!(self.result, SolverResult::Infeasible)
     }
 
+    /// Returns `true` if the solver found any solution
+    /// (optimal or feasible), `false` otherwise.
     #[inline]
     pub fn has_solution(&self) -> bool {
         matches!(
@@ -130,7 +199,10 @@ impl<T> std::fmt::Display for SolverOutcome<T>
 where
     T: PrimInt + Signed + Copy + std::fmt::Display,
 {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Result: {}", self.result)?;
+        writeln!(f, "Termination: {}", self.reason)?;
+        write!(f, "{}", self.statistics)?;
+        Ok(())
     }
 }
