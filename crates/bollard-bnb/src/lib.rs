@@ -19,10 +19,10 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-pub mod backing;
 pub mod bnb;
 pub mod branching;
 pub mod eval;
+pub mod incumbent;
 pub mod portfolio;
 pub mod result;
 pub mod stack;

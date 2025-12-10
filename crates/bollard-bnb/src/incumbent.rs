@@ -29,14 +29,14 @@ use std::marker::PhantomData;
 /// This is particularly useful in parallel or distributed solving scenarios,
 /// where multiple solver instances may need to share and update the best-known solution
 /// and its lower bound.
-pub trait IncumbentBacking<T>
+pub trait IncumbentStore<T>
 where
     T: SolverNumeric,
 {
     /// Returns the initial upper bound for the incumbent solution.
     fn initial_upper_bound(&self) -> T;
     /// Synchronizes the current local best solution with the shared incumbent.
-    fn sync_upper_bound(&self, current_local_best: T) -> T;
+    fn tighten(&self, current_local_best: T) -> T;
     /// Notifies the backing that a new solution has been found.
     fn on_solution_found(&self, solution: &Solution<T>);
 }
@@ -50,7 +50,7 @@ pub struct NoSharedIncumbent<T>(PhantomData<T>);
 impl<T> Default for NoSharedIncumbent<T>
 where
     T: SolverNumeric,
- {
+{
     fn default() -> Self {
         Self::new()
     }
@@ -67,7 +67,7 @@ where
     }
 }
 
-impl<T> IncumbentBacking<T> for NoSharedIncumbent<T>
+impl<T> IncumbentStore<T> for NoSharedIncumbent<T>
 where
     T: SolverNumeric,
 {
@@ -77,7 +77,7 @@ where
     }
 
     #[inline(always)]
-    fn sync_upper_bound(&self, current_local_best: T) -> T {
+    fn tighten(&self, current_local_best: T) -> T {
         current_local_best
     }
 
@@ -102,7 +102,7 @@ impl<'a, T> SharedIncumbentAdapter<'a, T> {
     }
 }
 
-impl<'a, T> IncumbentBacking<T> for SharedIncumbentAdapter<'a, T>
+impl<'a, T> IncumbentStore<T> for SharedIncumbentAdapter<'a, T>
 where
     T: SolverNumeric,
 {
@@ -112,13 +112,9 @@ where
     }
 
     #[inline(always)]
-    fn sync_upper_bound(&self, current_local_best: T) -> T {
+    fn tighten(&self, current_local_best: T) -> T {
         let shared: T = self.inner.upper_bound().into();
-        if shared < current_local_best {
-            shared
-        } else {
-            current_local_best
-        }
+        shared.min(current_local_best)
     }
 
     #[inline(always)]

@@ -78,7 +78,7 @@ where
 impl<T> Default for DummyMonitor<T>
 where
     T: PrimInt + Signed,
- {
+{
     fn default() -> Self {
         Self::new()
     }

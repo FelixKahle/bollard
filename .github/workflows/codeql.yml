@@ -19,26 +19,38 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-name: Build & Test
-permissions:
-  contents: read
+name: "CodeQL"
 
-on: [push] # if this ever becomes a project with many contributors, consider adding pull_request here
-
-env:
-  CARGO_TERM_COLOR: always
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "0 12 * * 5" # Every Friday at 12:00 UTC
 
 jobs:
-  build_test:
-    name: Test (${{ matrix.profile }})
-    runs-on: ubuntu-latest
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+
     strategy:
       fail-fast: false
       matrix:
-        profile: [debug, release]
+        include:
+          - language: actions
+            build-mode: none
+          - language: rust
+            build-mode: manual
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Cache
         uses: actions/cache@v4
@@ -51,26 +63,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.profile }}-
 
-      - name: Set Cargo Flags
-        id: flags
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          config-file: .github/codeql/codeql-config.yml
+
+      - name: Build Rust workspace (all features and targets)
+        if: matrix.build-mode == 'manual'
         shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
         run: |
-          if [ "${{ matrix.profile }}" == "release" ]; then
-            echo "arg=--release" >> $GITHUB_OUTPUT
-          else
-            echo "arg=" >> $GITHUB_OUTPUT
-          fi
+          cargo build --locked --workspace --all-targets --all-features
 
-      - name: Check Formatting
-        if: matrix.profile == 'debug'
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        if: matrix.profile == 'debug'
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-      - name: Build (${{ matrix.profile }})
-        run: cargo build --verbose ${{ steps.flags.outputs.arg }} --workspace
-
-      - name: Test (${{ matrix.profile }})
-        run: cargo test --verbose ${{ steps.flags.outputs.arg }} --workspace
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{matrix.language}}"

@@ -20,9 +20,9 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
-    backing::{IncumbentBacking, NoSharedIncumbent, SharedIncumbentAdapter},
     branching::decision::{Decision, DecisionBuilder},
     eval::evaluator::ObjectiveEvaluator,
+    incumbent::{IncumbentStore, NoSharedIncumbent, SharedIncumbentAdapter},
     result::BnbSolverOutcome,
     stack::SearchStack,
     state::SearchState,
@@ -142,7 +142,7 @@ where
         B: DecisionBuilder<T, E>,
         E: ObjectiveEvaluator<T>,
         S: TreeSearchMonitor<T>,
-        I: IncumbentBacking<T>,
+        I: IncumbentStore<T>,
         T: SolverNumeric,
     {
         let session =
@@ -220,7 +220,7 @@ impl std::fmt::Display for SearchStep {
 struct BnbSolverSearchSession<'a, T, B, E, S, I>
 where
     T: SolverNumeric,
-    I: IncumbentBacking<T>,
+    I: IncumbentStore<T>,
 {
     solver: &'a mut BnbSolver<T>,
     model: &'a Model<T>,
@@ -241,7 +241,7 @@ where
     B: DecisionBuilder<T, E>,
     E: ObjectiveEvaluator<T>,
     S: TreeSearchMonitor<T>,
-    I: IncumbentBacking<T>,
+    I: IncumbentStore<T>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SearchSession")
@@ -260,7 +260,7 @@ where
     B: DecisionBuilder<T, E>,
     E: ObjectiveEvaluator<T>,
     S: TreeSearchMonitor<T>,
-    I: IncumbentBacking<T>,
+    I: IncumbentStore<T>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let solution_str = match &self.best_solution {
@@ -281,7 +281,7 @@ where
     B: DecisionBuilder<T, E>,
     E: ObjectiveEvaluator<T>,
     S: TreeSearchMonitor<T>,
-    I: IncumbentBacking<T>,
+    I: IncumbentStore<T>,
 {
     /// Create a new search session.
     #[inline]
@@ -318,7 +318,7 @@ where
         self.initialize();
 
         let termination_reason: TerminationReason = loop {
-            self.best_objective = self.incumbent_backing.sync_upper_bound(self.best_objective);
+            self.best_objective = self.incumbent_backing.tighten(self.best_objective);
             self.monitor.on_step(&self.state);
 
             if let SearchCommand::Terminate(msg) = self.monitor.search_command(&self.state) {
