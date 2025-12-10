@@ -131,6 +131,26 @@ where
     }
 }
 
+/// Iterator over feasible `(vessel, berth)` decisions in a chronological,
+/// canonical, exhaustive order.
+///
+/// This iterator traverses the assignment space in row-major order
+/// (vessels × berths), skipping already-assigned vessels and yielding only
+/// decisions deemed feasible by the model and current search state.
+/// It is the concrete iterator returned by
+/// `ChronologicalExhaustiveBuilder::next_decision`.
+///
+/// Properties:
+/// - Row-major iteration: vessels are advanced outer-most; berths wrap modulo `num_berths`.
+/// - Skips vessels already assigned in `state`.
+/// - Yields only feasible `Decision`s (as determined by `Decision::try_new_unchecked`).
+/// - Fused: once it returns `None`, subsequent calls also return `None`.
+///
+/// Chronological guarantee:
+/// - Time moves forward along any branch. Feasibility checks in `Decision`
+///   enforce non-decreasing start times and tie-breaking rules
+///   (see `branching/decision.rs`: `try_new`, `try_new_unchecked`,
+///   and tests such as `test_try_new_enforces_chronological_order_by_start_time`).
 #[derive(Debug, Clone)]
 pub struct ExhaustiveIter<'a, T>
 where

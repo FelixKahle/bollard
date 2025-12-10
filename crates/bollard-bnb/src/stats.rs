@@ -67,31 +67,37 @@ where
 }
 
 impl<T> BnbSolverStatistics<T> {
+    /// Records the exploration of a new node.
     #[inline]
     pub fn on_node_explored(&mut self) {
         self.nodes_explored = self.nodes_explored.saturating_add_val(1);
     }
 
+    /// Records a backtrack event.
     #[inline]
     pub fn on_backtrack(&mut self) {
         self.backtracks = self.backtracks.saturating_add_val(1);
     }
 
+    /// Records the discovery of a new feasible solution.
     #[inline]
     pub fn on_solution_found(&mut self) {
         self.solutions_found = self.solutions_found.saturating_add_val(1);
     }
 
+    /// Updates the maximum depth reached in the search tree.
     #[inline]
     pub fn on_depth_update(&mut self, depth: u64) {
         self.max_depth = self.max_depth.max(depth);
     }
 
+    /// Records the generation of a new decision (branching choice).
     #[inline]
     pub fn on_decision_generated(&mut self) {
         self.decisions_generated = self.decisions_generated.saturating_add_val(1);
     }
 
+    /// Records a pruning event caused by infeasibility.
     #[inline]
     pub fn on_pruning_infeasible(&mut self) {
         self.prunings_infeasible = self.prunings_infeasible.saturating_add_val(1);
@@ -103,11 +109,13 @@ impl<T> BnbSolverStatistics<T> {
         self.prunings_bound = self.prunings_bound.saturating_add_val(1);
     }
 
+    /// Sets the total time spent in the solver.
     #[inline]
     pub fn set_total_time(&mut self, duration: Duration) {
         self.time_total = duration;
     }
 
+    /// Sets the root node lower bound.
     #[inline]
     pub fn set_root_lower_bound(&mut self, bound: T) {
         self.root_lower_bound = bound;

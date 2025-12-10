@@ -36,6 +36,7 @@ pub struct BnbSolverOutcome<T> {
 }
 
 impl<T> BnbSolverOutcome<T> {
+    /// Creates a new optimal outcome.
     #[inline]
     pub fn optimal(solution: Solution<T>, statistics: BnbSolverStatistics<T>) -> Self {
         Self {
@@ -45,6 +46,7 @@ impl<T> BnbSolverOutcome<T> {
         }
     }
 
+    /// Creates a new infeasible outcome.
     #[inline]
     pub fn infeasible(statistics: BnbSolverStatistics<T>) -> Self {
         Self {
@@ -54,6 +56,7 @@ impl<T> BnbSolverOutcome<T> {
         }
     }
 
+    /// Creates a new aborted outcome.
     #[inline]
     pub fn aborted<R>(
         solution: Option<Solution<T>>,

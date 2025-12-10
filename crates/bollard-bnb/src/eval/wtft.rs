@@ -274,12 +274,7 @@ where
                     continue;
                 }
                 let processing_time = processing_time_opt.unwrap_unchecked();
-
-                let tentative_start = if arrival > current_free_time {
-                    arrival
-                } else {
-                    current_free_time
-                };
+                let tentative_start = arrival.max(current_free_time);
 
                 let possible_finish = unsafe {
                     earliest_finish_time_unchecked(
@@ -340,11 +335,8 @@ where
             total_weighted_completion / num_berths_conv
         };
 
-        if lower_bound_workload > lower_bound_independent {
-            Some(lower_bound_workload)
-        } else {
-            Some(lower_bound_independent)
-        }
+        let lower_bound = lower_bound_workload.max(lower_bound_independent);
+        Some(lower_bound)
     }
 }
 

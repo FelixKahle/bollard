@@ -68,6 +68,7 @@ where
 
     #[inline(always)]
     fn on_backtrack(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics<T>) {}
+
     #[inline(always)]
     fn on_descend(
         &mut self,

@@ -92,6 +92,10 @@ where
         }
     }
 
+    /// Solve the given model using the provided `DecisionBuilder`,
+    /// `ObjectiveEvaluator`, and `TreeSearchMonitor`.
+    /// This variant does not use a shared incumbent and thus
+    /// acts as a standalone, single threaded solver.
     #[inline]
     pub fn solve<B, E, S>(
         &mut self,
@@ -110,6 +114,12 @@ where
         self.solve_internal(model, builder, evaluator, monitor, backing)
     }
 
+    /// Solve the given model using the provided `DecisionBuilder`,
+    /// `ObjectiveEvaluator`, `TreeSearchMonitor`, and `SharedIncumbent`.
+    /// This variant uses the shared incumbent to synchronize
+    /// the best known solution between different solver instances.
+    /// The branch and bound algorithm will use the incumbent
+    /// to prune branches that cannot improve upon the shared best solution.
     #[inline]
     pub fn solve_with_incumbent<B, E, S>(
         &mut self,
@@ -129,6 +139,8 @@ where
         self.solve_internal(model, builder, evaluator, monitor, backing)
     }
 
+    /// Internal solve method that takes an `IncumbentStore`,
+    /// which is usually either a `NoSharedIncumbent` or a `SharedIncumbentAdapter`.
     #[inline(always)]
     fn solve_internal<B, E, S, I>(
         &mut self,

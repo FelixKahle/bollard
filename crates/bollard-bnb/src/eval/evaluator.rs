@@ -35,12 +35,7 @@ use num_traits::{FromPrimitive, PrimInt, Signed};
 ///   given the berth's ready time,
 /// - `lower_bound` to estimate a tight bound on the total objective from the current state.
 ///
-/// Implementors should return `T::max_value()` for infeasible assignments or bounds,
-/// enabling the solver to prune branches early.
-///
-/// Safety contract:
-/// - The `*_unchecked` variant skips bounds checks; callers must ensure indices are valid.
-#[allow(dead_code)]
+/// `None` represents an infeasible tree branch or assignment.
 pub trait ObjectiveEvaluator<T>
 where
     T: PrimInt + Signed,

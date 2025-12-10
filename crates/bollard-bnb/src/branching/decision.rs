@@ -130,16 +130,19 @@ impl Decision {
         }
     }
 
+    /// Returns the vessel index of this decision.
     #[inline(always)]
     pub const fn vessel_index(&self) -> VesselIndex {
         self.vessel_index
     }
 
+    /// Returns the berth index of this decision.
     #[inline(always)]
     pub const fn berth_index(&self) -> BerthIndex {
         self.berth_index
     }
 
+    /// Decomposes this decision into its vessel and berth indices.
     #[inline(always)]
     pub const fn into_inner(self) -> (VesselIndex, BerthIndex) {
         (self.vessel_index, self.berth_index)

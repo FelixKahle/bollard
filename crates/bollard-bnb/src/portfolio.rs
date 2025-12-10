@@ -28,6 +28,9 @@ use bollard_search::{
     portfolio::{PortfolioSolverContext, PortfolioSolverResult, PortofolioSolver},
 };
 
+/// A branch-and-bound portfolio solver that combines a
+/// `BnbSolver` with a customizable `DecisionBuilder` and
+/// `ObjectiveEvaluator`.
 #[derive(Clone)]
 pub struct BnbPortfolioSolver<T, B, E>
 where
@@ -46,6 +49,8 @@ where
     B: DecisionBuilder<T, E>,
     E: ObjectiveEvaluator<T>,
 {
+    /// Creates a new `BnbPortfolioSolver` with the given
+    /// `DecisionBuilder` and `ObjectiveEvaluator`.
     #[inline]
     pub fn new(decision_builder: B, evaluator: E) -> Self {
         Self {
@@ -55,6 +60,16 @@ where
         }
     }
 
+    /// Creates a new `BnbPortfolioSolver` with preallocated
+    /// structures for the specified number of berths and vessels.
+    ///
+    ///
+    /// # Note
+    ///
+    /// The inner `BnbSolver` will preallocate its needed size
+    /// when the solve process is started. This method allows
+    /// only to memory before that point. It does not improve
+    /// performance it only moves the time of allocation.
     #[inline]
     pub fn preallocated(
         num_berths: usize,
@@ -69,16 +84,19 @@ where
         }
     }
 
+    /// Returns a reference to the inner `BnbSolver`.
     #[inline]
     pub fn inner(&self) -> &BnbSolver<T> {
         &self.inner
     }
 
+    /// Returns a reference to the `DecisionBuilder`.
     #[inline]
     pub fn decision_builder(&self) -> &B {
         &self.decision_builder
     }
 
+    /// Returns a reference to the `ObjectiveEvaluator`.
     #[inline]
     pub fn evaluator(&self) -> &E {
         &self.evaluator
