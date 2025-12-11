@@ -1,0 +1,233 @@
+// Copyright (c) 2025 Felix Kahle.
+//
+// Permission is hereby granted, free of charge, to any person obtaining
+// a copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to
+// permit persons to whom the Software is furnished to do so, subject to
+// the following conditions:
+//
+// The above copyright notice and this permission notice shall be
+// included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+// LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+// OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+// WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+use crate::{
+    branching::decision::Decision,
+    monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
+    state::SearchState,
+    stats::BnbSolverStatistics,
+};
+use bollard_model::{model::Model, solution::Solution};
+use bollard_search::monitor::search_monitor::SearchCommand;
+use num_traits::{PrimInt, Signed};
+
+pub struct CompositeTreeSearchMonitor<'a, T>
+where
+    T: PrimInt + Signed,
+{
+    monitors: Vec<Box<dyn TreeSearchMonitor<T> + 'a>>,
+}
+
+impl<'a, T> Default for CompositeTreeSearchMonitor<'a, T>
+where
+    T: PrimInt + Signed,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a, T> CompositeTreeSearchMonitor<'a, T>
+where
+    T: PrimInt + Signed,
+{
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self {
+            monitors: Vec::new(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            monitors: Vec::with_capacity(capacity),
+        }
+    }
+
+    #[inline(always)]
+    pub fn from_vec(monitors: Vec<Box<dyn TreeSearchMonitor<T>>>) -> Self {
+        Self { monitors }
+    }
+
+    #[inline(always)]
+    pub fn add_monitor<M>(&mut self, monitor: M)
+    where
+        M: TreeSearchMonitor<T> + 'a,
+    {
+        self.monitors.push(Box::new(monitor));
+    }
+
+    #[inline(always)]
+    pub fn add_monitor_boxed(&mut self, monitor: Box<dyn TreeSearchMonitor<T> + 'a>) {
+        self.monitors.push(monitor);
+    }
+
+    #[inline(always)]
+    pub fn monitors(&self) -> &[Box<dyn TreeSearchMonitor<T> + 'a>] {
+        &self.monitors
+    }
+
+    #[inline(always)]
+    pub fn monitors_mut(&mut self) -> &mut [Box<dyn TreeSearchMonitor<T> + 'a>] {
+        &mut self.monitors
+    }
+
+    #[inline(always)]
+    pub fn clear(&mut self) {
+        self.monitors.clear();
+    }
+
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.monitors.len()
+    }
+
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.monitors.is_empty()
+    }
+}
+
+impl<'a, T> FromIterator<Box<dyn TreeSearchMonitor<T> + 'a>> for CompositeTreeSearchMonitor<'a, T>
+where
+    T: PrimInt + Signed,
+{
+    #[inline(always)]
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = Box<dyn TreeSearchMonitor<T> + 'a>>,
+    {
+        Self {
+            monitors: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl<'a, T> TreeSearchMonitor<T> for CompositeTreeSearchMonitor<'a, T>
+where
+    T: PrimInt + Signed,
+{
+    #[inline(always)]
+    fn name(&self) -> &str {
+        "CompositeTreeSearchMonitor"
+    }
+
+    #[inline(always)]
+    fn on_enter_search(&mut self, model: &Model<T>, statistics: &BnbSolverStatistics) {
+        for monitor in &mut self.monitors {
+            monitor.on_enter_search(model, statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn on_exit_search(&mut self, statistics: &BnbSolverStatistics) {
+        for monitor in &mut self.monitors {
+            monitor.on_exit_search(statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn search_command(
+        &mut self,
+        state: &SearchState<T>,
+        statistics: &BnbSolverStatistics,
+    ) -> SearchCommand {
+        for monitor in &mut self.monitors {
+            let cmd = monitor.search_command(state, statistics);
+            // Short-circuit on the first non-Continue command
+            if !matches!(cmd, SearchCommand::Continue) {
+                return cmd;
+            }
+        }
+        SearchCommand::Continue
+    }
+
+    #[inline(always)]
+    fn on_step(&mut self, state: &SearchState<T>, statistics: &BnbSolverStatistics) {
+        for monitor in &mut self.monitors {
+            monitor.on_step(state, statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn on_lower_bound_computed(
+        &mut self,
+        state: &SearchState<T>,
+        lower_bound: T,
+        estimated_remaining: T,
+        statistics: &BnbSolverStatistics,
+    ) {
+        for monitor in &mut self.monitors {
+            monitor.on_lower_bound_computed(state, lower_bound, estimated_remaining, statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn on_prune(
+        &mut self,
+        state: &SearchState<T>,
+        reason: PruneReason,
+        statistics: &BnbSolverStatistics,
+    ) {
+        for monitor in &mut self.monitors {
+            monitor.on_prune(state, reason.clone(), statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn on_decisions_enqueued(
+        &mut self,
+        state: &SearchState<T>,
+        count: usize,
+        statistics: &BnbSolverStatistics,
+    ) {
+        for monitor in &mut self.monitors {
+            monitor.on_decisions_enqueued(state, count, statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn on_descend(
+        &mut self,
+        state: &SearchState<T>,
+        decision: Decision,
+        statistics: &BnbSolverStatistics,
+    ) {
+        for monitor in &mut self.monitors {
+            monitor.on_descend(state, decision, statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn on_solution_found(&mut self, solution: &Solution<T>, statistics: &BnbSolverStatistics) {
+        for monitor in &mut self.monitors {
+            monitor.on_solution_found(solution, statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn on_backtrack(&mut self, state: &SearchState<T>, statistics: &BnbSolverStatistics) {
+        for monitor in &mut self.monitors {
+            monitor.on_backtrack(state, statistics);
+        }
+    }
+}

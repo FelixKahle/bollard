@@ -92,14 +92,15 @@ where
     /// Computes a global lower bound on the objective from the current state.
     ///
     /// The bound should be fast and optimistic (never exceed the optimal value for completion).
-    /// The solver prunes branches when `lower_bound >= best_objective`.
+    /// The solver prunes branches when `lower_bound >= best_objective`. Also it does not
+    /// take into account the current cost of the partial state.
     ///
     /// Implementations typically:
     /// - accumulate the current objective,
     /// - add the minimum incremental cost for each remaining vessel across feasible berths
     ///   using current berth free times,
     /// - return `None` if any vessel has no feasible berth.
-    fn lower_bound(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T>
+    fn lower_bound_estimate(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T>
     where
         T: MinusOne
             + saturating_arithmetic::SaturatingAddVal

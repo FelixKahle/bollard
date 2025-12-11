@@ -20,8 +20,10 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
-    branching::decision::Decision, state::SearchState, stats::BnbSolverStatistics,
-    tree_search_monitor::TreeSearchMonitor,
+    branching::decision::Decision,
+    monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
+    state::SearchState,
+    stats::BnbSolverStatistics,
 };
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::monitor::search_monitor::{SearchCommand, SearchMonitor};
@@ -111,7 +113,7 @@ where
     fn on_prune(
         &mut self,
         _state: &SearchState<T>,
-        _reason: crate::tree_search_monitor::PruneReason,
+        _reason: PruneReason,
         _statistics: &BnbSolverStatistics,
     ) {
     }

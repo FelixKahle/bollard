@@ -21,7 +21,7 @@
 
 use crate::{
     bnb::BnbSolver, branching::decision::DecisionBuilder, eval::evaluator::ObjectiveEvaluator,
-    wrapper::WrapperMonitor,
+    monitor::wrapper::WrapperMonitor,
 };
 use bollard_search::{
     num::SolverNumeric,

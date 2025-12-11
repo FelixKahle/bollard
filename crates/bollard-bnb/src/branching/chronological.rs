@@ -200,3 +200,119 @@ where
 }
 
 impl<'a, T> FusedIterator for ExhaustiveIter<'a, T> where T: PrimInt + Signed + MinusOne {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::eval::wtft::WeightedFlowTimeEvaluator;
+    use bollard_model::{
+        index::{BerthIndex, VesselIndex},
+        model::ModelBuilder,
+        time::ProcessingTime,
+    };
+
+    type IntegerType = i64;
+
+    // Build a small model: 2 berths × 3 vessels with explicit feasibility.
+    // v0: feasible on b0, b1
+    // v1: infeasible on b0, feasible on b1
+    // v2: feasible on b0, infeasible on b1
+    fn build_small_model() -> bollard_model::model::Model<IntegerType> {
+        let mut mb = ModelBuilder::<IntegerType>::new(2, 3);
+
+        // Vessel 0
+        mb.set_vessel_arrival_time(VesselIndex::new(0), 0)
+            .set_vessel_latest_departure_time(VesselIndex::new(0), IntegerType::MAX)
+            .set_vessel_weight(VesselIndex::new(0), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(0),
+                ProcessingTime::some(5),
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(1),
+                ProcessingTime::some(7),
+            );
+
+        // Vessel 1
+        mb.set_vessel_arrival_time(VesselIndex::new(1), 0)
+            .set_vessel_latest_departure_time(VesselIndex::new(1), IntegerType::MAX)
+            .set_vessel_weight(VesselIndex::new(1), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(1),
+                BerthIndex::new(0),
+                ProcessingTime::none(), // infeasible on b0
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(1),
+                BerthIndex::new(1),
+                ProcessingTime::some(3),
+            );
+
+        // Vessel 2
+        mb.set_vessel_arrival_time(VesselIndex::new(2), 0)
+            .set_vessel_latest_departure_time(VesselIndex::new(2), IntegerType::MAX)
+            .set_vessel_weight(VesselIndex::new(2), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(2),
+                BerthIndex::new(0),
+                ProcessingTime::some(4),
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(2),
+                BerthIndex::new(1),
+                ProcessingTime::none(), // infeasible on b1
+            );
+
+        mb.build()
+    }
+
+    #[test]
+    fn test_chronological_iter_yields_row_major_feasible_pairs() {
+        let model = build_small_model();
+        let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+
+        // Evaluator is unused by the chronological builder but required by the trait.
+        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut builder = ChronologicalExhaustiveBuilder;
+
+        let mut iter = builder.next_decision(&mut eval, &model, &state);
+        let decisions: Vec<Decision> = iter.by_ref().collect();
+        assert!(
+            !decisions.is_empty(),
+            "Expected at least one feasible decision"
+        );
+
+        // Expect row-major order over vessels×berths with feasibility filtering applied.
+        let actual_pairs: Vec<(usize, usize)> = decisions
+            .iter()
+            .map(|d| (d.vessel_index().get(), d.berth_index().get()))
+            .collect();
+
+        // v0,b0 (feasible), v0,b1 (feasible),
+        // v1,b0 (infeasible, skipped), v1,b1 (feasible),
+        // v2,b0 (feasible), v2,b1 (infeasible, skipped)
+        let expected_pairs = vec![(0, 0), (0, 1), (1, 1), (2, 0)];
+        assert_eq!(
+            actual_pairs, expected_pairs,
+            "Iterator must yield feasible decisions in row-major order"
+        );
+    }
+
+    #[test]
+    fn test_chronological_iter_is_fused() {
+        let model = build_small_model();
+        let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+
+        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut it = builder.next_decision(&mut eval, &model, &state);
+
+        // Exhaust the iterator
+        while it.next().is_some() {}
+        // Subsequent calls must return None
+        assert_eq!(it.next(), None);
+        assert_eq!(it.next(), None);
+    }
+}

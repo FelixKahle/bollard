@@ -23,12 +23,12 @@ use crate::{
     branching::decision::{Decision, DecisionBuilder},
     eval::evaluator::ObjectiveEvaluator,
     incumbent::{IncumbentStore, NoSharedIncumbent, SharedIncumbentAdapter},
+    monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
     result::BnbSolverOutcome,
     stack::SearchStack,
     state::SearchState,
     stats::BnbSolverStatistics,
     trail::SearchTrail,
-    tree_search_monitor::{PruneReason, TreeSearchMonitor},
 };
 use bollard_model::index::{BerthIndex, VesselIndex};
 use bollard_model::{model::Model, solution::Solution};
@@ -332,6 +332,7 @@ where
         let termination_reason: TerminationReason = loop {
             self.best_objective = self.incumbent.tighten(self.best_objective);
             self.monitor.on_step(&self.state, &self.stats);
+            self.stats.on_step();
 
             if let SearchCommand::Terminate(msg) =
                 self.monitor.search_command(&self.state, &self.stats)
@@ -642,7 +643,8 @@ where
     /// Determine whether to backtrack after expanding the current node.
     #[inline(always)]
     fn should_backtrack_after_expand(&mut self) -> bool {
-        let lower_bound_remaining_opt = self.evaluator.lower_bound(self.model, &self.state);
+        let lower_bound_remaining_opt =
+            self.evaluator.lower_bound_estimate(self.model, &self.state);
         let lower_bound_remaining = match lower_bound_remaining_opt {
             None => {
                 self.monitor
@@ -688,9 +690,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::branching::chronological::ChronologicalExhaustiveBuilder;
+    use crate::branching::wspt::WsptHeuristicBuilder;
     use crate::eval::wtft::WeightedFlowTimeEvaluator;
-    use crate::tree_search_monitor::NoOperationMonitor;
+    use crate::monitor::no_op::NoOperationMonitor;
+    use crate::{
+        branching::chronological::ChronologicalExhaustiveBuilder,
+        monitor::log::LogTreeSearchMonitor,
+    };
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
@@ -740,7 +746,8 @@ mod tests {
         let model = build_model(2, 10);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder =
+            WsptHeuristicBuilder::preallocated(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -751,12 +758,13 @@ mod tests {
             &model,
             &mut builder,
             &mut evaluator,
-            NoOperationMonitor::new(),
+            LogTreeSearchMonitor::default(),
         );
 
         // 2. Print the rich result (Outcome, Reason, Objective, Stats Table)
         // Print just the inner SolverResult summary
         println!("{}", outcome.result());
+        println!("{}", outcome.statistics());
 
         // 3. Assertions: unwrap the solution from the inner SolverResult
         let solution = match outcome.result() {

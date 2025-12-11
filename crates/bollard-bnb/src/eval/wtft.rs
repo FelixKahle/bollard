@@ -214,7 +214,7 @@ where
         Some(finish_time.saturating_mul_val(weight))
     }
 
-    fn lower_bound(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T>
+    fn lower_bound_estimate(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T>
     where
         T: MinusOne
             + saturating_arithmetic::SaturatingAddVal
@@ -246,6 +246,7 @@ where
         // Prepare vessel scratch buffer
         self.scratch_vessels.clear();
         let mut lower_bound_independent = T::zero();
+        let mut min_unassigned_arrival = T::max_value();
 
         for i in 0..num_vessels {
             let vessel_index = VesselIndex::new(i);
@@ -255,6 +256,11 @@ where
             }
 
             let arrival = unsafe { model.vessel_arrival_time_unchecked(vessel_index) };
+
+            if arrival < min_unassigned_arrival {
+                min_unassigned_arrival = arrival;
+            }
+
             let weight = unsafe { model.vessel_weight_unchecked(vessel_index) };
             let deadline = unsafe { model.vessel_latest_departure_time_unchecked(vessel_index) };
 
@@ -322,7 +328,14 @@ where
                 lhs.cmp(&rhs)
             });
 
-            let mut current_time = T::zero();
+            let min_berth_time = self
+                .scratch_berths
+                .iter()
+                .copied()
+                .min()
+                .unwrap_or(T::zero());
+            let start_time = min_berth_time.max(min_unassigned_arrival);
+            let mut current_time = start_time;
             let mut total_weighted_completion = T::zero();
 
             for job in &self.scratch_vessels {
@@ -428,7 +441,7 @@ mod tests {
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
 
-        let lb = eval.lower_bound(&model, &state);
+        let lb = eval.lower_bound_estimate(&model, &state);
 
         assert_eq!(lb, Some(56));
     }
@@ -539,7 +552,7 @@ mod more_tests {
 
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let lb = eval.lower_bound(&model, &state);
+        let lb = eval.lower_bound_estimate(&model, &state);
 
         // LB1 (independent) = sum w*p = 2 + 3 + 5 = 10
         // LB2 (workload on 1 machine, SPT order) = 2 + 5 + 10 = 17
@@ -563,7 +576,7 @@ mod more_tests {
 
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let lb = eval.lower_bound(&model, &state);
+        let lb = eval.lower_bound_estimate(&model, &state);
 
         assert_eq!(lb, None);
     }

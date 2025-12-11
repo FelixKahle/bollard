@@ -40,6 +40,8 @@ pub struct BnbSolverStatistics {
     pub prunings_bound: u64,
     /// Total solutions found during the search.
     pub solutions_found: u64,
+    /// Total iterations of the main solver loop.
+    pub steps: u64,
     /// Total time spent in the solver.
     pub time_total: Duration,
 }
@@ -54,6 +56,7 @@ impl Default for BnbSolverStatistics {
             prunings_infeasible: 0,
             prunings_bound: 0,
             solutions_found: 0,
+            steps: 0,
             time_total: Duration::ZERO,
         }
     }
@@ -102,6 +105,12 @@ impl BnbSolverStatistics {
         self.prunings_bound = self.prunings_bound.saturating_add_val(1);
     }
 
+    /// Records a step in the main solver loop.
+    #[inline]
+    pub fn on_step(&mut self) {
+        self.steps = self.steps.saturating_add_val(1);
+    }
+
     /// Sets the total time spent in the solver.
     #[inline]
     pub fn set_total_time(&mut self, duration: Duration) {
@@ -112,14 +121,15 @@ impl BnbSolverStatistics {
 impl std::fmt::Display for BnbSolverStatistics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Bollard-BnB Solver Statistics:")?;
-        writeln!(f, "  Nodes explored:       {}", self.nodes_explored)?;
-        writeln!(f, "  Backtracks:           {}", self.backtracks)?;
-        writeln!(f, "  Max depth reached:    {}", self.max_depth)?;
-        writeln!(f, "  Decisions generated:  {}", self.decisions_generated)?;
-        writeln!(f, "  Prunings (infeasible):{}", self.prunings_infeasible)?;
-        writeln!(f, "  Prunings (bound):     {}", self.prunings_bound)?;
-        writeln!(f, "  Solutions found:      {}", self.solutions_found)?;
-        writeln!(f, "  Total time:           {:.2?}", self.time_total)?;
+        writeln!(f, "   Iterations:           {}", self.steps)?;
+        writeln!(f, "   Nodes explored:       {}", self.nodes_explored)?;
+        writeln!(f, "   Backtracks:           {}", self.backtracks)?;
+        writeln!(f, "   Max depth reached:    {}", self.max_depth)?;
+        writeln!(f, "   Decisions generated:  {}", self.decisions_generated)?;
+        writeln!(f, "   Prunings (infeasible):{}", self.prunings_infeasible)?;
+        writeln!(f, "   Prunings (bound):     {}", self.prunings_bound)?;
+        writeln!(f, "   Solutions found:      {}", self.solutions_found)?;
+        writeln!(f, "   Total time:           {:.2?}", self.time_total)?;
         Ok(())
     }
 }
