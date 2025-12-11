@@ -29,6 +29,8 @@ use bollard_model::{model::Model, solution::Solution};
 use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
 
+/// A tree search monitor that aggregates multiple monitors and forwards events to all of them.
+/// This allows combining different monitoring behaviors into a single monitor.
 pub struct CompositeTreeSearchMonitor<'a, T>
 where
     T: PrimInt + Signed,
@@ -49,6 +51,7 @@ impl<'a, T> CompositeTreeSearchMonitor<'a, T>
 where
     T: PrimInt + Signed,
 {
+    /// Creates a new empty `CompositeTreeSearchMonitor`.
     #[inline(always)]
     pub fn new() -> Self {
         Self {
@@ -56,6 +59,8 @@ where
         }
     }
 
+    /// Creates a new `CompositeTreeSearchMonitor` with the specified capacity.
+    /// This pre-allocates space for the given number of monitors.
     #[inline(always)]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -63,11 +68,13 @@ where
         }
     }
 
+    /// Creates a new `CompositeTreeSearchMonitor` from a vector of boxed monitors.
     #[inline(always)]
     pub fn from_vec(monitors: Vec<Box<dyn TreeSearchMonitor<T>>>) -> Self {
         Self { monitors }
     }
 
+    /// Adds a new monitor to the composite monitor.
     #[inline(always)]
     pub fn add_monitor<M>(&mut self, monitor: M)
     where
@@ -76,31 +83,38 @@ where
         self.monitors.push(Box::new(monitor));
     }
 
+    /// Adds a boxed monitor to the composite monitor.
     #[inline(always)]
     pub fn add_monitor_boxed(&mut self, monitor: Box<dyn TreeSearchMonitor<T> + 'a>) {
         self.monitors.push(monitor);
     }
 
+    /// Returns a slice of the monitors contained in the composite monitor.
     #[inline(always)]
     pub fn monitors(&self) -> &[Box<dyn TreeSearchMonitor<T> + 'a>] {
         &self.monitors
     }
 
+    /// Returns a mutable slice of the monitors contained in the composite monitor.
     #[inline(always)]
     pub fn monitors_mut(&mut self) -> &mut [Box<dyn TreeSearchMonitor<T> + 'a>] {
         &mut self.monitors
     }
 
+    /// Clears all monitors from the composite monitor.
     #[inline(always)]
     pub fn clear(&mut self) {
         self.monitors.clear();
     }
 
+    /// Returns the number of monitors contained in the composite monitor.
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.monitors.len()
     }
 
+    /// Returns `true` if the composite monitor contains no monitors,
+    /// `false` otherwise.
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.monitors.is_empty()

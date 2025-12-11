@@ -172,6 +172,19 @@ where
     }
 }
 
+impl<'a, T> FromIterator<Box<dyn SearchMonitor<T> + 'a>> for CompositeMonitor<'a, T>
+where
+    T: PrimInt + Signed,
+{
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = Box<dyn SearchMonitor<T> + 'a>>,
+    {
+        let monitors: Vec<Box<dyn SearchMonitor<T> + 'a>> = iter.into_iter().collect();
+        CompositeMonitor { monitors }
+    }
+}
+
 impl<'a, T> SearchMonitor<T> for CompositeMonitor<'a, T>
 where
     T: PrimInt + Signed,

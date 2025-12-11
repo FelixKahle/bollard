@@ -643,8 +643,9 @@ where
     /// Determine whether to backtrack after expanding the current node.
     #[inline(always)]
     fn should_backtrack_after_expand(&mut self) -> bool {
-        let lower_bound_remaining_opt =
-            self.evaluator.lower_bound_estimate(self.model, &self.state);
+        let lower_bound_remaining_opt = self
+            .evaluator
+            .estimate_remaining_cost(self.model, &self.state);
         let lower_bound_remaining = match lower_bound_remaining_opt {
             None => {
                 self.monitor
@@ -690,7 +691,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::branching::wspt::WsptHeuristicBuilder;
+    use crate::branching::regret::RegretHeuristicBuilder;
+    use crate::eval::workload::WorkloadEvaluator;
     use crate::eval::wtft::WeightedFlowTimeEvaluator;
     use crate::monitor::no_op::NoOperationMonitor;
     use crate::{
@@ -747,11 +749,9 @@ mod tests {
 
         let mut solver = BnbSolver::<IntegerType>::new();
         let mut builder =
-            WsptHeuristicBuilder::preallocated(model.num_berths(), model.num_vessels());
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
-            model.num_berths(),
-            model.num_vessels(),
-        );
+            RegretHeuristicBuilder::preallocated(model.num_berths(), model.num_vessels());
+        let mut evaluator =
+            WorkloadEvaluator::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
 
         // 1. Run the solver (timing is now handled internally in result.statistics)
         let outcome = solver.solve(

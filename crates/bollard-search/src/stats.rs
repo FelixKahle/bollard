@@ -26,21 +26,18 @@ pub struct SolverStatistics {
     pub solutions_found: u64,
     /// Number of threads used during the solving process.
     pub used_threads: usize,
-    /// Maximum memory used (in bytes) during the solving process.
-    pub max_memory_bytes: usize,
     /// Total duration of the solving process.
     pub solve_duration: std::time::Duration,
 }
 
 impl std::fmt::Display for SolverStatistics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Solver Statistics:")?;
-        writeln!(f, "  Solutions Found: {}", self.solutions_found)?;
-        writeln!(f, "  Used Threads: {}", self.used_threads)?;
-        writeln!(f, "  Max Memory Used (bytes): {}", self.max_memory_bytes)?;
+        writeln!(f, "Bollard Solver Statistics:")?;
+        writeln!(f, "   Solutions Found: {}", self.solutions_found)?;
+        writeln!(f, "   Used Threads: {}", self.used_threads)?;
         writeln!(
             f,
-            "  Solve Duration (secs): {:.3}",
+            "   Solve Duration (secs): {:.3}",
             self.solve_duration.as_secs_f64()
         )
     }
@@ -51,7 +48,6 @@ impl std::fmt::Display for SolverStatistics {
 pub struct SolverStatisticsBuilder {
     solutions_found: u64,
     used_threads: usize,
-    max_memory_bytes: usize,
     solve_duration: std::time::Duration,
 }
 
@@ -68,7 +64,6 @@ impl SolverStatisticsBuilder {
         Self {
             solutions_found: 0,
             used_threads: 1,
-            max_memory_bytes: 0,
             solve_duration: std::time::Duration::ZERO,
         }
     }
@@ -87,13 +82,6 @@ impl SolverStatisticsBuilder {
         self
     }
 
-    /// Sets the maximum memory used in bytes.
-    #[inline]
-    pub fn max_memory_bytes(mut self, max_memory_bytes: usize) -> Self {
-        self.max_memory_bytes = max_memory_bytes;
-        self
-    }
-
     /// Sets the total solve duration.
     #[inline]
     pub fn solve_duration(mut self, solve_duration: std::time::Duration) -> Self {
@@ -107,7 +95,6 @@ impl SolverStatisticsBuilder {
         SolverStatistics {
             solutions_found: self.solutions_found,
             used_threads: self.used_threads,
-            max_memory_bytes: self.max_memory_bytes,
             solve_duration: self.solve_duration,
         }
     }
@@ -124,13 +111,11 @@ mod tests {
         let stats = SolverStatisticsBuilder::new()
             .solutions_found(3)
             .used_threads(8)
-            .max_memory_bytes(1_048_576)
             .solve_duration(Duration::from_millis(1234))
             .build();
 
         assert_eq!(stats.solutions_found, 3);
         assert_eq!(stats.used_threads, 8);
-        assert_eq!(stats.max_memory_bytes, 1_048_576);
         assert_eq!(stats.solve_duration, Duration::from_millis(1234));
     }
 
@@ -139,7 +124,6 @@ mod tests {
         let stats = SolverStatistics {
             solutions_found: 2,
             used_threads: 4,
-            max_memory_bytes: 2_000_000,
             solve_duration: Duration::from_millis(1234),
         };
 
@@ -154,10 +138,6 @@ mod tests {
             "missing solutions_found"
         );
         assert!(rendered.contains("Used Threads: 4"), "missing used_threads");
-        assert!(
-            rendered.contains("Max Memory Used (bytes): 2000000"),
-            "missing max_memory_bytes"
-        );
 
         // Duration line should be formatted to three decimals
         // 1.2345 rounded to 1.235
@@ -172,7 +152,6 @@ mod tests {
         let stats = SolverStatistics {
             solutions_found: 0,
             used_threads: 1,
-            max_memory_bytes: 0,
             solve_duration: Duration::ZERO,
         };
 
@@ -180,7 +159,6 @@ mod tests {
 
         assert!(rendered.contains("Solutions Found: 0"));
         assert!(rendered.contains("Used Threads: 1"));
-        assert!(rendered.contains("Max Memory Used (bytes): 0"));
         assert!(rendered.contains("Solve Duration (secs): 0.000"));
     }
 }
