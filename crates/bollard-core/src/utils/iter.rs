@@ -171,7 +171,7 @@ mod tests {
     fn test_clone() {
         // Note: The inner iterator must be Clone for MaybeIter to be Clone.
         // vec::IntoIter is not Clone, but slice::Iter is.
-        let data = vec![1, 2, 3];
+        let data = [1, 2, 3];
         let iter = MaybeIter::new(Some(data.iter()));
         let mut cloned_iter = iter.clone();
 
@@ -188,6 +188,6 @@ mod tests {
         let iter = MaybeIter::new(Some(data.into_iter()));
 
         let result: Vec<i32> = iter.map(|x| x * 2).collect();
-        assert_eq!(result, vec![2, 4, 6]);
+        assert_eq!(result, [2, 4, 6]);
     }
 }

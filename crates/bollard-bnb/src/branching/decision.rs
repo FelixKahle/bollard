@@ -30,10 +30,25 @@ use std::iter::FusedIterator;
 
 /// A distinct decision in the decision tree.
 /// Represents assigning a specific vessel to a specific berth.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Decision {
     vessel_index: VesselIndex,
     berth_index: BerthIndex,
+}
+
+impl Ord for Decision {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.vessel_index.cmp(&other.vessel_index) {
+            std::cmp::Ordering::Equal => self.berth_index.cmp(&other.berth_index),
+            ord => ord,
+        }
+    }
+}
+
+impl PartialOrd for Decision {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Decision {
@@ -130,16 +145,19 @@ impl Decision {
         }
     }
 
+    /// Returns the vessel index of this decision.
     #[inline(always)]
     pub const fn vessel_index(&self) -> VesselIndex {
         self.vessel_index
     }
 
+    /// Returns the berth index of this decision.
     #[inline(always)]
     pub const fn berth_index(&self) -> BerthIndex {
         self.berth_index
     }
 
+    /// Decomposes this decision into its vessel and berth indices.
     #[inline(always)]
     pub const fn into_inner(self) -> (VesselIndex, BerthIndex) {
         (self.vessel_index, self.berth_index)
@@ -531,13 +549,7 @@ mod decision_tests {
             3,
             |v, b| !(v.get() == 1 && b.get() == 0),
             |_v, b| {
-                if b.get() == 0 {
-                    5
-                } else if b.get() == 1 {
-                    5
-                } else {
-                    9
-                }
+                if b.get() == 0 || b.get() == 1 { 5 } else { 9 }
             },
         );
         let mut state: SearchState<T> = SearchState::new(model.num_berths(), model.num_vessels());

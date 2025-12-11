@@ -26,48 +26,47 @@ use crate::{
     stats::BnbSolverStatistics,
 };
 use bollard_model::{model::Model, solution::Solution};
-use bollard_search::monitor::search_monitor::SearchCommand;
+use bollard_search::monitor::search_monitor::{SearchCommand, SearchMonitor};
 use num_traits::{PrimInt, Signed};
 
-/// A no-operation monitor that implements the `TreeSearchMonitor` trait
-/// but does nothing on any of the events, always returning `Continue` for the
-/// search command.
-#[repr(transparent)]
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
-pub struct NoOperationMonitor<T>
-where
-    T: PrimInt + Signed,
-{
-    _phantom: std::marker::PhantomData<T>,
+/// A wrapper tree search monitor, that wraps a general
+/// search monitor.
+pub struct WrapperMonitor<'a, T> {
+    inner: &'a mut dyn SearchMonitor<T>,
+    name: String,
 }
 
-impl<T> NoOperationMonitor<T>
-where
-    T: PrimInt + Signed,
-{
-    /// Creates a new `NoOperationMonitor`.
+impl<'a, T> WrapperMonitor<'a, T> {
+    /// Creates a new `WrapperMonitor` that wraps the given
+    /// search monitor.
     #[inline(always)]
-    pub fn new() -> Self {
-        Self {
-            _phantom: std::marker::PhantomData,
-        }
+    pub fn new(inner: &'a mut dyn SearchMonitor<T>) -> Self
+    where
+        T: PrimInt + Signed,
+    {
+        let name = format!("WrapperMonitor({})", inner.name());
+        Self { inner, name }
     }
 }
 
-impl<T> TreeSearchMonitor<T> for NoOperationMonitor<T>
+impl<'a, T> TreeSearchMonitor<T> for WrapperMonitor<'a, T>
 where
     T: PrimInt + Signed,
 {
     #[inline(always)]
     fn name(&self) -> &str {
-        "NoOperationMonitor"
+        &self.name
     }
 
     #[inline(always)]
-    fn on_enter_search(&mut self, _model: &Model<T>, _statistics: &BnbSolverStatistics) {}
+    fn on_enter_search(&mut self, model: &Model<T>, _statistics: &BnbSolverStatistics) {
+        self.inner.on_enter_search(model);
+    }
 
     #[inline(always)]
-    fn on_solution_found(&mut self, _solution: &Solution<T>, _statistics: &BnbSolverStatistics) {}
+    fn on_solution_found(&mut self, solution: &Solution<T>, _statistics: &BnbSolverStatistics) {
+        self.inner.on_solution_found(solution);
+    }
 
     #[inline(always)]
     fn on_backtrack(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics) {}
@@ -82,7 +81,9 @@ where
     }
 
     #[inline(always)]
-    fn on_exit_search(&mut self, _statistics: &BnbSolverStatistics) {}
+    fn on_exit_search(&mut self, _statistics: &BnbSolverStatistics) {
+        self.inner.on_exit_search();
+    }
 
     #[inline(always)]
     fn search_command(
@@ -90,11 +91,13 @@ where
         _state: &SearchState<T>,
         _statistics: &BnbSolverStatistics,
     ) -> SearchCommand {
-        SearchCommand::Continue
+        self.inner.search_command()
     }
 
     #[inline(always)]
-    fn on_step(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics) {}
+    fn on_step(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics) {
+        self.inner.on_step();
+    }
 
     #[inline(always)]
     fn on_lower_bound_computed(

@@ -686,7 +686,7 @@ mod tests {
 
         // Defaults for objective and decision tracking
         assert_eq!(s.current_objective(), i64::zero());
-        assert_eq!(s.last_decision_time(), i64::min_value());
+        assert_eq!(s.last_decision_time(), i64::MIN);
         assert_eq!(s.last_decision_vessel().get(), 0);
 
         // Collections initialized
@@ -719,7 +719,7 @@ mod tests {
         assert!(s.vessel_berths.is_empty());
 
         assert_eq!(s.current_objective(), i64::zero());
-        assert_eq!(s.last_decision_time(), i64::min_value());
+        assert_eq!(s.last_decision_time(), i64::MIN);
         assert_eq!(s.last_decision_vessel().get(), 0);
 
         let display = format!("{}", s);
@@ -755,10 +755,10 @@ mod tests {
         assert_eq!(s.last_decision_vessel().get(), 1);
 
         // Boundary times
-        s.set_last_decision(i64::min_value(), v(0));
-        assert_eq!(s.last_decision_time(), i64::min_value());
-        s.set_last_decision(i64::max_value(), v(0));
-        assert_eq!(s.last_decision_time(), i64::max_value());
+        s.set_last_decision(i64::MIN, v(0));
+        assert_eq!(s.last_decision_time(), i64::MIN);
+        s.set_last_decision(i64::MAX, v(0));
+        assert_eq!(s.last_decision_time(), i64::MAX);
     }
 
     #[test]
@@ -789,8 +789,8 @@ mod tests {
 
         // Bulk accessor matches individual
         let bulk = s.berth_free_times().to_vec();
-        for i in 0..s.num_berths() {
-            assert_eq!(bulk[i], s.berth_free_time(b(i)));
+        for (i, slot) in bulk.iter().enumerate().take(s.num_berths()) {
+            assert_eq!(*slot, s.berth_free_time(BerthIndex::new(i)));
         }
     }
 
@@ -930,7 +930,7 @@ mod tests {
 
         assert_eq!(s.num_assigned_vessels(), 0);
         assert_eq!(s.current_objective(), i64::zero());
-        assert_eq!(s.last_decision_time(), i64::min_value());
+        assert_eq!(s.last_decision_time(), i64::MIN);
         assert_eq!(s.last_decision_vessel().get(), 0);
         assert!(s.berth_free_times().iter().all(|&t| t == 0));
         assert!(s.vessel_start_times.iter().all(|&t| t == 0));

@@ -20,12 +20,13 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{eval::evaluator::ObjectiveEvaluator, state::SearchState};
-use bollard_core::num::{constants::MinusOne, ops::saturating_arithmetic};
+use bollard_core::num::ops::saturating_arithmetic;
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
 };
-use num_traits::{Bounded, FromPrimitive, PrimInt, Signed};
+use bollard_search::num::SolverNumeric;
+use num_traits::{PrimInt, Signed};
 
 /// Computes the earliest finish time for a task of given duration
 /// that can start no earlier than `earliest_start` on the specified berth,
@@ -137,29 +138,20 @@ where
 
 impl<T> ObjectiveEvaluator<T> for WeightedFlowTimeEvaluator<T>
 where
-    T: PrimInt + Signed + Bounded,
+    T: SolverNumeric,
 {
     #[inline]
     fn name(&self) -> &str {
         "WeightedFlowTimeEvaluator"
     }
 
-    #[inline]
     fn evaluate_vessel_assignment(
         &mut self,
         model: &Model<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,
         berth_ready_time: T,
-    ) -> Option<T>
-    where
-        T: PrimInt
-            + Signed
-            + Bounded
-            + MinusOne
-            + saturating_arithmetic::SaturatingAddVal
-            + saturating_arithmetic::SaturatingMulVal,
-    {
+    ) -> Option<T> {
         let arrival_time = model.vessel_arrival_time(vessel_index);
         let latest_departure_deadline = model.vessel_latest_departure_time(vessel_index);
         let vessel_weight = model.vessel_weight(vessel_index);
@@ -192,9 +184,7 @@ where
         berth_ready: T,
     ) -> Option<T>
     where
-        T: MinusOne
-            + saturating_arithmetic::SaturatingAddVal
-            + saturating_arithmetic::SaturatingMulVal,
+        T: SolverNumeric,
     {
         let arrival_time = unsafe { model.vessel_arrival_time_unchecked(vessel_index) };
         let weight = unsafe { model.vessel_weight_unchecked(vessel_index) };
@@ -214,13 +204,7 @@ where
         Some(finish_time.saturating_mul_val(weight))
     }
 
-    fn lower_bound(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T>
-    where
-        T: MinusOne
-            + saturating_arithmetic::SaturatingAddVal
-            + saturating_arithmetic::SaturatingMulVal
-            + FromPrimitive,
-    {
+    fn estimate_remaining_cost(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T> {
         let num_berths = model.num_berths();
         let num_vessels = model.num_vessels();
 
@@ -246,6 +230,7 @@ where
         // Prepare vessel scratch buffer
         self.scratch_vessels.clear();
         let mut lower_bound_independent = T::zero();
+        let mut min_unassigned_arrival = T::max_value();
 
         for i in 0..num_vessels {
             let vessel_index = VesselIndex::new(i);
@@ -255,6 +240,11 @@ where
             }
 
             let arrival = unsafe { model.vessel_arrival_time_unchecked(vessel_index) };
+
+            if arrival < min_unassigned_arrival {
+                min_unassigned_arrival = arrival;
+            }
+
             let weight = unsafe { model.vessel_weight_unchecked(vessel_index) };
             let deadline = unsafe { model.vessel_latest_departure_time_unchecked(vessel_index) };
 
@@ -274,12 +264,7 @@ where
                     continue;
                 }
                 let processing_time = processing_time_opt.unwrap_unchecked();
-
-                let tentative_start = if arrival > current_free_time {
-                    arrival
-                } else {
-                    current_free_time
-                };
+                let tentative_start = arrival.max(current_free_time);
 
                 let possible_finish = unsafe {
                     earliest_finish_time_unchecked(
@@ -327,7 +312,14 @@ where
                 lhs.cmp(&rhs)
             });
 
-            let mut current_time = T::zero();
+            let min_berth_time = self
+                .scratch_berths
+                .iter()
+                .copied()
+                .min()
+                .unwrap_or(T::zero());
+            let start_time = min_berth_time.max(min_unassigned_arrival);
+            let mut current_time = start_time;
             let mut total_weighted_completion = T::zero();
 
             for job in &self.scratch_vessels {
@@ -340,11 +332,8 @@ where
             total_weighted_completion / num_berths_conv
         };
 
-        if lower_bound_workload > lower_bound_independent {
-            Some(lower_bound_workload)
-        } else {
-            Some(lower_bound_independent)
-        }
+        let lower_bound = lower_bound_workload.max(lower_bound_independent);
+        Some(lower_bound)
     }
 }
 
@@ -436,7 +425,7 @@ mod tests {
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
 
-        let lb = eval.lower_bound(&model, &state);
+        let lb = eval.estimate_remaining_cost(&model, &state);
 
         assert_eq!(lb, Some(56));
     }
@@ -547,7 +536,7 @@ mod more_tests {
 
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let lb = eval.lower_bound(&model, &state);
+        let lb = eval.estimate_remaining_cost(&model, &state);
 
         // LB1 (independent) = sum w*p = 2 + 3 + 5 = 10
         // LB2 (workload on 1 machine, SPT order) = 2 + 5 + 10 = 17
@@ -571,7 +560,7 @@ mod more_tests {
 
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let lb = eval.lower_bound(&model, &state);
+        let lb = eval.estimate_remaining_cost(&model, &state);
 
         assert_eq!(lb, None);
     }

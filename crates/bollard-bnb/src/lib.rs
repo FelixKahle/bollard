@@ -22,7 +22,9 @@
 pub mod bnb;
 pub mod branching;
 pub mod eval;
+pub mod incumbent;
 pub mod monitor;
+pub mod portfolio;
 pub mod result;
 pub mod stack;
 pub mod state;

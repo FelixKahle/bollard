@@ -20,137 +20,228 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
-    monitor::search_monitor::{SearchCommand, TreeSearchMonitor},
+    branching::decision::Decision,
+    monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
     state::SearchState,
     stats::BnbSolverStatistics,
 };
+use bollard_model::{model::Model, solution::Solution};
+use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
 
-/// A composite monitor that aggregates multiple search monitors.
-pub struct CompositeMonitor<'a, T> {
+/// A tree search monitor that aggregates multiple monitors and forwards events to all of them.
+/// This allows combining different monitoring behaviors into a single monitor.
+pub struct CompositeTreeSearchMonitor<'a, T>
+where
+    T: PrimInt + Signed,
+{
     monitors: Vec<Box<dyn TreeSearchMonitor<T> + 'a>>,
 }
 
-impl<'a, T> std::fmt::Debug for CompositeMonitor<'a, T>
+impl<'a, T> Default for CompositeTreeSearchMonitor<'a, T>
 where
     T: PrimInt + Signed,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let monitors = self.monitors.iter().map(|m| m.name()).collect::<Vec<_>>();
-        f.debug_struct("CompositeMonitor")
-            .field("monitors", &monitors)
-            .finish()
-    }
-}
-
-impl<'a, T> std::fmt::Display for CompositeMonitor<'a, T>
-where
-    T: PrimInt + Signed,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let monitors = self.monitors.iter().map(|m| m.name()).collect::<Vec<_>>();
-        write!(f, "CompositeMonitor({})", monitors.join(", "))
-    }
-}
-
-impl<'a, T> Default for CompositeMonitor<'a, T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a, T> CompositeMonitor<'a, T> {
-    /// Creates a new composite monitor.
-    #[inline]
+impl<'a, T> CompositeTreeSearchMonitor<'a, T>
+where
+    T: PrimInt + Signed,
+{
+    /// Creates a new empty `CompositeTreeSearchMonitor`.
+    #[inline(always)]
     pub fn new() -> Self {
         Self {
             monitors: Vec::new(),
         }
     }
 
-    /// Creates a new composite monitor with the specified capacity.
-    #[inline]
+    /// Creates a new `CompositeTreeSearchMonitor` with the specified capacity.
+    /// This pre-allocates space for the given number of monitors.
+    #[inline(always)]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             monitors: Vec::with_capacity(capacity),
         }
     }
 
-    /// Adds a monitor to the composite.
-    #[inline]
-    pub fn add_monitor<M>(mut self, monitor: M) -> Self
+    /// Creates a new `CompositeTreeSearchMonitor` from a vector of boxed monitors.
+    #[inline(always)]
+    pub fn from_vec(monitors: Vec<Box<dyn TreeSearchMonitor<T>>>) -> Self {
+        Self { monitors }
+    }
+
+    /// Adds a new monitor to the composite monitor.
+    #[inline(always)]
+    pub fn add_monitor<M>(&mut self, monitor: M)
     where
-        T: PrimInt + Signed,
         M: TreeSearchMonitor<T> + 'a,
     {
         self.monitors.push(Box::new(monitor));
-        self
     }
 
-    /// Returns a reference to the list of monitors.
-    #[inline]
+    /// Adds a boxed monitor to the composite monitor.
+    #[inline(always)]
+    pub fn add_monitor_boxed(&mut self, monitor: Box<dyn TreeSearchMonitor<T> + 'a>) {
+        self.monitors.push(monitor);
+    }
+
+    /// Returns a slice of the monitors contained in the composite monitor.
+    #[inline(always)]
     pub fn monitors(&self) -> &[Box<dyn TreeSearchMonitor<T> + 'a>] {
         &self.monitors
     }
 
-    /// Returns an iterator over the monitors.
-    #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, Box<dyn TreeSearchMonitor<T> + 'a>> {
-        self.monitors.iter()
+    /// Returns a mutable slice of the monitors contained in the composite monitor.
+    #[inline(always)]
+    pub fn monitors_mut(&mut self) -> &mut [Box<dyn TreeSearchMonitor<T> + 'a>] {
+        &mut self.monitors
+    }
+
+    /// Clears all monitors from the composite monitor.
+    #[inline(always)]
+    pub fn clear(&mut self) {
+        self.monitors.clear();
+    }
+
+    /// Returns the number of monitors contained in the composite monitor.
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.monitors.len()
+    }
+
+    /// Returns `true` if the composite monitor contains no monitors,
+    /// `false` otherwise.
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.monitors.is_empty()
     }
 }
 
-impl<'a, T> TreeSearchMonitor<T> for CompositeMonitor<'a, T>
+impl<'a, T> FromIterator<Box<dyn TreeSearchMonitor<T> + 'a>> for CompositeTreeSearchMonitor<'a, T>
 where
     T: PrimInt + Signed,
 {
-    fn on_enter_search(&mut self, model: &bollard_model::model::Model<T>) {
+    #[inline(always)]
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = Box<dyn TreeSearchMonitor<T> + 'a>>,
+    {
+        Self {
+            monitors: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl<'a, T> TreeSearchMonitor<T> for CompositeTreeSearchMonitor<'a, T>
+where
+    T: PrimInt + Signed,
+{
+    #[inline(always)]
+    fn name(&self) -> &str {
+        "CompositeTreeSearchMonitor"
+    }
+
+    #[inline(always)]
+    fn on_enter_search(&mut self, model: &Model<T>, statistics: &BnbSolverStatistics) {
         for monitor in &mut self.monitors {
-            monitor.on_enter_search(model);
+            monitor.on_enter_search(model, statistics);
         }
     }
 
-    fn check_termination(
+    #[inline(always)]
+    fn on_exit_search(&mut self, statistics: &BnbSolverStatistics) {
+        for monitor in &mut self.monitors {
+            monitor.on_exit_search(statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn search_command(
         &mut self,
         state: &SearchState<T>,
-        stats: &BnbSolverStatistics,
+        statistics: &BnbSolverStatistics,
     ) -> SearchCommand {
-        self.monitors
-            .iter_mut()
-            .map(|m| m.check_termination(state, stats))
-            .find(|&c| c != SearchCommand::Continue)
-            .unwrap_or(SearchCommand::Continue)
+        for monitor in &mut self.monitors {
+            let cmd = monitor.search_command(state, statistics);
+            // Short-circuit on the first non-Continue command
+            if !matches!(cmd, SearchCommand::Continue) {
+                return cmd;
+            }
+        }
+        SearchCommand::Continue
     }
 
-    fn on_solution(
+    #[inline(always)]
+    fn on_step(&mut self, state: &SearchState<T>, statistics: &BnbSolverStatistics) {
+        for monitor in &mut self.monitors {
+            monitor.on_step(state, statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn on_lower_bound_computed(
         &mut self,
-        solution: &bollard_model::solution::Solution<T>,
-        stats: &BnbSolverStatistics,
+        state: &SearchState<T>,
+        lower_bound: T,
+        estimated_remaining: T,
+        statistics: &BnbSolverStatistics,
     ) {
         for monitor in &mut self.monitors {
-            monitor.on_solution(solution, stats);
+            monitor.on_lower_bound_computed(state, lower_bound, estimated_remaining, statistics);
         }
     }
 
-    fn on_backtrack(&mut self, state: &SearchState<T>, stats: &BnbSolverStatistics) {
+    #[inline(always)]
+    fn on_prune(
+        &mut self,
+        state: &SearchState<T>,
+        reason: PruneReason,
+        statistics: &BnbSolverStatistics,
+    ) {
         for monitor in &mut self.monitors {
-            monitor.on_backtrack(state, stats);
+            monitor.on_prune(state, reason.clone(), statistics);
         }
     }
 
-    fn on_descend(&mut self, state: &SearchState<T>, stats: &BnbSolverStatistics) {
+    #[inline(always)]
+    fn on_decisions_enqueued(
+        &mut self,
+        state: &SearchState<T>,
+        count: usize,
+        statistics: &BnbSolverStatistics,
+    ) {
         for monitor in &mut self.monitors {
-            monitor.on_descend(state, stats);
+            monitor.on_decisions_enqueued(state, count, statistics);
         }
     }
 
-    fn on_exit_search(&mut self, stats: &BnbSolverStatistics) {
+    #[inline(always)]
+    fn on_descend(
+        &mut self,
+        state: &SearchState<T>,
+        decision: Decision,
+        statistics: &BnbSolverStatistics,
+    ) {
         for monitor in &mut self.monitors {
-            monitor.on_exit_search(stats);
+            monitor.on_descend(state, decision, statistics);
         }
     }
 
-    fn name(&self) -> &str {
-        "CompositeMonitor"
+    #[inline(always)]
+    fn on_solution_found(&mut self, solution: &Solution<T>, statistics: &BnbSolverStatistics) {
+        for monitor in &mut self.monitors {
+            monitor.on_solution_found(solution, statistics);
+        }
+    }
+
+    #[inline(always)]
+    fn on_backtrack(&mut self, state: &SearchState<T>, statistics: &BnbSolverStatistics) {
+        for monitor in &mut self.monitors {
+            monitor.on_backtrack(state, statistics);
+        }
     }
 }

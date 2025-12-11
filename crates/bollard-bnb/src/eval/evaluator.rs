@@ -20,12 +20,12 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::state::SearchState;
-use bollard_core::num::{constants::MinusOne, ops::saturating_arithmetic};
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
 };
-use num_traits::{FromPrimitive, PrimInt, Signed};
+use bollard_search::num::SolverNumeric;
+use num_traits::{PrimInt, Signed};
 
 /// A strategy for scoring decisions and computing a global lower bound.
 ///
@@ -35,12 +35,7 @@ use num_traits::{FromPrimitive, PrimInt, Signed};
 ///   given the berth's ready time,
 /// - `lower_bound` to estimate a tight bound on the total objective from the current state.
 ///
-/// Implementors should return `T::max_value()` for infeasible assignments or bounds,
-/// enabling the solver to prune branches early.
-///
-/// Safety contract:
-/// - The `*_unchecked` variant skips bounds checks; callers must ensure indices are valid.
-#[allow(dead_code)]
+/// `None` represents an infeasible tree branch or assignment.
 pub trait ObjectiveEvaluator<T>
 where
     T: PrimInt + Signed,
@@ -68,9 +63,7 @@ where
         berth_ready: T,
     ) -> Option<T>
     where
-        T: MinusOne
-            + saturating_arithmetic::SaturatingAddVal
-            + saturating_arithmetic::SaturatingMulVal;
+        T: SolverNumeric;
 
     /// Evaluates the cost of assigning a vessel to a berth starting at a given time
     /// without performing bounds checking on the indices.
@@ -89,28 +82,40 @@ where
         berth_ready: T,
     ) -> Option<T>
     where
-        T: MinusOne
-            + saturating_arithmetic::SaturatingAddVal
-            + saturating_arithmetic::SaturatingMulVal
-            + saturating_arithmetic::SaturatingSubVal;
+        T: SolverNumeric;
 
     /// Computes a global lower bound on the objective from the current state.
     ///
     /// The bound should be fast and optimistic (never exceed the optimal value for completion).
-    /// The solver prunes branches when `lower_bound >= best_objective`.
+    /// The solver prunes branches when `lower_bound >= best_objective`. Also it does not
+    /// take into account the current cost of the partial state.
     ///
     /// Implementations typically:
     /// - accumulate the current objective,
     /// - add the minimum incremental cost for each remaining vessel across feasible berths
     ///   using current berth free times,
     /// - return `None` if any vessel has no feasible berth.
+    fn estimate_remaining_cost(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T>
+    where
+        T: SolverNumeric;
+
+    /// Computes the total Lower Bound ($f(n)$) for the current branch.
+    ///
+    /// The default implementation calculates `f(n) = g(n) + h(n)`:
+    /// - `g(n)`: The cost already incurred (`state.current_objective()`).
+    /// - `h(n)`: The estimated remaining cost (`estimate_remaining_cost()`).
+    ///
+    /// Returns `None` if the heuristic determines the branch is infeasible.
     fn lower_bound(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T>
     where
-        T: MinusOne
-            + saturating_arithmetic::SaturatingAddVal
-            + saturating_arithmetic::SaturatingMulVal
-            + saturating_arithmetic::SaturatingSubVal
-            + FromPrimitive;
+        T: SolverNumeric,
+    {
+        let h_n = self.estimate_remaining_cost(model, state)?;
+        let g_n = state.current_objective();
+
+        // Use saturating_add to avoid panic on overflow near T::MAX
+        Some(g_n.saturating_add(h_n))
+    }
 }
 
 impl<T> std::fmt::Debug for dyn ObjectiveEvaluator<T>

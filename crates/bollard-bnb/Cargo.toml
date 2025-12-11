@@ -27,6 +27,7 @@ edition.workspace = true
 [dependencies]
 bollard_core = { path = "../bollard-core" }
 bollard_model = { path = "../bollard-model" }
+bollard_search = { path = "../bollard-search" }
 num-traits = "0.2.19"
 fixedbitset = "0.5.7"
 tracing = "0.1.43"

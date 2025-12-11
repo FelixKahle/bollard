@@ -21,3 +21,7 @@
 
 pub mod chronological;
 pub mod decision;
+pub mod fcfs;
+pub mod regret;
+pub mod slack;
+pub mod wspt;

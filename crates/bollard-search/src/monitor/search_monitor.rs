@@ -19,7 +19,7 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use bollard_model::solution::Solution;
+use bollard_model::{model::Model, solution::Solution};
 use num_traits::{PrimInt, Signed};
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -43,6 +43,8 @@ where
     T: PrimInt + Signed,
 {
     fn name(&self) -> &str;
+    fn on_enter_search(&mut self, model: &Model<T>);
+    fn on_exit_search(&mut self);
     fn on_solution_found(&mut self, solution: &Solution<T>);
     fn on_step(&mut self);
     fn search_command(&self) -> SearchCommand;
@@ -63,5 +65,53 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "SearchMonitor({})", self.name())
+    }
+}
+
+pub struct DummyMonitor<T>
+where
+    T: PrimInt + Signed,
+{
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T> Default for DummyMonitor<T>
+where
+    T: PrimInt + Signed,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> DummyMonitor<T>
+where
+    T: PrimInt + Signed,
+{
+    pub fn new() -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> SearchMonitor<T> for DummyMonitor<T>
+where
+    T: PrimInt + Signed,
+{
+    fn name(&self) -> &str {
+        "DummyMonitor"
+    }
+
+    fn on_enter_search(&mut self, _model: &Model<T>) {}
+
+    fn on_exit_search(&mut self) {}
+
+    fn on_solution_found(&mut self, _solution: &Solution<T>) {}
+
+    fn on_step(&mut self) {}
+
+    fn search_command(&self) -> SearchCommand {
+        SearchCommand::Continue
     }
 }
