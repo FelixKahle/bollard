@@ -31,6 +31,50 @@ use bollard_model::{
 use bollard_search::num::SolverNumeric;
 use std::iter::FusedIterator;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Candidate<T> {
+    cost: T,
+    decision: Decision,
+}
+
+impl<T> Candidate<T> {
+    #[inline(always)]
+    fn new(cost: T, decision: Decision) -> Self {
+        Self { cost, decision }
+    }
+}
+
+impl<T> std::fmt::Display for Candidate<T>
+where
+    T: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Cost: {}, Decision: {}", self.cost, self.decision)
+    }
+}
+
+impl<T> PartialOrd for Candidate<T>
+where
+    T: PartialOrd + Ord,
+{
+    #[inline(always)]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> Ord for Candidate<T>
+where
+    T: Ord,
+{
+    #[inline(always)]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.cost
+            .cmp(&other.cost)
+            .then_with(|| self.decision.cmp(&other.decision)) // tie break by decision (vessel index first then berth index)
+    }
+}
+
 /// A decision builder that implements a **Dynamic Weighted Shortest Processing Time (WSPT)** heuristic.
 ///
 /// Instead of exploring branches in arbitrary order, this builder:
@@ -42,7 +86,7 @@ use std::iter::FusedIterator;
 /// maximizing the effectiveness of bound-based pruning.
 #[derive(Debug, Clone, Default)]
 pub struct WsptHeuristicBuilder<T> {
-    candidates: Vec<(T, Decision)>,
+    candidates: Vec<Candidate<T>>,
 }
 
 impl<T> WsptHeuristicBuilder<T> {
@@ -79,7 +123,7 @@ where
     E: ObjectiveEvaluator<T>,
 {
     type DecisionIterator<'a>
-        = CostGuidedIter<'a, T>
+        = WsptHeuristicIter<'a, T>
     where
         T: 'a,
         E: 'a,
@@ -115,22 +159,22 @@ where
                 {
                     let berth_free_time = unsafe { state.berth_free_time_unchecked(berth_index) };
 
-                    if let Some(cost) = evaluator.evaluate_vessel_assignment(
-                        model,
-                        vessel_index,
-                        berth_index,
-                        berth_free_time,
-                    ) {
-                        // Push to our scratch buffer
-                        self.candidates.push((cost, decision));
+                    if let Some(cost) = unsafe {
+                        evaluator.evaluate_vessel_assignment_unchecked(
+                            model,
+                            vessel_index,
+                            berth_index,
+                            berth_free_time,
+                        )
+                    } {
+                        self.candidates.push(Candidate::new(cost, decision));
                     }
                 }
             }
         }
 
-        self.candidates
-            .sort_unstable_by(|(cost_a, _), (cost_b, _)| cost_a.cmp(cost_b));
-        CostGuidedIter {
+        self.candidates.sort_unstable();
+        WsptHeuristicIter {
             iter: self.candidates.iter(),
         }
     }
@@ -138,11 +182,11 @@ where
 
 /// A lightweight iterator wrapper that yields decisions from the slice.
 /// It holds a reference to the builder's scratch buffer.
-pub struct CostGuidedIter<'a, T> {
-    iter: std::slice::Iter<'a, (T, Decision)>,
+pub struct WsptHeuristicIter<'a, T> {
+    iter: std::slice::Iter<'a, Candidate<T>>,
 }
 
-impl<'a, T> Iterator for CostGuidedIter<'a, T>
+impl<'a, T> Iterator for WsptHeuristicIter<'a, T>
 where
     T: Copy,
 {
@@ -150,13 +194,11 @@ where
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        // Map the reference (T, Decision) to just the Decision copy.
-        // This compiles to a simple pointer increment.
-        self.iter.next().map(|(_, decision)| *decision)
+        self.iter.next().map(|c| c.decision)
     }
 }
 
-impl<'a, T> FusedIterator for CostGuidedIter<'a, T> where T: Copy {}
+impl<'a, T> FusedIterator for WsptHeuristicIter<'a, T> where T: Copy {}
 
 #[cfg(test)]
 mod tests {
