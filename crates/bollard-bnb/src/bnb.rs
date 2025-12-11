@@ -239,11 +239,11 @@ where
     builder: &'a mut B,
     evaluator: &'a mut E,
     monitor: &'a mut S,
-    incumbent_backing: I,
+    incumbent: I,
     state: SearchState<T>,
     best_objective: T,
     best_solution: Option<Solution<T>>,
-    stats: BnbSolverStatistics<T>,
+    stats: BnbSolverStatistics,
     start_time: std::time::Instant,
 }
 
@@ -315,10 +315,10 @@ where
             evaluator,
             state,
             monitor,
-            incumbent_backing,
+            incumbent: incumbent_backing,
             best_objective,
             best_solution: None,
-            stats: BnbSolverStatistics::<T>::default(),
+            stats: BnbSolverStatistics::default(),
             start_time: std::time::Instant::now(),
         }
     }
@@ -330,7 +330,7 @@ where
         self.initialize();
 
         let termination_reason: TerminationReason = loop {
-            self.best_objective = self.incumbent_backing.tighten(self.best_objective);
+            self.best_objective = self.incumbent.tighten(self.best_objective);
             self.monitor.on_step(&self.state, &self.stats);
 
             if let SearchCommand::Terminate(msg) =
@@ -414,12 +414,6 @@ where
         self.solver.stack.push_frame();
         self.stats.on_node_explored();
 
-        if let Some(lower_bound) = self.evaluator.lower_bound(self.model, &self.state) {
-            self.stats.set_root_lower_bound(lower_bound);
-        } else {
-            self.stats.set_root_lower_bound(T::max_value());
-        }
-
         let decisions = self
             .builder
             .next_decision(self.evaluator, self.model, &self.state);
@@ -463,7 +457,6 @@ where
 
         let child = match unsafe { self.build_child(&decision) } {
             Some(c) => c,
-            // Pruned inside build_child (either infeasible or local bound)
             None => return,
         };
 
@@ -529,12 +522,7 @@ where
                 .unwrap()
         };
         let arrival = unsafe { self.model.vessel_arrival_time_unchecked(vessel_index) };
-
-        let start_time = if arrival > current_berth_time {
-            arrival
-        } else {
-            current_berth_time
-        };
+        let start_time = arrival.max(current_berth_time);
         let new_berth_time = start_time.saturating_add_val(processing_time);
 
         Some(ChildNode {
@@ -635,7 +623,7 @@ where
         if new_objective < self.best_objective {
             if let Ok(solution) = self.state.clone().try_into() {
                 self.best_objective = new_objective;
-                self.incumbent_backing.on_solution_found(&solution);
+                self.incumbent.on_solution_found(&solution);
                 self.stats.on_solution_found();
                 self.monitor.on_solution_found(&solution, &self.stats);
                 self.best_solution = Some(solution);

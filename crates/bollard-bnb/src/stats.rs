@@ -19,12 +19,12 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use bollard_core::num::{constants::Zero, ops::saturating_arithmetic::SaturatingAddVal};
+use bollard_core::num::ops::saturating_arithmetic::SaturatingAddVal;
 use std::time::Duration;
 
 /// Statistics collected during the execution of the Bollard-BnB solver.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BnbSolverStatistics<T> {
+pub struct BnbSolverStatistics {
     /// Total nodes visited.
     pub nodes_explored: u64,
     /// Total leaf nodes reached or dead-ends hit.
@@ -42,15 +42,9 @@ pub struct BnbSolverStatistics<T> {
     pub solutions_found: u64,
     /// Total time spent in the solver.
     pub time_total: Duration,
-    /// The lower bound at the root node. Used to calculate the "Optimality Gap".
-    /// Stored as i64 for simplicity; assumes the solver uses i64-compatible objectives.
-    pub root_lower_bound: T,
 }
 
-impl<T> Default for BnbSolverStatistics<T>
-where
-    T: Zero,
-{
+impl Default for BnbSolverStatistics {
     fn default() -> Self {
         Self {
             nodes_explored: 0,
@@ -61,12 +55,11 @@ where
             prunings_bound: 0,
             solutions_found: 0,
             time_total: Duration::ZERO,
-            root_lower_bound: T::ZERO,
         }
     }
 }
 
-impl<T> BnbSolverStatistics<T> {
+impl BnbSolverStatistics {
     /// Records the exploration of a new node.
     #[inline]
     pub fn on_node_explored(&mut self) {
@@ -114,18 +107,9 @@ impl<T> BnbSolverStatistics<T> {
     pub fn set_total_time(&mut self, duration: Duration) {
         self.time_total = duration;
     }
-
-    /// Sets the root node lower bound.
-    #[inline]
-    pub fn set_root_lower_bound(&mut self, bound: T) {
-        self.root_lower_bound = bound;
-    }
 }
 
-impl<T> std::fmt::Display for BnbSolverStatistics<T>
-where
-    T: std::fmt::Display,
-{
+impl std::fmt::Display for BnbSolverStatistics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Bollard-BnB Solver Statistics:")?;
         writeln!(f, "  Nodes explored:       {}", self.nodes_explored)?;
@@ -135,7 +119,6 @@ where
         writeln!(f, "  Prunings (infeasible):{}", self.prunings_infeasible)?;
         writeln!(f, "  Prunings (bound):     {}", self.prunings_bound)?;
         writeln!(f, "  Solutions found:      {}", self.solutions_found)?;
-        writeln!(f, "  Root Lower Bound:     {}", self.root_lower_bound)?;
         writeln!(f, "  Total time:           {:.2?}", self.time_total)?;
         Ok(())
     }
