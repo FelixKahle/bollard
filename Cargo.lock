@@ -58,6 +58,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bollard_solver"
+version = "0.1.0"
+dependencies = [
+ "bollard_bnb",
+ "bollard_core",
+ "bollard_model",
+ "bollard_search",
+ "num-traits",
+ "tracing",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

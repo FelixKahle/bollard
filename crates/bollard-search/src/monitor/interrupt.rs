@@ -46,7 +46,7 @@ impl<'a, T> InterruptMonitor<'a, T> {
 
 impl<'a, T> SearchMonitor<T> for InterruptMonitor<'a, T>
 where
-    T: PrimInt + Signed,
+    T: PrimInt + Signed + Send + Sync,
 {
     fn name(&self) -> &str {
         "InterruptMonitor"

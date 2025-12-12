@@ -19,9 +19,4 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-pub mod composite;
-pub mod index;
-pub mod interrupt;
-pub mod search_monitor;
-pub mod solution_limit;
-pub mod time_limit;
+pub mod solver;

@@ -19,16 +19,15 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-[workspace]
-members = [
-    "crates/bollard-bnb",
-    "crates/bollard-core",
-    "crates/bollard-model",
-    "crates/bollard-ffi",
-    "crates/bollard-search",
-    "crates/bollard-solver"
-]
-resolver = "3"
+[package]
+name = "bollard_solver"
+version = "0.1.0"
+edition.workspace = true
 
-[workspace.package]
-edition = "2024"
+[dependencies]
+bollard_core = { path = "../bollard-core" }
+bollard_search = { path = "../bollard-search" }
+bollard_bnb = { path = "../bollard-bnb" }
+bollard_model = { path = "../bollard-model" }
+num-traits = "0.2.19"
+tracing = "0.1.43"

@@ -106,8 +106,8 @@ where
 impl<T, B, E> PortofolioSolver<T> for BnbPortfolioSolver<T, B, E>
 where
     T: SolverNumeric,
-    B: DecisionBuilder<T, E>,
-    E: ObjectiveEvaluator<T>,
+    B: DecisionBuilder<T, E> + Send + Sync,
+    E: ObjectiveEvaluator<T> + Send + Sync,
 {
     fn invoke<'a>(&mut self, context: PortfolioSolverContext<'a, T>) -> PortfolioSolverResult<T> {
         let monitor = WrapperMonitor::new(context.monitor);

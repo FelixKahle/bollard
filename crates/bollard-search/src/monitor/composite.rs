@@ -96,7 +96,7 @@ where
 
     /// Creates a new `CompositeMonitor` from a vector of boxed monitors.
     #[inline]
-    pub fn from_vec(monitors: Vec<Box<dyn SearchMonitor<T>>>) -> CompositeMonitor<'a, T> {
+    pub fn from_vec(monitors: Vec<Box<dyn SearchMonitor<T> + 'a>>) -> CompositeMonitor<'a, T> {
         CompositeMonitor { monitors }
     }
 
@@ -168,7 +168,7 @@ where
             self.monitors.len()
         );
 
-        unsafe { self.monitors.get_unchecked_mut(index).as_mut() }
+        unsafe { self.monitors.get_unchecked(index).as_ref() }
     }
 }
 

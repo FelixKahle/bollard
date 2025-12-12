@@ -144,6 +144,7 @@ impl<T> SharedIncumbent<T> {
         // Update the upper bound atomically.
         self.upper_bound
             .store(candidate_objective, std::sync::atomic::Ordering::Relaxed);
+
         true
     }
 }

@@ -575,11 +575,8 @@ mod decision_tests {
                 vi.get(),
                 bi.get()
             );
-            if checked.is_some() {
-                assert_eq!(
-                    checked.unwrap().into_inner(),
-                    unchecked.unwrap().into_inner()
-                );
+            if let (Some(checked_inner), Some(unchecked_inner)) = (checked, unchecked) {
+                assert_eq!(checked_inner.into_inner(), unchecked_inner.into_inner());
             }
         }
     }
