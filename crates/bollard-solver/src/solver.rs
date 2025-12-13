@@ -19,8 +19,6 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-
 use bollard_model::model::Model;
 use bollard_search::{
     incumbent::SharedIncumbent,
@@ -33,6 +31,7 @@ use bollard_search::{
     result::{SolverOutcome, SolverResult, TerminationReason},
     stats::{SolverStatistics, SolverStatisticsBuilder},
 };
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub struct Solver<'a, T> {
     portfolio_solver: Vec<Box<dyn PortofolioSolver<T> + 'a>>,
