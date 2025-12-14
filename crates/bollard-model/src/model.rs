@@ -54,7 +54,8 @@ where
     latest_departure_times: Vec<T>,                    // len = num_vessels
     vessel_weights: Vec<T>,                            // len = num_vessels
     processing_times: Vec<ProcessingTime<T>>,          // len = num_vessels * num_berths
-    opening_times: Vec<Vec<ClosedOpenInterval<T>>>,    // len = num_berths.
+    opening_times: Vec<Vec<ClosedOpenInterval<T>>>,    // len = num_berths
+    closing_times: Vec<Vec<ClosedOpenInterval<T>>>,    // len = num_berths
     shortest_processing_times: Vec<ProcessingTime<T>>, // len = num_vessels
 }
 
@@ -723,6 +724,83 @@ where
         unsafe { self.opening_times.get_unchecked(index) }
     }
 
+    /// Returns the closing times for the specified berth.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `berth_index` is not in `0..num_berths()`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
+    /// builder.add_berth_closing_time(
+    ///     bollard_model::index::BerthIndex::new(0),
+    ///     bollard_core::math::interval::ClosedOpenInterval::new(50, 100),
+    /// );
+    /// let model = builder.build();
+    ///
+    /// let closing_times = model.berth_closing_times(bollard_model::index::BerthIndex::new(0));
+    /// assert_eq!(
+    ///     closing_times,
+    ///     &[bollard_core::math::interval::ClosedOpenInterval::new(50, 100)]
+    /// );
+    /// ```
+    #[inline]
+    pub fn berth_closing_times(&self, berth_index: BerthIndex) -> &[ClosedOpenInterval<T>] {
+        let index = berth_index.get();
+        debug_assert!(
+            index < self.num_berths(),
+            "called `Model::berth_closing_times` with berth index out of bounds: the len is {} but the index is {}",
+            index,
+            self.num_vessels()
+        );
+
+        &self.closing_times[index]
+    }
+
+    /// Returns the closing times for the specified berth without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because it does not perform bounds checking on `berth_index`.
+    /// The caller must ensure that `berth_index` is in `0..num_berths()`. Undefined behavior
+    /// may occur if this precondition is violated.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
+    /// builder.add_berth_closing_time(
+    ///     bollard_model::index::BerthIndex::new(0),
+    ///     bollard_core::math::interval::ClosedOpenInterval::new(50, 100),
+    /// );
+    /// let model = builder.build();
+    ///
+    /// let closing_times = unsafe { model.berth_closing_times_unchecked(bollard_model::index::BerthIndex::new(0)) };
+    /// assert_eq!(
+    ///     closing_times,
+    ///     &[bollard_core::math::interval::ClosedOpenInterval::new(50, 100)]
+    /// );
+    /// ```
+    #[inline]
+    pub fn berth_closing_times_unchecked(
+        &self,
+        berth_index: BerthIndex,
+    ) -> &[ClosedOpenInterval<T>] {
+        let index = berth_index.get();
+        debug_assert!(
+            index < self.num_berths(),
+            "called `Model::berth_closing_times_unchecked` with berth index out of bounds: the len is {} but the index is {}",
+            index,
+            self.num_vessels()
+        );
+
+        unsafe { self.closing_times.get_unchecked(index) }
+    }
+
     /// Returns the shortest processing time for the specified vessel.
     ///
     /// # Panics
@@ -851,6 +929,7 @@ where
     num_berths: usize,
     num_vessels: usize,
     opening_times: Vec<rangemap::RangeSet<T>>,
+    closing_times: Vec<rangemap::RangeSet<T>>,
     arrival_times: Vec<T>,
     latest_departure_times: Vec<T>,
     vessel_weights: Vec<T>,
@@ -915,6 +994,7 @@ where
             num_berths,
             num_vessels,
             opening_times: vec![unconstrained_berth(); num_berths],
+            closing_times: vec![rangemap::RangeSet::new(); num_berths],
             arrival_times: vec![T::zero(); num_vessels],
             latest_departure_times: vec![T::max_value(); num_vessels],
             vessel_weights: vec![T::one(); num_vessels],
@@ -990,6 +1070,7 @@ where
         );
 
         self.opening_times[index].remove(closing_interval.into());
+        self.closing_times[index].insert(closing_interval.into());
         self
     }
 
@@ -1041,6 +1122,7 @@ where
 
         for interval in closing_intervals {
             self.opening_times[index].remove(interval.into());
+            self.closing_times[index].insert(interval.into());
         }
         self
     }
@@ -1083,6 +1165,7 @@ where
         );
 
         self.opening_times[index].insert(opening_interval.into());
+        self.closing_times[index].remove(opening_interval.into());
         self
     }
 
@@ -1133,6 +1216,7 @@ where
 
         for interval in opening_intervals {
             self.opening_times[index].insert(interval.into());
+            self.closing_times[index].remove(interval.into());
         }
         self
     }
@@ -1315,6 +1399,12 @@ where
             .map(|range_set| range_set.into_iter().map(|r| r.into()).collect())
             .collect();
 
+        let closing_times_model: Vec<Vec<ClosedOpenInterval<T>>> = self
+            .closing_times
+            .into_iter()
+            .map(|range_set| range_set.into_iter().map(|r| r.into()).collect())
+            .collect();
+
         let shortest_processing_times: Vec<ProcessingTime<T>> =
             match (self.num_berths, self.num_vessels) {
                 (0, 0) => Vec::new(),
@@ -1342,6 +1432,7 @@ where
             vessel_weights: self.vessel_weights,
             processing_times: self.processing_times,
             opening_times: opening_times_model,
+            closing_times: closing_times_model,
             shortest_processing_times,
         }
     }
@@ -1936,5 +2027,92 @@ mod tests {
         assert!(model.vessel_processing_times().is_empty());
         assert!(model.vessel_opening_times().is_empty());
         assert!(model.vessel_shortest_processing_times().is_empty());
+    }
+
+    #[test]
+    fn test_opening_and_closing_are_perfect_complements_without_reopen() {
+        use bollard_core::math::interval::ClosedOpenInterval;
+
+        // Build a model with multiple closing intervals but no explicit re-open intervals.
+        let mut bldr = ModelBuilder::<i64>::new(1, 1);
+        let c1 = ClosedOpenInterval::new(10, 20);
+        let c2 = ClosedOpenInterval::new(30, 40);
+        let c4 = ClosedOpenInterval::new(60, 65);
+        // Do NOT include any empty intervals (rangemap requires start < end).
+        bldr.add_berth_closing_times(b(0), [c1, c2, c4]);
+
+        let m = bldr.build();
+
+        // Fetch opening and closing times for the single berth.
+        let opening = m.berth_opening_times(b(0));
+        let closing = m.berth_closing_times(b(0));
+
+        // Helper: membership in opening times
+        let is_open = |t: i64| opening.iter().any(|i| i.contains_point(t));
+        // Helper: membership in closing times
+        let is_closed = |t: i64| closing.iter().any(|i| i.contains_point(t));
+
+        // Since we did not add any explicit re-open intervals, opening and closing
+        // should be perfect complements over the unconstrained domain [0, i64::MAX).
+        // We check a variety of representative points around boundaries.
+        let test_points = [
+            0, // start of unconstrained
+            9,
+            10,
+            19,
+            20, // around [10,20)
+            29,
+            30,
+            39,
+            40, // around [30,40)
+            49,
+            50, // no closing at 50, should be open
+            59,
+            60,
+            64,
+            65, // around [60,65)
+            i64::MAX - 2,
+            i64::MAX - 1, // end of domain valid points
+        ];
+
+        for &t in &test_points {
+            // t is within the valid domain [0, i64::MAX)
+            assert!(
+                is_open(t) ^ is_closed(t),
+                "For t = {}, expected opening and closing to be complements; got open={}, closed={}",
+                t,
+                is_open(t),
+                is_closed(t)
+            );
+        }
+
+        // Additionally, spot-check that known closed regions are closed and outside are open.
+        // [10,20) closed
+        assert!(is_closed(10));
+        assert!(is_closed(19));
+        assert!(!is_open(10));
+        assert!(!is_open(19));
+        assert!(is_open(9));
+        assert!(is_open(20));
+
+        // [30,40) closed
+        assert!(is_closed(30));
+        assert!(is_closed(39));
+        assert!(!is_open(30));
+        assert!(!is_open(39));
+        assert!(is_open(29));
+        assert!(is_open(40));
+
+        // No closing defined at 50, these must be open
+        assert!(is_open(49));
+        assert!(is_open(50));
+
+        // [60,65) closed
+        assert!(is_closed(60));
+        assert!(is_closed(64));
+        assert!(!is_open(60));
+        assert!(!is_open(64));
+        assert!(is_open(59));
+        assert!(is_open(65));
     }
 }

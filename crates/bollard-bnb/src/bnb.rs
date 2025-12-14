@@ -38,62 +38,6 @@ use bollard_search::{
 };
 use num_traits::{PrimInt, Signed};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FixedAssignment<T> {
-    pub start_time: T,
-    pub berth_index: BerthIndex,
-    pub vessel_index: VesselIndex,
-}
-
-impl<T> FixedAssignment<T> {
-    #[inline]
-    pub fn new(
-        start_time: T,
-        berth_index: BerthIndex,
-        vessel_index: VesselIndex,
-    ) -> FixedAssignment<T> {
-        Self {
-            start_time,
-            berth_index,
-            vessel_index,
-        }
-    }
-}
-
-impl<T> PartialOrd for FixedAssignment<T>
-where
-    T: Ord,
-{
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<T> Ord for FixedAssignment<T>
-where
-    T: Ord,
-{
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.start_time
-            .cmp(&other.start_time)
-            .then(self.vessel_index.cmp(&other.vessel_index))
-            .then(self.berth_index.cmp(&other.berth_index))
-    }
-}
-
-impl<T> std::fmt::Display for FixedAssignment<T>
-where
-    T: std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "FixedAssigned(vessel: {}, berth: {}, start_time: {})",
-            self.vessel_index, self.berth_index, self.start_time
-        )
-    }
-}
-
 /// A constraint branch and bound solver for the berth scheduling problem using
 /// a backtracking search algorithm with constraint propagation and bounding.
 /// Note that this is just the execution engine, the construction and navigation
@@ -106,7 +50,6 @@ where
 {
     trail: SearchTrail<T>,
     stack: SearchStack,
-    fixed_assignments_buffer: Vec<FixedAssignment<T>>,
 }
 
 impl<T> Default for BnbSolver<T>
@@ -128,7 +71,6 @@ where
         Self {
             trail: SearchTrail::new(),
             stack: SearchStack::new(),
-            fixed_assignments_buffer: Vec::new(),
         }
     }
 
@@ -147,7 +89,6 @@ where
         Self {
             trail: SearchTrail::preallocated(num_vessels),
             stack: SearchStack::preallocated(num_berths, num_vessels),
-            fixed_assignments_buffer: Vec::with_capacity(num_vessels),
         }
     }
 
@@ -170,7 +111,7 @@ where
         T: SolverNumeric,
     {
         let backing = NoSharedIncumbent::new();
-        self.solve_internal(model, builder, evaluator, monitor, backing, None)
+        self.solve_internal(model, builder, evaluator, monitor, backing)
     }
 
     /// Solve the given model using the provided `DecisionBuilder`,
@@ -195,66 +136,7 @@ where
         T: SolverNumeric,
     {
         let backing = SharedIncumbentAdapter::new(incumbent);
-        self.solve_internal(model, builder, evaluator, monitor, backing, None)
-    }
-
-    /// Solves a subproblem with fixed variable assignments using the
-    /// provided `DecisionBuilder`, `ObjectiveEvaluator`, and `TreeSearchMonitor`.
-    /// This variant does not use a shared incumbent and thus
-    /// acts as a standalone, single threaded solver. I takes a slice of
-    /// `FixedAssignment`s to fix certain variables in the model.
-    #[inline]
-    pub fn solve_fixed<B, E, S>(
-        &mut self,
-        model: &Model<T>,
-        builder: &mut B,
-        evaluator: &mut E,
-        monitor: S,
-        fixed_assignments: &[FixedAssignment<T>],
-    ) -> BnbSolverOutcome<T>
-    where
-        B: DecisionBuilder<T, E>,
-        E: ObjectiveEvaluator<T>,
-        S: TreeSearchMonitor<T>,
-        T: SolverNumeric,
-    {
-        let backing = NoSharedIncumbent::new();
-        self.solve_internal(
-            model,
-            builder,
-            evaluator,
-            monitor,
-            backing,
-            Some(fixed_assignments),
-        )
-    }
-
-    /// Solve with fixed variables and a shared incumbent.
-    #[inline]
-    pub fn solve_fixed_with_incumbent<B, E, S>(
-        &mut self,
-        model: &Model<T>,
-        builder: &mut B,
-        evaluator: &mut E,
-        monitor: S,
-        incumbent: &SharedIncumbent<T>,
-        fixed_assignments: &[FixedAssignment<T>],
-    ) -> BnbSolverOutcome<T>
-    where
-        B: DecisionBuilder<T, E>,
-        E: ObjectiveEvaluator<T>,
-        S: TreeSearchMonitor<T>,
-        T: SolverNumeric,
-    {
-        let backing = SharedIncumbentAdapter::new(incumbent);
-        self.solve_internal(
-            model,
-            builder,
-            evaluator,
-            monitor,
-            backing,
-            Some(fixed_assignments),
-        )
+        self.solve_internal(model, builder, evaluator, monitor, backing)
     }
 
     /// Internal solve method that takes an `IncumbentStore`,
@@ -267,7 +149,6 @@ where
         evaluator: &mut E,
         mut monitor: S,
         backing: I,
-        fixed_assignments: Option<&[FixedAssignment<T>]>,
     ) -> BnbSolverOutcome<T>
     where
         B: DecisionBuilder<T, E>,
@@ -276,15 +157,8 @@ where
         I: IncumbentStore<T>,
         T: SolverNumeric,
     {
-        let session = BnbSolverSearchSession::new(
-            self,
-            model,
-            builder,
-            evaluator,
-            &mut monitor,
-            backing,
-            fixed_assignments,
-        );
+        let session =
+            BnbSolverSearchSession::new(self, model, builder, evaluator, &mut monitor, backing);
         let res = session.run();
         self.reset();
         res
@@ -301,7 +175,6 @@ where
     fn reset(&mut self) {
         self.trail.reset();
         self.stack.reset();
-        self.fixed_assignments_buffer.clear();
     }
 }
 
@@ -356,14 +229,6 @@ impl std::fmt::Display for SearchStep {
 /// A search session for the constraint solver.
 /// This struct encapsulates the state and logic
 /// of a single search run.
-///
-/// The Solver lifecycle relies on three buffers moving in lockstep:
-/// 1. `trail`: Records changes to `SearchState`.
-/// 2. `stack`: Records the DFS path.
-/// 3. `fixed_assignments`: A preamble applied before the stack is initialized.
-///
-/// INVARIANT: `stack.depth()` must always correspond to a specific index in `trail`.
-/// INVARIANT: `fixed_assignments` are strictly "Root Node" definitions and never backtracked *over* during search.
 struct BnbSolverSearchSession<'a, T, B, E, S, I>
 where
     T: SolverNumeric,
@@ -438,16 +303,10 @@ where
         builder: &'a mut B,
         evaluator: &'a mut E,
         monitor: &'a mut S,
-        incumbent: I,
-        fixed_assignments: Option<&'a [FixedAssignment<T>]>,
+        incumbent_backing: I,
     ) -> Self {
         let state = SearchState::new(model.num_berths(), model.num_vessels());
-        let best_objective = incumbent.initial_upper_bound();
-
-        if let Some(fixed) = fixed_assignments {
-            solver.fixed_assignments_buffer.extend_from_slice(fixed);
-            solver.fixed_assignments_buffer.sort_unstable(); // Important invariant
-        }
+        let best_objective = incumbent_backing.initial_upper_bound();
 
         Self {
             solver,
@@ -456,7 +315,7 @@ where
             evaluator,
             state,
             monitor,
-            incumbent,
+            incumbent: incumbent_backing,
             best_objective,
             best_solution: None,
             stats: BnbSolverStatistics::default(),
@@ -464,26 +323,11 @@ where
         }
     }
 
-    /// Check if there are any fixed assignments to apply.
-    ///
-    /// # Note
-    ///
-    /// If the buffer is not empty, it is assumed to be sorted.
-    #[inline(always)]
-    fn has_fixed_assignments(&self) -> bool {
-        !self.solver.fixed_assignments_buffer.is_empty()
-    }
-
     /// Run the search session.
     #[inline]
     fn run(mut self) -> BnbSolverOutcome<T> {
         self.monitor.on_enter_search(self.model, &self.stats);
-
-        if !self.initialize() {
-            self.stats.set_total_time(self.start_time.elapsed());
-            self.monitor.on_exit_search(&self.stats);
-            return BnbSolverOutcome::infeasible(self.stats);
-        }
+        self.initialize();
 
         let termination_reason: TerminationReason = loop {
             self.best_objective = self.incumbent.tighten(self.best_objective);
@@ -560,75 +404,11 @@ where
     /// resize during the search, and pushes the first decisions
     /// onto the stack.
     #[inline]
-    fn initialize(&mut self) -> bool {
+    fn initialize(&mut self) {
         self.solver.trail.ensure_capacity(self.model.num_vessels());
         self.solver
             .stack
             .ensure_capacity(self.model.num_berths(), self.model.num_vessels());
-
-        // Prepare the solver to handle fixed assignments
-        if self.has_fixed_assignments() {
-            debug_assert!(
-                self.solver.fixed_assignments_buffer.is_sorted(),
-                "called `ConstraintSolverSearchSession::initialize` with filled but unsorted fixed assignments buffer"
-            );
-
-            for i in 0..self.solver.fixed_assignments_buffer.len() {
-                let fix = self.solver.fixed_assignments_buffer[i];
-                if !self.apply_fixed_assignment(fix) {
-                    return false;
-                }
-            }
-        }
-
-        // SEARCH STACK / TRAIL INVARIANT — DO NOT MOVE OR SPLIT THIS SECTION
-        //
-        // At this point, ALL fixed assignments have already been applied to the trail.
-        //
-        // Each fixed assignment is intentionally applied inside its own trail frame.
-        // This allows uniform handling via normal backtracking mechanics, BUT it imposes
-        // a strict ordering constraint on frame creation:
-        //
-        //   (1) Fixed assignments MUST be applied BEFORE the root decision frame.
-        //   (2) The root decision frame pushed below MUST remain the lowest frame
-        //       that the search is ever allowed to backtrack to.
-        //   (3) Backtracking MUST NEVER unwind past this root frame.
-        //
-        // Why this matters:
-        //
-        // - Fixed assignments represent hard constraints, not search decisions.
-        // - If the root frame were pushed earlier, or if decisions were pushed before
-        //   this frame, normal backtracking would be able to undo fixed assignments,
-        //   silently violating model semantics and corrupting search correctness.
-        // - The solver relies on the invariant that every backtrack target is
-        //   >= the root decision frame index.
-        //
-        // Consequences for maintainers:
-        //
-        // - Do NOT move this frame push above fixed assignment application.
-        // - Do NOT introduce additional push_frame() calls between fixed assignments
-        //   and this root frame.
-        // - Do NOT allow backtracking logic to pop below this frame.
-        // - Any refactor that changes frame ordering MUST re-verify that fixed
-        //   assignments remain permanent for the entire search.
-        //
-        // If this invariant is violated, the solver may:
-        //   - accept infeasible solutions,
-        //   - prune valid branches incorrectly,
-        //   - or exhibit non-deterministic behavior that is extremely hard to debug.
-        //
-        // This invariant is relied upon by:
-        //   - fixed assignment handling,
-        //   - backtracking correctness,
-        //   - unsafe unchecked accesses in the trail,
-        //   - and global incumbent-based pruning.
-        //
-        // Visual State Representation:
-        // Trail: [ Fixed_1 | Fixed_2 | ... | Fixed_N ] [ Root Frame ] [ Decision_1 ... ]
-        // Stack:                                       [ Frame 0    ] [ Frame 1    ... ]
-        //                                                  ^
-        //                                                  |
-        //                                     Backtracking floor (Stack empty = Stop)
 
         // Root frame. Crucial to have this before pushing decisions!
         self.solver.trail.push_frame(&self.state);
@@ -643,91 +423,6 @@ where
         let count_after = self.solver.stack.num_entries();
         self.monitor
             .on_decisions_enqueued(&self.state, count_after - count_before, &self.stats);
-
-        true
-    }
-
-    /// Applies a fixed assignment to the solver state.
-    /// This is used to prepare the solver for solving subproblems
-    /// with certain variables fixed to specific values.
-    ///
-    /// # Panics
-    ///
-    /// In debug builds, this function will panic if the vessel or berth index
-    /// are out of bounds.
-    #[inline(always)]
-    fn apply_fixed_assignment(&mut self, fix: FixedAssignment<T>) -> bool {
-        let (vessel_index, berth_index, start) =
-            (fix.vessel_index, fix.berth_index, fix.start_time);
-
-        debug_assert!(
-            vessel_index.get() < self.model.num_vessels(),
-            "called `ConstraintSolverSearchSession::apply_fixed_assignment` with vessel index out of bounds: the len is {} but the index is {}",
-            self.model.num_vessels(),
-            vessel_index.get()
-        );
-
-        debug_assert!(
-            berth_index.get() < self.model.num_berths(),
-            "called `ConstraintSolverSearchSession::apply_fixed_assignment` with berth index out of bounds: the len is {} but the index is {}",
-            self.model.num_berths(),
-            berth_index.get()
-        );
-
-        unsafe {
-            if self.state.is_vessel_assigned_unchecked(vessel_index)
-                || !self
-                    .model
-                    .vessel_allowed_on_berth_unchecked(vessel_index, berth_index)
-            {
-                return false;
-            }
-        }
-
-        let arrival = unsafe { self.model.vessel_arrival_time_unchecked(vessel_index) };
-        if start < arrival {
-            return false;
-        }
-
-        let current_free = unsafe { self.state.berth_free_time_unchecked(berth_index) };
-        if start < current_free {
-            return false;
-        }
-
-        let processing_time = unsafe {
-            self.model
-                .vessel_processing_time_unchecked(vessel_index, berth_index) // Safe because we checked allowed above
-                .unwrap()
-        };
-        let finish_time = start + processing_time;
-
-        let move_cost = match self.evaluator.evaluate_vessel_assignment(
-            self.model,
-            vessel_index,
-            berth_index,
-            start,
-        ) {
-            Some(c) => c,
-            None => return false,
-        };
-
-        let current_obj = self.state.current_objective();
-        let new_objective = current_obj.saturating_add_val(move_cost);
-
-        if new_objective >= self.best_objective {
-            return false;
-        }
-
-        self.solver.trail.push_frame(&self.state);
-        self.solver.trail.apply_assignment(
-            &mut self.state,
-            berth_index,
-            vessel_index,
-            finish_time,
-            new_objective,
-            start,
-        );
-        true
     }
 
     #[inline]
@@ -2340,142 +2035,5 @@ mod tests {
         // End-state clean
         assert!(solver.trail.is_empty());
         assert!(solver.stack.is_empty());
-    }
-
-    #[test]
-    fn test_solve_fixed_applies_assignments_and_finds_solution() {
-        // Build a small model
-        let model = build_model(2, 5);
-
-        // Fix vessel 0 to berth 1 (the faster berth in our synthetic model)
-        // and vessel 1 to berth 0 to create a specific structure.
-        let fixed = [
-            FixedAssignment::new(
-                model.vessel_arrival_time(VesselIndex::new(0)),
-                BerthIndex::new(1),
-                VesselIndex::new(0),
-            ),
-            FixedAssignment::new(
-                model.vessel_arrival_time(VesselIndex::new(1)),
-                BerthIndex::new(0),
-                VesselIndex::new(1),
-            ),
-        ];
-
-        // Standard solver components
-        let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
-            model.num_berths(),
-            model.num_vessels(),
-        );
-
-        // Run with fixed assignments
-        let outcome = solver.solve_fixed(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-            &fixed,
-        );
-
-        // Extract solution
-        let solution = match outcome.result() {
-            bollard_search::result::SolverResult::Optimal(sol)
-            | bollard_search::result::SolverResult::Feasible(sol) => sol,
-            _ => panic!("expected a feasible or optimal solution with fixed assignments"),
-        };
-
-        // Verify the fixed assignments were enforced
-        assert_eq!(
-            solution.berth_for_vessel(VesselIndex::new(0)),
-            BerthIndex::new(1),
-            "vessel 0 must be assigned to fixed berth 1"
-        );
-        assert_eq!(
-            solution.berth_for_vessel(VesselIndex::new(1)),
-            BerthIndex::new(0),
-            "vessel 1 must be assigned to fixed berth 0"
-        );
-
-        // Structural sanity checks
-        assert_eq!(solution.num_vessels(), model.num_vessels());
-        for v in 0..model.num_vessels() {
-            let vi = VesselIndex::new(v);
-            let start = solution.start_time_for_vessel(vi);
-            let arrival = model.vessel_arrival_time(vi);
-            assert!(
-                start >= arrival,
-                "start time must be >= arrival for vessel {}",
-                v
-            );
-            let bi = solution.berth_for_vessel(vi);
-            assert!(bi.get() < model.num_berths(), "berth index must be valid");
-        }
-    }
-
-    #[test]
-    fn test_validated_fixed_assignments_against_gurobi() {
-        let model = build_model(2, 10);
-        let fixed = vec![
-            FixedAssignment::new(0, BerthIndex::new(0), VesselIndex::new(0)),
-            FixedAssignment::new(3, BerthIndex::new(1), VesselIndex::new(1)),
-            FixedAssignment::new(10, BerthIndex::new(0), VesselIndex::new(2)),
-            FixedAssignment::new(12, BerthIndex::new(1), VesselIndex::new(3)),
-        ];
-
-        let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
-            model.num_berths(),
-            model.num_vessels(),
-        );
-
-        let outcome = solver.solve_fixed(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-            &fixed,
-        );
-
-        let solution = match outcome.result() {
-            SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
-            _ => panic!("Expected a valid solution from fixed start"),
-        };
-
-        assert_eq!(
-            solution.berth_for_vessel(VesselIndex::new(0)),
-            BerthIndex::new(0)
-        );
-        assert_eq!(solution.start_time_for_vessel(VesselIndex::new(0)), 0);
-
-        assert_eq!(
-            solution.berth_for_vessel(VesselIndex::new(1)),
-            BerthIndex::new(1)
-        );
-        assert_eq!(solution.start_time_for_vessel(VesselIndex::new(1)), 3);
-
-        assert_eq!(
-            solution.berth_for_vessel(VesselIndex::new(2)),
-            BerthIndex::new(0)
-        );
-        assert_eq!(solution.start_time_for_vessel(VesselIndex::new(2)), 10);
-
-        assert_eq!(
-            solution.berth_for_vessel(VesselIndex::new(3)),
-            BerthIndex::new(1)
-        );
-        assert_eq!(solution.start_time_for_vessel(VesselIndex::new(3)), 12);
-
-        // 5. Validate Objective against Gurobi Ground Truth
-        let gurobi_objective = 929;
-        assert_eq!(
-            solution.objective_value(),
-            gurobi_objective,
-            "Rust solver objective {} differs from Gurobi baseline {}",
-            solution.objective_value(),
-            gurobi_objective
-        );
     }
 }
