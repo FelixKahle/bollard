@@ -173,7 +173,8 @@ where
             }
 
             // Sort local options by cost to find best and second-best
-            self.scratch_options.sort_unstable_by_key(|a| a.cost_delta());
+            self.scratch_options
+                .sort_unstable_by_key(|a| a.cost_delta());
 
             let best_cost = self.scratch_options[0].cost_delta();
 
