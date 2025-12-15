@@ -208,24 +208,6 @@ where
     }
 }
 
-/// The result of a single search step.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SearchStep {
-    /// The search should continue.
-    Continue,
-    /// The search is finished.
-    Finished,
-}
-
-impl std::fmt::Display for SearchStep {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SearchStep::Continue => write!(f, "Continue"),
-            SearchStep::Finished => write!(f, "Finished"),
-        }
-    }
-}
-
 /// A search session for the constraint solver.
 /// This struct encapsulates the state and logic
 /// of a single search run.
@@ -340,14 +322,19 @@ where
                 break TerminationReason::Aborted(msg);
             }
 
-            match self.step() {
-                SearchStep::Continue => {}
-                SearchStep::Finished => {
+            // Logic originally in step()
+            if self.solver.stack.is_current_level_empty() {
+                if self.solver.stack.depth() <= 1 {
                     break if self.best_solution.is_some() {
                         TerminationReason::OptimalityProven
                     } else {
                         TerminationReason::InfeasibilityProven
                     };
+                }
+                self.backtrack_step();
+            } else {
+                unsafe {
+                    self.process_next_decision();
                 }
             }
         };
@@ -378,23 +365,6 @@ where
                 BnbSolverOutcome::aborted(self.best_solution, msg, self.stats)
             }
         }
-    }
-
-    /// Perform a single search step.
-    #[inline]
-    fn step(&mut self) -> SearchStep {
-        if self.solver.stack.is_current_level_empty() {
-            if self.solver.stack.depth() <= 1 {
-                return SearchStep::Finished;
-            }
-            self.backtrack_step();
-            return SearchStep::Continue;
-        }
-
-        unsafe {
-            self.process_next_decision();
-        }
-        SearchStep::Continue
     }
 
     /// Initialize the search session.
@@ -456,7 +426,7 @@ where
 
         self.stats.on_decision_generated();
 
-        let child = match unsafe { self.build_child(&decision) } {
+        let child = match unsafe { self.build_child(decision) } {
             Some(c) => c,
             None => return,
         };
@@ -476,8 +446,8 @@ where
     /// The caller must ensure that the `decision.vessel_index()` and `decision.berth_index()`
     /// are valid indices within the model.
     #[inline(always)]
-    unsafe fn build_child(&mut self, decision: &Decision) -> Option<ChildNode<T>> {
-        let (vessel_index, berth_index) = (decision.vessel_index(), decision.berth_index());
+    unsafe fn build_child(&mut self, decision: Decision) -> Option<ChildNode<T>> {
+        let (vessel_index, berth_index) = decision.into_inner();
 
         debug_assert!(
             vessel_index.get() < self.model.num_vessels(),
@@ -492,7 +462,7 @@ where
             berth_index.get()
         );
 
-        if !self.is_structurally_feasible(decision) {
+        if unsafe { !self.is_structurally_feasible(decision) } {
             self.stats.on_pruning_infeasible();
             self.monitor
                 .on_prune(&self.state, PruneReason::Infeasible, &self.stats);
@@ -587,8 +557,8 @@ where
     /// a `DecisionBuilder` produces infeasible decisions. The check is
     /// very cheap and thus worth including for safety.
     #[inline(always)]
-    fn is_structurally_feasible(&self, decision: &Decision) -> bool {
-        let (vessel_index, berth_index) = (decision.vessel_index(), decision.berth_index());
+    unsafe fn is_structurally_feasible(&self, decision: Decision) -> bool {
+        let (vessel_index, berth_index) = decision.into_inner();
 
         debug_assert!(
             vessel_index.get() < self.model.num_vessels(),

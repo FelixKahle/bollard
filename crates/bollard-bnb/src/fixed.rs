@@ -21,10 +21,19 @@
 
 use bollard_model::index::{BerthIndex, VesselIndex};
 
+/// A fixed assignment of a vessel to a berth at a specific start time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FixedAssignment<T> {
+    // We optimize for T = i64,
+    // minimizing the size of FixedAssignment by
+    // minimizing padding.
+    /// The start time of the assignment.
     pub start_time: T,
+
+    /// The index of the berth.
     pub berth_index: BerthIndex,
+
+    /// The index of the vessel.
     pub vessel_index: VesselIndex,
 }
 
