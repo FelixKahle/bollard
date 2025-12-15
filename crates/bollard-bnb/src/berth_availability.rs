@@ -19,9 +19,6 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-// TODO: Remove
-#![allow(dead_code)]
-
 use bollard_core::{math::interval::ClosedOpenInterval, num::constants::MinusOne};
 use bollard_model::{index::BerthIndex, model::Model};
 use num_traits::{PrimInt, Signed};

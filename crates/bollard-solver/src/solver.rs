@@ -435,6 +435,7 @@ mod tests {
             .build();
 
         let outcome = solver.solve(&model);
+        println!("Solver statistics: {}", outcome.statistics());
         println!("{}", outcome.reason());
         assert!(outcome.is_optimal());
 
@@ -452,7 +453,5 @@ mod tests {
             }
             SolverResult::Unknown => panic!("expected optimal solution, got unknown"),
         }
-
-        println!("Solver statistics: {}", outcome.statistics());
     }
 }

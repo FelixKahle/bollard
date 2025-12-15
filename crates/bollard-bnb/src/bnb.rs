@@ -440,6 +440,7 @@ where
             .stack
             .ensure_capacity(self.model.num_berths(), self.model.num_vessels());
 
+        // Build the berth availabilities
         if !self
             .solver
             .berth_availabilities
@@ -448,9 +449,23 @@ where
             return false;
         }
 
+        // Set up fixed assignments
         for assignment in self.fixed.iter() {
             let (vessel_index, berth_index) = (assignment.vessel_index, assignment.berth_index);
             let start_time = assignment.start_time;
+
+            debug_assert!(
+                vessel_index.get() < self.model.num_vessels(),
+                "called `ConstraintSolverSearchSession::initialize` with vessel index out of bounds: the len is {} but the index is {}",
+                self.model.num_vessels(),
+                vessel_index.get()
+            );
+
+            debug_assert!(
+                !self.state.is_vessel_assigned(vessel_index),
+                "called `ConstraintSolverSearchSession::initialize` with already assigned vessel: {}",
+                vessel_index
+            );
 
             let move_cost = match self.evaluator.evaluate_vessel_assignment(
                 self.model,
@@ -465,9 +480,9 @@ where
                 }
             };
 
-            let current_obj = self.state.current_objective();
-            let new_obj = current_obj.saturating_add_val(move_cost);
-            self.state.set_current_objective(new_obj);
+            let current_objective = self.state.current_objective();
+            let new_objective = current_objective.saturating_add_val(move_cost);
+            self.state.set_current_objective(new_objective);
 
             unsafe {
                 self.state
@@ -486,9 +501,11 @@ where
             &self.solver.berth_availabilities,
             &self.state,
         );
+
         let count_before = self.solver.stack.num_entries();
         self.solver.stack.extend(decisions);
         let count_after = self.solver.stack.num_entries();
+
         self.monitor
             .on_decisions_enqueued(&self.state, count_after - count_before, &self.stats);
 
@@ -547,7 +564,7 @@ where
     /// are valid indices within the model.
     #[inline(always)]
     unsafe fn build_child(&mut self, decision: Decision<T>) -> Option<ChildNode<T>> {
-        let (vessel_index, berth_index) = decision.into_inner();
+        let (vessel_index, berth_index) = (decision.vessel_index(), decision.berth_index());
 
         debug_assert!(
             vessel_index.get() < self.model.num_vessels(),
@@ -565,8 +582,6 @@ where
         let start_time = decision.start_time();
         let move_cost = decision.cost_delta();
 
-        // 2. BOUND CHECK: The only thing we must re-check is the global upper bound,
-        //    because 'best_objective' might have improved since this decision was created.
         let current_obj = self.state.current_objective();
         let new_objective = current_obj.saturating_add_val(move_cost);
 
@@ -577,8 +592,6 @@ where
             return None;
         }
 
-        // 3. STATE UPDATE: Calculate the new physical state
-        // We use unchecked here because the Builder already validated structural feasibility.
         let duration = unsafe {
             self.model
                 .vessel_processing_time_unchecked(vessel_index, berth_index)

@@ -30,20 +30,41 @@ use bollard_search::num::SolverNumeric;
 use num_traits::{PrimInt, Signed};
 use std::iter::FusedIterator;
 
+/// A decision to assign a vessel to a berth at a specific start time,
+/// along with the associated cost delta.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Decision<T> {
+    // Optimize for T = i64 to minimize padding.
+    /// The start time for the vessel assignment.
     start_time: T,
+    /// The cost delta associated with the vessel assignment.
     cost_delta: T,
+    /// The index of the vessel to be assigned.
     vessel_index: VesselIndex,
+    /// The index of the berth to which the vessel is assigned.
     berth_index: BerthIndex,
+}
+
+impl<T> std::fmt::Display for Decision<T>
+where
+    T: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Decision(vessel: {}, berth: {}, start_time: {}, cost_delta: {})",
+            self.vessel_index, self.berth_index, self.start_time, self.cost_delta
+        )
+    }
 }
 
 impl<T: Ord> Ord for Decision<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match self.vessel_index.cmp(&other.vessel_index) {
-            std::cmp::Ordering::Equal => self.berth_index.cmp(&other.berth_index),
-            ord => ord,
-        }
+        self.vessel_index
+            .cmp(&other.vessel_index)
+            .then(self.berth_index.cmp(&other.berth_index))
+            .then(self.start_time.cmp(&other.start_time))
+            .then(self.cost_delta.cmp(&other.cost_delta))
     }
 }
 
@@ -57,21 +78,32 @@ impl<T> Decision<T>
 where
     T: SolverNumeric,
 {
-    #[inline(always)]
-    pub const fn new(
-        vessel_index: VesselIndex,
-        berth_index: BerthIndex,
-        start_time: T,
-        cost_delta: T,
-    ) -> Self {
-        Self {
-            vessel_index,
-            berth_index,
-            start_time,
-            cost_delta,
-        }
-    }
-
+    /// Tries to create a new `Decision` for assigning the specified vessel
+    /// to the specified berth, given the model, berth availability, search
+    /// state, and objective evaluator.
+    ///
+    /// Decisions are only generated forward in time to break symmetry.
+    ///
+    /// # Symmetry
+    ///
+    /// Symmetry refers to a situation where different sequences of decisions
+    /// lead to the same state or solution. For example, assigning Vessel A to
+    /// Berth 1 and then Vessel B to Berth 2 may yield the same outcome as
+    /// assigning Vessel B to Berth 2 first and then Vessel A to Berth 1.
+    ///
+    /// To avoid exploring symmetric states, which can lead to redundant computations,
+    /// this method enforces that decisions are only made forward in time. This means
+    /// that a vessel can only be assigned to a berth at or after the last decision time.
+    ///
+    /// Additionally, if the start time of the new decision is equal to the last decision
+    /// time, the vessel index must be greater than or equal to the last decision vessel
+    /// index. This further reduces symmetry by ensuring a consistent ordering of vessel
+    /// assignments when they occur at the same time.
+    ///
+    /// # Panics
+    ///
+    /// The caller must ensure that `vessel_index` is within `0..model.num_vessels()`
+    /// and that `berth_index` is within `0..model.num_berths()`.
     #[inline]
     pub fn try_new<E>(
         vessel_index: VesselIndex,
@@ -97,7 +129,7 @@ where
             berth_index.get()
         );
 
-        if !model.vessel_allowed_on_berth(vessel_index, berth_index) {
+        if state.is_vessel_assigned(vessel_index) {
             return None;
         }
 
@@ -105,7 +137,7 @@ where
         if processing_time_option.is_none() {
             return None;
         }
-        let pt = processing_time_option.unwrap_unchecked();
+        let processing_time = processing_time_option.unwrap_unchecked();
         let berth_free = state.berth_free_time(berth_index);
         let arrival = model.vessel_arrival_time(vessel_index);
 
@@ -115,8 +147,11 @@ where
             berth_free
         };
 
-        let actual_start_time =
-            berth_availability.earliest_availability(berth_index, nominal_start, pt)?;
+        let actual_start_time = berth_availability.earliest_availability(
+            berth_index,
+            nominal_start,
+            processing_time,
+        )?;
 
         let last_decision_time = state.last_decision_time();
         if actual_start_time < last_decision_time {
@@ -130,20 +165,23 @@ where
         }
 
         if berth_index.get() > 0 {
-            let prev_berth_idx = BerthIndex::new(berth_index.get() - 1);
-            let prev_free = state.berth_free_time(prev_berth_idx);
+            let previous_berth_index = BerthIndex::new(berth_index.get() - 1);
+            let previous_free = state.berth_free_time(previous_berth_index);
 
-            if prev_free == berth_free {
-                let prev_actual_start =
-                    berth_availability.earliest_availability(prev_berth_idx, nominal_start, pt);
+            if previous_free == berth_free {
+                let previous_actual_start = berth_availability.earliest_availability(
+                    previous_berth_index,
+                    nominal_start,
+                    processing_time,
+                );
 
-                if prev_actual_start == Some(actual_start_time) {
-                    let prev_proc = model
-                        .vessel_processing_time(vessel_index, prev_berth_idx)
+                if previous_actual_start == Some(actual_start_time) {
+                    let previous_processing_time = model
+                        .vessel_processing_time(vessel_index, previous_berth_index)
                         .unwrap_or_else(T::zero);
 
-                    if pt == prev_proc
-                        && model.vessel_allowed_on_berth(vessel_index, prev_berth_idx)
+                    if processing_time == previous_processing_time
+                        && model.vessel_allowed_on_berth(vessel_index, previous_berth_index)
                     {
                         return None;
                     }
@@ -167,6 +205,34 @@ where
         })
     }
 
+    /// Tries to create a new `Decision` for assigning the specified vessel
+    /// to the specified berth, given the model, berth availability, search
+    /// state, and objective evaluator without performing bounds checks on the
+    /// indices.
+    ///
+    /// Decisions are only generated forward in time to break symmetry.
+    ///
+    /// # Symmetry
+    ///
+    /// Symmetry refers to a situation where different sequences of decisions
+    /// lead to the same state or solution. For example, assigning Vessel A to
+    /// Berth 1 and then Vessel B to Berth 2 may yield the same outcome as
+    /// assigning Vessel B to Berth 2 first and then Vessel A to Berth 1.
+    ///
+    /// To avoid exploring symmetric states, which can lead to redundant computations,
+    /// this method enforces that decisions are only made forward in time. This means
+    /// that a vessel can only be assigned to a berth at or after the last decision time.
+    ///
+    /// Additionally, if the start time of the new decision is equal to the last decision
+    /// time, the vessel index must be greater than or equal to the last decision vessel
+    /// index. This further reduces symmetry by ensuring a consistent ordering of vessel
+    /// assignments when they occur at the same time.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, this function will panic if `vessel_index` is not within
+    /// `0..model.num_vessels()` or if `berth_index` is not within `0..model.num_berths()`.
+    ///
     /// # Safety
     ///
     /// The caller must ensure that `vessel_index` is within `0..model.num_vessels()`
@@ -196,14 +262,15 @@ where
             berth_index.get()
         );
 
-        let processing_time_option =
-            unsafe { model.vessel_processing_time_unchecked(vessel_index, berth_index) };
-
-        if processing_time_option.is_none() {
+        if unsafe { state.is_vessel_assigned_unchecked(vessel_index) } {
             return None;
         }
 
-        let pt = processing_time_option.unwrap_unchecked();
+        let processing_time_option = model.vessel_processing_time(vessel_index, berth_index);
+        if processing_time_option.is_none() {
+            return None;
+        }
+        let processing_time = processing_time_option.unwrap_unchecked();
         let berth_free = unsafe { state.berth_free_time_unchecked(berth_index) };
         let arrival = unsafe { model.vessel_arrival_time_unchecked(vessel_index) };
 
@@ -214,7 +281,11 @@ where
         };
 
         let actual_start_time = unsafe {
-            berth_availability.earliest_availability_unchecked(berth_index, nominal_start, pt)?
+            berth_availability.earliest_availability_unchecked(
+                berth_index,
+                nominal_start,
+                processing_time,
+            )?
         };
 
         let last_decision_time = state.last_decision_time();
@@ -229,28 +300,31 @@ where
         }
 
         if berth_index.get() > 0 {
-            let prev_berth_idx = BerthIndex::new(berth_index.get() - 1);
-            let prev_free = unsafe { state.berth_free_time_unchecked(prev_berth_idx) };
+            let previous_berth_index = BerthIndex::new(berth_index.get() - 1);
+            let previous_free = unsafe { state.berth_free_time_unchecked(previous_berth_index) };
 
-            if prev_free == berth_free {
-                let prev_actual_start = unsafe {
+            if previous_free == berth_free {
+                let previous_actual_start = unsafe {
                     berth_availability.earliest_availability_unchecked(
-                        prev_berth_idx,
+                        previous_berth_index,
                         nominal_start,
-                        pt,
+                        processing_time,
                     )
                 };
 
-                if prev_actual_start == Some(actual_start_time) {
-                    let prev_proc = unsafe {
+                if previous_actual_start == Some(actual_start_time) {
+                    let previous_processing_time = unsafe {
                         model
-                            .vessel_processing_time_unchecked(vessel_index, prev_berth_idx)
+                            .vessel_processing_time_unchecked(vessel_index, previous_berth_index)
                             .unwrap_or_else(T::zero)
                     };
 
-                    if pt == prev_proc
+                    if processing_time == previous_processing_time
                         && unsafe {
-                            model.vessel_allowed_on_berth_unchecked(vessel_index, prev_berth_idx)
+                            model.vessel_allowed_on_berth_unchecked(
+                                vessel_index,
+                                previous_berth_index,
+                            )
                         }
                     {
                         return None;
@@ -275,39 +349,28 @@ where
         })
     }
 
+    /// Returns the index of the vessel to be assigned.
     #[inline(always)]
     pub const fn vessel_index(&self) -> VesselIndex {
         self.vessel_index
     }
 
+    /// Returns the index of the berth to which the vessel is assigned.
     #[inline(always)]
     pub const fn berth_index(&self) -> BerthIndex {
         self.berth_index
     }
 
+    /// Returns the start time for the vessel assignment.
     #[inline(always)]
     pub const fn start_time(&self) -> T {
         self.start_time
     }
 
+    /// Returns the cost delta associated with the vessel assignment.
     #[inline(always)]
     pub const fn cost_delta(&self) -> T {
         self.cost_delta
-    }
-
-    #[inline(always)]
-    pub const fn into_inner(self) -> (VesselIndex, BerthIndex) {
-        (self.vessel_index, self.berth_index)
-    }
-}
-
-impl<T: std::fmt::Display> std::fmt::Display for Decision<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Decision(v: {}, b: {}, start: {}, cost: {})",
-            self.vessel_index, self.berth_index, self.start_time, self.cost_delta
-        )
     }
 }
 
