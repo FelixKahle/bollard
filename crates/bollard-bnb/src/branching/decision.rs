@@ -374,19 +374,24 @@ where
     }
 }
 
+/// A trait for building decisions in a branch-and-bound search.
 pub trait DecisionBuilder<T, E>
 where
     T: PrimInt + Signed,
     E: ObjectiveEvaluator<T>,
 {
+    /// An iterator over decisions produced by this decision builder.
     type DecisionIterator<'a>: Iterator<Item = Decision<T>> + FusedIterator + 'a
     where
         Self: 'a,
         T: 'a,
         E: 'a;
 
+    /// Returns the name of this decision builder.
     fn name(&self) -> &str;
 
+    /// Produces an iterator over decisions for the given model, berth availability,
+    /// and search state using the provided objective evaluator.
     fn next_decision<'a>(
         &'a mut self,
         evaluator: &'a mut E,
@@ -394,4 +399,195 @@ where
         berth_availability: &'a BerthAvailability<T>,
         search_state: &'a SearchState<T>,
     ) -> Self::DecisionIterator<'a>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::eval::wtft::WeightedFlowTimeEvaluator;
+    use bollard_model::index::{BerthIndex as BI, VesselIndex as VI};
+    use bollard_model::model::ModelBuilder;
+    use bollard_model::time::ProcessingTime;
+
+    type IntegerType = i64;
+
+    fn build_basic_model() -> Model<IntegerType> {
+        // 2 berths, 3 vessels
+        let mut b = ModelBuilder::<IntegerType>::new(2, 3);
+
+        // Arrivals 0, 5, 10
+        b.set_vessel_arrival_time(VI::new(0), 0)
+            .set_vessel_arrival_time(VI::new(1), 5)
+            .set_vessel_arrival_time(VI::new(2), 10);
+
+        // Weights = 1 each
+        b.set_vessel_weight(VI::new(0), 1)
+            .set_vessel_weight(VI::new(1), 1)
+            .set_vessel_weight(VI::new(2), 1);
+
+        // Processing times: all 5 unless explicitly None later
+        for v in 0..3 {
+            for b_idx in 0..2 {
+                b.set_vessel_processing_time(VI::new(v), BI::new(b_idx), ProcessingTime::some(5));
+            }
+        }
+
+        b.build()
+    }
+
+    #[test]
+    fn test_try_new_filters_already_assigned_vessels() {
+        let model = build_basic_model();
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+
+        // Assign vessel 0 first
+        state.assign_vessel(VI::new(0), BI::new(0), 0);
+
+        // Now attempt decision for vessel 0 again -> should be filtered out
+        let d = Decision::try_new(VI::new(0), BI::new(1), &model, &ba, &state, &mut eval);
+        assert!(
+            d.is_none(),
+            "already-assigned vessel should yield no decision"
+        );
+    }
+
+    #[test]
+    fn test_forward_in_time_and_tie_breaking_by_vessel_index() {
+        let model = build_basic_model();
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+
+        // Set last decision to time 10, vessel 1
+        state.set_last_decision(10, VI::new(1));
+
+        // Candidate starting before time 10 must be filtered
+        {
+            // Make berth 0 free at time 0 explicitly to test the time guard
+            state.set_berth_free_time(BI::new(0), 0);
+            // Vessel 0 arrival is 0, processing fits, earliest availability 0 -> actual_start 5? No: nominal max(arrival=0, berth_free=0)=0; availability permits start at 0; but we set last_decision_time=10 -> should filter
+            let d = Decision::try_new(VI::new(0), BI::new(0), &model, &ba, &state, &mut eval);
+            assert!(
+                d.is_none(),
+                "decisions before last_decision_time must be filtered"
+            );
+        }
+
+        // Now force decisions at exactly time 10:
+        state.set_berth_free_time(BI::new(0), 10);
+        state.set_berth_free_time(BI::new(1), 10);
+
+        // At time 10, vessel 0 has index < last_decision_vessel(1) -> filtered
+        let d0 = Decision::try_new(VI::new(0), BI::new(0), &model, &ba, &state, &mut eval);
+        assert!(
+            d0.is_none(),
+            "equal time, lower vessel index than last decision must be filtered"
+        );
+
+        // Vessel 1 equal to last_decision_vessel -> allowed
+        let d1 = Decision::try_new(VI::new(1), BI::new(0), &model, &ba, &state, &mut eval);
+        assert!(
+            d1.is_some(),
+            "equal time, same vessel index should be allowed"
+        );
+
+        // Vessel 2 greater than last_decision_vessel -> allowed
+        // Use lower-index berth (0) to avoid adjacent-berth symmetry filtering.
+        let d2 = Decision::try_new(VI::new(2), BI::new(0), &model, &ba, &state, &mut eval);
+        assert!(
+            d2.is_some(),
+            "equal time, higher vessel index should be allowed (canonical lower-index berth)"
+        );
+    }
+
+    #[test]
+    fn test_adjacent_berth_indistinguishability_is_filtered() {
+        let mut bldr = ModelBuilder::<IntegerType>::new(2, 1);
+        // Vessel 0 arrives at 5
+        bldr.set_vessel_arrival_time(VI::new(0), 5)
+            .set_vessel_weight(VI::new(0), 1);
+        // Both berths have identical processing time 7 for vessel 0
+        bldr.set_vessel_processing_time(VI::new(0), BI::new(0), ProcessingTime::some(7));
+        bldr.set_vessel_processing_time(VI::new(0), BI::new(1), ProcessingTime::some(7));
+        let model = bldr.build();
+
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+
+        // Make both berths have same free time, ensuring indistinguishable slots
+        state.set_berth_free_time(BI::new(0), 5);
+        state.set_berth_free_time(BI::new(1), 5);
+
+        // Attempt decision on the higher-index berth (1). Because both are indistinguishable,
+        // the code should filter B1 and keep only B0 as canonical.
+        let d_b1 = Decision::try_new(VI::new(0), BI::new(1), &model, &ba, &state, &mut eval);
+        assert!(
+            d_b1.is_none(),
+            "indistinguishable adjacent berths should be symmetry-filtered on higher index"
+        );
+
+        // Lower-index berth (0) should be allowed
+        let d_b0 = Decision::try_new(VI::new(0), BI::new(0), &model, &ba, &state, &mut eval);
+        assert!(
+            d_b0.is_some(),
+            "canonical lower-index berth should be allowed"
+        );
+    }
+
+    #[test]
+    fn test_processing_time_none_or_forbidden_pair_returns_none() {
+        let mut bldr = ModelBuilder::<IntegerType>::new(2, 1);
+        bldr.set_vessel_arrival_time(VI::new(0), 0)
+            .set_vessel_weight(VI::new(0), 1);
+
+        // Berth 0 has a processing time, berth 1 is None for vessel 0
+        bldr.set_vessel_processing_time(VI::new(0), BI::new(0), ProcessingTime::some(5));
+        bldr.set_vessel_processing_time(VI::new(0), BI::new(1), ProcessingTime::none());
+
+        let model = bldr.build();
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+
+        // None processing time -> decision must be None
+        let d_none = Decision::try_new(VI::new(0), BI::new(1), &model, &ba, &state, &mut eval);
+        assert!(d_none.is_none());
+
+        // Allowed, Some -> should produce a decision
+        let d_some = Decision::try_new(VI::new(0), BI::new(0), &model, &ba, &state, &mut eval);
+        assert!(d_some.is_some());
+    }
+
+    #[test]
+    fn test_evaluator_integration_cost_delta_is_some_for_feasible() {
+        let model = build_basic_model();
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+
+        // Ensure a feasible nominal start (arrival=5, berth_free=0 -> nominal=5)
+        let v = VI::new(1);
+        let b = BI::new(0);
+
+        let d = Decision::try_new(v, b, &model, &ba, &state, &mut eval)
+            .expect("feasible decision must exist");
+
+        // WeightedFlowTime should produce a non-negative cost_delta
+        // Not asserting a specific value to avoid coupling too tightly;
+        // just validate that evaluate_vessel_assignment produced Some
+        assert!(d.cost_delta() >= 0);
+    }
 }
