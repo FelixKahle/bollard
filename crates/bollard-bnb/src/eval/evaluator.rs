@@ -19,7 +19,7 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::state::SearchState;
+use crate::{berth_availability::BerthAvailability, state::SearchState};
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
@@ -31,11 +31,11 @@ use num_traits::{PrimInt, Signed};
 ///
 /// `ObjectiveEvaluator` decouples the solver from a particular objective function.
 /// The solver calls:
-/// - `evaluate_vessel_assignment` to compute the incremental cost of assigning a vessel to a berth
-///   given the berth's ready time,
-/// - `lower_bound` to estimate a tight bound on the total objective from the current state.
+/// - `evaluate_vessel_assignment` to compute the incremental cost of assigning a vessel.
+/// - `estimate_remaining_cost` to predict the minimum cost required to complete the schedule.
 ///
-/// `None` represents an infeasible tree branch or assignment.
+/// Both methods now have access to `BerthAvailability`, allowing cost calculations and
+/// bounds to account for static constraints like maintenance windows.
 pub trait ObjectiveEvaluator<T>
 where
     T: PrimInt + Signed,
@@ -45,30 +45,27 @@ where
 
     /// Evaluates the cost of assigning a vessel to a berth starting at a given time.
     ///
-    /// The cost function depends on the concrete evaluator. For weighted flow time, it is:
-    /// `cost = weight(vessel) * finish_time`, where
-    /// `finish_time = max(arrival_time(vessel), berth_ready) + processing_time(vessel, berth)`.
+    /// The `start_time` passed here is the **actual start time**, already adjusted for
+    /// availability (maintenance windows) by the `DecisionBuilder`.
+    ///
+    /// While many evaluators (like Weighted Flow Time) only need the `start_time`,
+    /// `berth_availability` is provided for complex objectives that might depend on
+    /// the specific interval characteristics or future lookahead.
     ///
     /// Returns `Some(cost)` if the assignment is feasible, otherwise `None`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `vessel_index` is not within `0..model.num_vessels()` or if
-    /// `berth_index` is not within `0..model.num_berths()`.
     fn evaluate_vessel_assignment(
         &mut self,
         model: &Model<T>,
+        berth_availability: &BerthAvailability<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,
-        berth_ready: T,
+        start_time: T,
     ) -> Option<T>
     where
         T: SolverNumeric;
 
     /// Evaluates the cost of assigning a vessel to a berth starting at a given time
     /// without performing bounds checking on the indices.
-    ///
-    /// Returns `Some(cost)` if the assignment is feasible, otherwise `None`.
     ///
     /// # Safety
     ///
@@ -77,25 +74,27 @@ where
     unsafe fn evaluate_vessel_assignment_unchecked(
         &self,
         model: &Model<T>,
+        berth_availability: &BerthAvailability<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,
-        berth_ready: T,
+        start_time: T,
     ) -> Option<T>
     where
         T: SolverNumeric;
 
     /// Computes a global lower bound on the objective from the current state.
     ///
-    /// The bound should be fast and optimistic (never exceed the optimal value for completion).
-    /// The solver prunes branches when `lower_bound >= best_objective`. Also it does not
-    /// take into account the current cost of the partial state.
+    /// The bound must be optimistic (never exceed the true optimal remaining cost).
     ///
-    /// Implementations typically:
-    /// - accumulate the current objective,
-    /// - add the minimum incremental cost for each remaining vessel across feasible berths
-    ///   using current berth free times,
-    /// - return `None` if any vessel has no feasible berth.
-    fn estimate_remaining_cost(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T>
+    /// **Crucial:** Implementations should use `berth_availability` to determine
+    /// when berths *actually* become free for the remaining vessels. Ignoring
+    /// maintenance windows here will result in a loose bound and poor pruning performance.
+    fn estimate_remaining_cost(
+        &mut self,
+        model: &Model<T>,
+        berth_availability: &BerthAvailability<T>,
+        state: &SearchState<T>,
+    ) -> Option<T>
     where
         T: SolverNumeric;
 
@@ -104,13 +103,16 @@ where
     /// The default implementation calculates `f(n) = g(n) + h(n)`:
     /// - `g(n)`: The cost already incurred (`state.current_objective()`).
     /// - `h(n)`: The estimated remaining cost (`estimate_remaining_cost()`).
-    ///
-    /// Returns `None` if the heuristic determines the branch is infeasible.
-    fn lower_bound(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T>
+    fn lower_bound(
+        &mut self,
+        model: &Model<T>,
+        berth_availability: &BerthAvailability<T>,
+        state: &SearchState<T>,
+    ) -> Option<T>
     where
         T: SolverNumeric,
     {
-        let h_n = self.estimate_remaining_cost(model, state)?;
+        let h_n = self.estimate_remaining_cost(model, berth_availability, state)?;
         let g_n = state.current_objective();
 
         // Use saturating_add to avoid panic on overflow near T::MAX

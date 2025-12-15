@@ -20,8 +20,10 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
+    berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},
     eval::evaluator::ObjectiveEvaluator,
+    fixed::FixedAssignment,
     incumbent::{IncumbentStore, NoSharedIncumbent, SharedIncumbentAdapter},
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
     result::BnbSolverOutcome,
@@ -49,7 +51,8 @@ where
     T: PrimInt + Signed,
 {
     trail: SearchTrail<T>,
-    stack: SearchStack,
+    stack: SearchStack<T>,
+    berth_availabilities: BerthAvailability<T>,
 }
 
 impl<T> Default for BnbSolver<T>
@@ -71,6 +74,7 @@ where
         Self {
             trail: SearchTrail::new(),
             stack: SearchStack::new(),
+            berth_availabilities: BerthAvailability::new(),
         }
     }
 
@@ -89,6 +93,7 @@ where
         Self {
             trail: SearchTrail::preallocated(num_vessels),
             stack: SearchStack::preallocated(num_berths, num_vessels),
+            berth_availabilities: BerthAvailability::preallocated(num_berths),
         }
     }
 
@@ -111,7 +116,7 @@ where
         T: SolverNumeric,
     {
         let backing = NoSharedIncumbent::new();
-        self.solve_internal(model, builder, evaluator, monitor, backing)
+        self.solve_internal(model, &[], builder, evaluator, monitor, backing)
     }
 
     /// Solve the given model using the provided `DecisionBuilder`,
@@ -136,7 +141,44 @@ where
         T: SolverNumeric,
     {
         let backing = SharedIncumbentAdapter::new(incumbent);
-        self.solve_internal(model, builder, evaluator, monitor, backing)
+        self.solve_internal(model, &[], builder, evaluator, monitor, backing)
+    }
+
+    pub fn solve_with_fixed<B, E, S>(
+        &mut self,
+        model: &Model<T>,
+        builder: &mut B,
+        evaluator: &mut E,
+        monitor: S,
+        fixed: &[FixedAssignment<T>],
+    ) -> BnbSolverOutcome<T>
+    where
+        B: DecisionBuilder<T, E>,
+        E: ObjectiveEvaluator<T>,
+        S: TreeSearchMonitor<T>,
+        T: SolverNumeric,
+    {
+        let backing = NoSharedIncumbent::new();
+        self.solve_internal(model, fixed, builder, evaluator, monitor, backing)
+    }
+
+    pub fn solve_with_fixed_and_incumbent<B, E, S>(
+        &mut self,
+        model: &Model<T>,
+        builder: &mut B,
+        evaluator: &mut E,
+        monitor: S,
+        fixed: &[FixedAssignment<T>],
+        incumbent: &SharedIncumbent<T>,
+    ) -> BnbSolverOutcome<T>
+    where
+        B: DecisionBuilder<T, E>,
+        E: ObjectiveEvaluator<T>,
+        S: TreeSearchMonitor<T>,
+        T: SolverNumeric,
+    {
+        let backing = SharedIncumbentAdapter::new(incumbent);
+        self.solve_internal(model, fixed, builder, evaluator, monitor, backing)
     }
 
     /// Internal solve method that takes an `IncumbentStore`,
@@ -145,6 +187,7 @@ where
     fn solve_internal<B, E, S, I>(
         &mut self,
         model: &Model<T>,
+        fixed: &[FixedAssignment<T>],
         builder: &mut B,
         evaluator: &mut E,
         mut monitor: S,
@@ -157,8 +200,15 @@ where
         I: IncumbentStore<T>,
         T: SolverNumeric,
     {
-        let session =
-            BnbSolverSearchSession::new(self, model, builder, evaluator, &mut monitor, backing);
+        let session = BnbSolverSearchSession::new(
+            self,
+            model,
+            fixed,
+            builder,
+            evaluator,
+            &mut monitor,
+            backing,
+        );
         let res = session.run();
         self.reset();
         res
@@ -218,6 +268,7 @@ where
 {
     solver: &'a mut BnbSolver<T>,
     model: &'a Model<T>,
+    fixed: &'a [FixedAssignment<T>],
     builder: &'a mut B,
     evaluator: &'a mut E,
     monitor: &'a mut S,
@@ -282,6 +333,7 @@ where
     fn new(
         solver: &'a mut BnbSolver<T>,
         model: &'a Model<T>,
+        fixed: &'a [FixedAssignment<T>],
         builder: &'a mut B,
         evaluator: &'a mut E,
         monitor: &'a mut S,
@@ -293,6 +345,7 @@ where
         Self {
             solver,
             model,
+            fixed,
             builder,
             evaluator,
             state,
@@ -309,7 +362,14 @@ where
     #[inline]
     fn run(mut self) -> BnbSolverOutcome<T> {
         self.monitor.on_enter_search(self.model, &self.stats);
-        self.initialize();
+
+        // Initialize the search. It will return false if
+        // a structural infeasibility is detected right away.
+        if !self.initialize() {
+            self.stats.set_total_time(self.start_time.elapsed());
+            self.monitor.on_exit_search(&self.stats);
+            return self.finalize_result(TerminationReason::InfeasibilityProven);
+        }
 
         let termination_reason: TerminationReason = loop {
             self.best_objective = self.incumbent.tighten(self.best_objective);
@@ -374,25 +434,65 @@ where
     /// resize during the search, and pushes the first decisions
     /// onto the stack.
     #[inline]
-    fn initialize(&mut self) {
+    fn initialize(&mut self) -> bool {
         self.solver.trail.ensure_capacity(self.model.num_vessels());
         self.solver
             .stack
             .ensure_capacity(self.model.num_berths(), self.model.num_vessels());
+
+        if !self
+            .solver
+            .berth_availabilities
+            .initialize(self.model, self.fixed)
+        {
+            return false;
+        }
+
+        for assignment in self.fixed.iter() {
+            let (vessel_index, berth_index) = (assignment.vessel_index, assignment.berth_index);
+            let start_time = assignment.start_time;
+
+            let move_cost = match self.evaluator.evaluate_vessel_assignment(
+                self.model,
+                &self.solver.berth_availabilities,
+                vessel_index,
+                berth_index,
+                start_time,
+            ) {
+                Some(cost) => cost,
+                None => {
+                    return false;
+                }
+            };
+
+            let current_obj = self.state.current_objective();
+            let new_obj = current_obj.saturating_add_val(move_cost);
+            self.state.set_current_objective(new_obj);
+
+            unsafe {
+                self.state
+                    .assign_vessel_unchecked(vessel_index, berth_index, start_time);
+            }
+        }
 
         // Root frame. Crucial to have this before pushing decisions!
         self.solver.trail.push_frame(&self.state);
         self.solver.stack.push_frame();
         self.stats.on_node_explored();
 
-        let decisions = self
-            .builder
-            .next_decision(self.evaluator, self.model, &self.state);
+        let decisions = self.builder.next_decision(
+            self.evaluator,
+            self.model,
+            &self.solver.berth_availabilities,
+            &self.state,
+        );
         let count_before = self.solver.stack.num_entries();
         self.solver.stack.extend(decisions);
         let count_after = self.solver.stack.num_entries();
         self.monitor
             .on_decisions_enqueued(&self.state, count_after - count_before, &self.stats);
+
+        true
     }
 
     #[inline]
@@ -446,7 +546,7 @@ where
     /// The caller must ensure that the `decision.vessel_index()` and `decision.berth_index()`
     /// are valid indices within the model.
     #[inline(always)]
-    unsafe fn build_child(&mut self, decision: Decision) -> Option<ChildNode<T>> {
+    unsafe fn build_child(&mut self, decision: Decision<T>) -> Option<ChildNode<T>> {
         let (vessel_index, berth_index) = decision.into_inner();
 
         debug_assert!(
@@ -462,21 +562,11 @@ where
             berth_index.get()
         );
 
-        if unsafe { !self.is_structurally_feasible(decision) } {
-            self.stats.on_pruning_infeasible();
-            self.monitor
-                .on_prune(&self.state, PruneReason::Infeasible, &self.stats);
-            return None;
-        }
+        let start_time = decision.start_time();
+        let move_cost = decision.cost_delta();
 
-        let current_berth_time = unsafe { self.state.berth_free_time_unchecked(berth_index) };
-        let move_cost = self.evaluator.evaluate_vessel_assignment(
-            self.model,
-            vessel_index,
-            berth_index,
-            current_berth_time,
-        )?;
-
+        // 2. BOUND CHECK: The only thing we must re-check is the global upper bound,
+        //    because 'best_objective' might have improved since this decision was created.
         let current_obj = self.state.current_objective();
         let new_objective = current_obj.saturating_add_val(move_cost);
 
@@ -487,14 +577,15 @@ where
             return None;
         }
 
-        let processing_time = unsafe {
+        // 3. STATE UPDATE: Calculate the new physical state
+        // We use unchecked here because the Builder already validated structural feasibility.
+        let duration = unsafe {
             self.model
                 .vessel_processing_time_unchecked(vessel_index, berth_index)
-                .unwrap()
+                .unwrap_unchecked()
         };
-        let arrival = unsafe { self.model.vessel_arrival_time_unchecked(vessel_index) };
-        let start_time = arrival.max(current_berth_time);
-        let new_berth_time = start_time.saturating_add_val(processing_time);
+
+        let new_berth_time = start_time.saturating_add_val(duration);
 
         Some(ChildNode {
             vessel_index,
@@ -508,7 +599,7 @@ where
     /// Descend into the given child node, applying its assignment
     /// to the current state.
     #[inline(always)]
-    fn descend(&mut self, child: ChildNode<T>, original_decision: Decision) {
+    fn descend(&mut self, child: ChildNode<T>, original_decision: Decision<T>) {
         self.solver.trail.push_frame(&self.state);
         self.solver.trail.apply_assignment(
             &mut self.state,
@@ -534,51 +625,6 @@ where
         if self.should_backtrack_after_expand() {
             self.stats.on_pruning_bound();
             self.backtrack_step();
-        }
-    }
-
-    /// Check if the given decision is structurally feasible.
-    ///
-    /// # Panics
-    ///
-    /// In debug builds, this function will panic if the vessel or berth index
-    /// are out of bounds.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the `decision.vessel_index()` and `decision.berth_index()`
-    /// are valid indices within the model.
-    ///
-    /// # Note
-    ///
-    /// Many `DecisionBuilder` implementations will only generate
-    /// structurally feasible decisions, so this check may often be redundant.
-    /// However, we still need it here to ensure correctness in case
-    /// a `DecisionBuilder` produces infeasible decisions. The check is
-    /// very cheap and thus worth including for safety.
-    #[inline(always)]
-    unsafe fn is_structurally_feasible(&self, decision: Decision) -> bool {
-        let (vessel_index, berth_index) = decision.into_inner();
-
-        debug_assert!(
-            vessel_index.get() < self.model.num_vessels(),
-            "called `ConstraintSolverSearchSession::is_structurally_feasible` with vessel index out of bounds: the len is {} but the index is {}",
-            self.model.num_vessels(),
-            vessel_index.get()
-        );
-
-        debug_assert!(
-            berth_index.get() < self.model.num_berths(),
-            "called `ConstraintSolverSearchSession::is_structurally_feasible` with berth index out of bounds: the len is {} but the index is {}",
-            self.model.num_berths(),
-            berth_index.get()
-        );
-
-        unsafe {
-            !self.state.is_vessel_assigned_unchecked(vessel_index)
-                && self
-                    .model
-                    .vessel_allowed_on_berth_unchecked(vessel_index, berth_index)
         }
     }
 
@@ -613,9 +659,11 @@ where
     /// Determine whether to backtrack after expanding the current node.
     #[inline(always)]
     fn should_backtrack_after_expand(&mut self) -> bool {
-        let lower_bound_remaining_opt = self
-            .evaluator
-            .estimate_remaining_cost(self.model, &self.state);
+        let lower_bound_remaining_opt = self.evaluator.estimate_remaining_cost(
+            self.model,
+            &self.solver.berth_availabilities,
+            &self.state,
+        );
         let lower_bound_remaining = match lower_bound_remaining_opt {
             None => {
                 self.monitor
@@ -643,9 +691,12 @@ where
             return true;
         }
 
-        let decisions = self
-            .builder
-            .next_decision(self.evaluator, self.model, &self.state);
+        let decisions = self.builder.next_decision(
+            self.evaluator,
+            self.model,
+            &self.solver.berth_availabilities,
+            &self.state,
+        );
 
         let count_before = self.solver.stack.num_entries();
         self.solver.stack.extend(decisions);
@@ -669,6 +720,7 @@ mod tests {
         branching::chronological::ChronologicalExhaustiveBuilder,
         monitor::log::LogTreeSearchMonitor,
     };
+    use bollard_core::math::interval::ClosedOpenInterval;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
@@ -2005,5 +2057,162 @@ mod tests {
         // End-state clean
         assert!(solver.trail.is_empty());
         assert!(solver.stack.is_empty());
+    }
+
+    // Helper function used by test_solver_respects_closing_times and test_solver_respects_closing_times_and_fixed_assignments_together
+    fn build_model_with_closing_times(
+        num_berths: usize,
+        num_vessels: usize,
+    ) -> bollard_model::model::Model<IntegerType> {
+        let mut builder = ModelBuilder::<IntegerType>::new(num_berths, num_vessels);
+
+        // Arrivals and weights
+        for v in 0..num_vessels {
+            let vi = VesselIndex::new(v);
+            builder.set_vessel_arrival_time(vi, (v as IntegerType) * 3);
+            builder.set_vessel_weight(vi, 1 + (v as IntegerType % 5));
+        }
+
+        // Processing times
+        for v in 0..num_vessels {
+            let vi = VesselIndex::new(v);
+            for b in 0..num_berths {
+                let bi = BerthIndex::new(b);
+
+                // FIXED: Match parameters from Gurobi verification script
+                // Base 8/6, Span 3/2
+                let base = if b % 2 == 0 { 8 } else { 6 };
+                let span = if b % 2 == 0 { 3 } else { 2 };
+
+                let duration = base + (v as IntegerType % span);
+                builder.set_vessel_processing_time(vi, bi, ProcessingTime::some(duration));
+            }
+        }
+
+        // Closing times
+        if num_berths >= 1 {
+            builder.add_berth_closing_time(BerthIndex::new(0), ClosedOpenInterval::new(15, 30));
+        }
+        if num_berths >= 2 {
+            builder.add_berth_closing_time(BerthIndex::new(1), ClosedOpenInterval::new(20, 35));
+        }
+
+        builder.build()
+    }
+
+    #[test]
+    fn test_solver_respects_closing_times() {
+        // Scenario 1: 2 Berths, 8 Vessels, Closures active.
+        // Gurobi Verification: 575.0
+        let model = build_model_with_closing_times(2, 8);
+        let mut solver = BnbSolver::<IntegerType>::new();
+        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+            model.num_berths(),
+            model.num_vessels(),
+        );
+
+        let outcome = solver.solve(
+            &model,
+            &mut builder,
+            &mut evaluator,
+            NoOperationMonitor::new(),
+        );
+        let solution = outcome.result().unwrap_optimal();
+
+        assert_eq!(
+            solution.objective_value(),
+            575,
+            "Objective should match Gurobi verification"
+        );
+    }
+
+    #[test]
+    fn test_solver_respects_fixed_assignments() {
+        // Scenario 2: 2 Berths, 6 Vessels, No closures.
+        // Gurobi Verification: 281.0
+
+        // Note: This test constructs a clean model without closures but MUST use the same
+        // parameter logic (Base 8/6, Span 3/2) to match Gurobi.
+        // We reuse the logic from build_model_with_closing_times but skip adding closures manually
+        // OR simply rely on a helper that does exactly what build_model_with_closing_times does
+        // minus the closures.
+        // For conciseness, I'll inline the construction here to guarantee parameters match.
+
+        let mut builder = ModelBuilder::<IntegerType>::new(2, 6);
+        for v in 0..6 {
+            let vi = VesselIndex::new(v);
+            builder.set_vessel_arrival_time(vi, (v as IntegerType) * 3);
+            builder.set_vessel_weight(vi, 1 + (v as IntegerType % 5));
+            for b in 0..2 {
+                let bi = BerthIndex::new(b);
+                let base = if b % 2 == 0 { 8 } else { 6 };
+                let span = if b % 2 == 0 { 3 } else { 2 };
+                let duration = base + (v as IntegerType % span);
+                builder.set_vessel_processing_time(vi, bi, ProcessingTime::some(duration));
+            }
+        }
+        let model = builder.build();
+
+        let mut solver = BnbSolver::<IntegerType>::new();
+        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+            model.num_berths(),
+            model.num_vessels(),
+        );
+
+        let fixed = vec![
+            FixedAssignment::new(0, BerthIndex::new(0), VesselIndex::new(0)),
+            FixedAssignment::new(3, BerthIndex::new(1), VesselIndex::new(1)),
+        ];
+
+        let outcome = solver.solve_with_fixed(
+            &model,
+            &mut builder,
+            &mut evaluator,
+            NoOperationMonitor::new(),
+            &fixed,
+        );
+        let solution = outcome.result().unwrap_optimal();
+
+        assert_eq!(
+            solution.objective_value(),
+            281,
+            "Objective should match Gurobi verification"
+        );
+    }
+
+    #[test]
+    fn test_solver_respects_closing_times_and_fixed_assignments_together() {
+        // Scenario 3: 2 Berths, 6 Vessels, Closures active.
+        // Gurobi Verification: 607.0
+        let model = build_model_with_closing_times(2, 6);
+        let mut solver = BnbSolver::<IntegerType>::new();
+        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+            model.num_berths(),
+            model.num_vessels(),
+        );
+
+        let fixed = vec![
+            FixedAssignment::new(0, BerthIndex::new(0), VesselIndex::new(0)),
+            FixedAssignment::new(30, BerthIndex::new(0), VesselIndex::new(2)),
+            FixedAssignment::new(10, BerthIndex::new(1), VesselIndex::new(1)),
+        ];
+
+        let outcome = solver.solve_with_fixed(
+            &model,
+            &mut builder,
+            &mut evaluator,
+            NoOperationMonitor::new(),
+            &fixed,
+        );
+        let solution = outcome.result().unwrap_optimal();
+
+        assert_eq!(
+            solution.objective_value(),
+            607,
+            "Objective should match Gurobi verification"
+        );
     }
 }

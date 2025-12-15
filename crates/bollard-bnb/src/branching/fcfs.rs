@@ -20,6 +20,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use crate::{
+    berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},
     eval::evaluator::ObjectiveEvaluator,
     state::SearchState,
@@ -29,29 +30,27 @@ use bollard_model::{
     model::Model,
 };
 use bollard_search::num::SolverNumeric;
+use num_traits::{PrimInt, Signed};
 use std::iter::FusedIterator;
 
 /// Internal candidate structure for FCFS (First-Come-First-Serve) sorting.
 ///
-/// Orders candidates primarily by **Arrival Time**, then by **Cost**,
-/// then by **Decision** (deterministic tie-breaking).
+/// Orders candidates primarily by **Arrival Time**, then by **Cost** (using the
+/// pre-calculated delta in `Decision`), then by **Decision** (indices) for
+/// deterministic tie-breaking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FcfsCandidate<T> {
-    // We optimize padding for T = i64
-    // as `Decision` contains two usize fields
-    // this order minimizes struct size.
     arrival_time: T,
-    cost: T,
-    decision: Decision,
+    // The decision carries the cost_delta, so we don't need a separate field.
+    decision: Decision<T>,
 }
 
 impl<T> FcfsCandidate<T> {
     /// Creates a new `FcfsCandidate`.
     #[inline(always)]
-    fn new(arrival_time: T, cost: T, decision: Decision) -> Self {
+    fn new(arrival_time: T, decision: Decision<T>) -> Self {
         Self {
             arrival_time,
-            cost,
             decision,
         }
     }
@@ -59,7 +58,7 @@ impl<T> FcfsCandidate<T> {
 
 impl<T> PartialOrd for FcfsCandidate<T>
 where
-    T: PartialOrd + Ord,
+    T: SolverNumeric,
 {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -69,26 +68,28 @@ where
 
 impl<T> Ord for FcfsCandidate<T>
 where
-    T: Ord,
+    T: SolverNumeric,
 {
     #[inline(always)]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.arrival_time
             .cmp(&other.arrival_time)
-            .then_with(|| self.cost.cmp(&other.cost))
+            // Secondary sort: Cost (Greedy preference for cheaper moves among equal arrivals)
+            .then_with(|| self.decision.cost_delta().cmp(&other.decision.cost_delta()))
+            // Tertiary sort: Deterministic indices
             .then_with(|| self.decision.cmp(&other.decision))
     }
 }
 
 impl<T> std::fmt::Display for FcfsCandidate<T>
 where
-    T: std::fmt::Display,
+    T: std::fmt::Display + PrimInt + Signed,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Arrival: {}, Cost: {}, Decision: {}",
-            self.arrival_time, self.cost, self.decision
+            "Arrival: {}, Decision: {}",
+            self.arrival_time, self.decision
         )
     }
 }
@@ -96,27 +97,15 @@ where
 /// A decision builder that implements a **First-Come-First-Serve (FCFS)** branching heuristic.
 ///
 /// This builder prioritizes vessels by their arrival time. For each unassigned vessel:
-/// 1. It enumerates admissible berths and forms feasible `(vessel, berth)` decisions.
-/// 2. It computes the immediate objective increase (`cost`) via the evaluator for each feasible decision.
-/// 3. It inserts all feasible candidates into a global list annotated with:
-///    - the vessel’s `arrival_time`,
-///    - the decision’s `cost`,
-///    - the `Decision` itself.
-/// 4. It globally sorts candidates by:
-///    - primary: ascending `arrival_time` (earlier vessels first),
-///    - secondary: ascending `cost` (prefer cheaper among equally early arrivals),
-///    - tertiary: deterministic `Decision` order (tie-break).
+/// 1. It generates fully computed `Decision<T>` objects (validating availability and calculating cost).
+/// 2. It collects all feasible decisions into a buffer.
+/// 3. It sorts them by:
+///    - **Arrival Time** (ascending)
+///    - **Cost Delta** (ascending)
+///    - **Indices** (deterministic tie-break)
 ///
 /// This strategy enforces a time-first exploration order, which can be useful for schedules
-/// where respecting arrival chronology improves feasibility and reduces backtracking. Among
-/// vessels with equal arrival times, the builder prefers lower-cost assignments to quickly
-/// identify strong incumbents.
-///
-/// Notes:
-/// - Feasibility is determined via `Decision::try_new_unchecked` and the evaluator returning `Some(cost)`.
-/// - Vessels already assigned in `state` are skipped.
-/// - Only feasible pairs contribute candidates.
-/// - Sorting uses `sort_unstable` on a total order, yielding deterministic iteration.
+/// where respecting arrival chronology improves feasibility.
 #[derive(Debug, Clone, Default)]
 pub struct FcfsHeuristicBuilder<T> {
     candidates: Vec<FcfsCandidate<T>>,
@@ -124,9 +113,6 @@ pub struct FcfsHeuristicBuilder<T> {
 
 impl<T> FcfsHeuristicBuilder<T> {
     /// Creates a new `FcfsHeuristicBuilder` with an empty candidate buffer.
-    ///
-    /// Use this when instance sizes are unknown. For larger instances, prefer `preallocated`
-    /// to reduce reallocations while building candidate sets.
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -134,11 +120,7 @@ impl<T> FcfsHeuristicBuilder<T> {
         }
     }
 
-    /// Creates a new `FcfsHeuristicBuilder` with a preallocated candidate buffer sized for
-    /// the given number of berths and vessels.
-    ///
-    /// Capacity:
-    /// - `candidates`: up to `num_berths * num_vessels` global candidates.
+    /// Creates a new `FcfsHeuristicBuilder` with preallocated capacity.
     #[inline]
     pub fn preallocated(num_berths: usize, num_vessels: usize) -> Self {
         Self {
@@ -146,7 +128,7 @@ impl<T> FcfsHeuristicBuilder<T> {
         }
     }
 
-    /// Creates a new `FcfsHeuristicBuilder` with a specific capacity for the internal buffer.
+    /// Creates a new `FcfsHeuristicBuilder` with specific capacity.
     #[inline]
     pub fn with_capacity(size: usize) -> Self {
         Self {
@@ -175,6 +157,7 @@ where
         &'a mut self,
         evaluator: &'a mut E,
         model: &'a Model<T>,
+        berth_availability: &'a BerthAvailability<T>,
         state: &'a SearchState<T>,
     ) -> Self::DecisionIterator<'a> {
         self.candidates.clear();
@@ -194,25 +177,26 @@ where
             for b in 0..num_berths {
                 let berth_index = BerthIndex::new(b);
 
-                if let Some(decision) =
-                    unsafe { Decision::try_new_unchecked(vessel_index, berth_index, model, state) }
-                {
-                    let berth_free_time = unsafe { state.berth_free_time_unchecked(berth_index) };
-                    if let Some(cost) = unsafe {
-                        evaluator.evaluate_vessel_assignment_unchecked(
-                            model,
-                            vessel_index,
-                            berth_index,
-                            berth_free_time,
-                        )
-                    } {
-                        self.candidates
-                            .push(FcfsCandidate::new(arrival_time, cost, decision));
-                    }
+                // Use the Rich Decision pipeline.
+                // This validates feasibility, calculates the actual start time (with availability),
+                // and computes the cost delta.
+                if let Some(decision) = unsafe {
+                    Decision::try_new_unchecked(
+                        vessel_index,
+                        berth_index,
+                        model,
+                        berth_availability,
+                        state,
+                        evaluator,
+                    )
+                } {
+                    self.candidates
+                        .push(FcfsCandidate::new(arrival_time, decision));
                 }
             }
         }
 
+        // Sort to enforce FCFS order
         self.candidates.sort_unstable();
 
         FcfsHeuristicIter {
@@ -222,11 +206,6 @@ where
 }
 
 /// A lightweight iterator that yields `Decision`s from the FCFS-sorted candidate slice.
-///
-/// Properties:
-/// - Borrowing: holds a reference into the builder’s internal buffer; no allocations.
-/// - Order: yields decisions sorted by arrival time, then cost, then decision.
-/// - Fused: once exhausted, subsequent calls return `None`.
 pub struct FcfsHeuristicIter<'a, T> {
     iter: std::slice::Iter<'a, FcfsCandidate<T>>,
 }
@@ -235,7 +214,7 @@ impl<'a, T> Iterator for FcfsHeuristicIter<'a, T>
 where
     T: Copy,
 {
-    type Item = Decision;
+    type Item = Decision<T>;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -291,11 +270,13 @@ mod tests {
     #[test]
     fn test_fcfs_orders_by_arrival_time() {
         let model = build_fcfs_test_model();
+        let mut berth_availability = BerthAvailability::new();
+        berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
         let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
 
-        let mut iter = builder.next_decision(&mut evaluator, &model, &state);
+        let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
 
         // Expect Vessel 0 first (Arrival 0), even though it has high cost
         let first = iter.next().expect("Should have a decision");
@@ -336,11 +317,13 @@ mod tests {
             ); // Cost ~ 20
 
         let model = b.build();
+        let mut berth_availability = BerthAvailability::new();
+        berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(1, 2);
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
         let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
 
-        let mut iter = builder.next_decision(&mut evaluator, &model, &state);
+        let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
 
         let first = iter.next().expect("decision");
         assert_eq!(
@@ -367,12 +350,13 @@ mod tests {
                 ProcessingTime::none(),
             );
         let model = b.build();
-
+        let mut berth_availability = BerthAvailability::new();
+        berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
         let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
 
-        let mut iter = builder.next_decision(&mut evaluator, &model, &state);
+        let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
         assert_eq!(
             iter.next(),
             None,
@@ -405,13 +389,14 @@ mod tests {
             );
 
         let model = b.build();
+        let mut berth_availability = BerthAvailability::new();
+        berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
         let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
 
-        let decisions: Vec<Decision> = builder
-            .next_decision(&mut evaluator, &model, &state)
-            .by_ref()
+        let decisions: Vec<Decision<IntegerType>> = builder
+            .next_decision(&mut evaluator, &model, &berth_availability, &state)
             .collect();
 
         assert_eq!(decisions.len(), 2, "Expected two feasible decisions");
@@ -467,41 +452,54 @@ mod tests {
             );
 
         let model = b.build();
+        let mut berth_availability = BerthAvailability::new();
+        berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
         let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
 
-        let decisions: Vec<Decision> = builder
-            .next_decision(&mut evaluator, &model, &state)
-            .by_ref()
+        let decisions: Vec<Decision<IntegerType>> = builder
+            .next_decision(&mut evaluator, &model, &berth_availability, &state)
             .collect();
 
         assert_eq!(decisions.len(), 4, "Expected four feasible decisions");
 
-        // Compute costs for asserted ordering checks
-        let costs: Vec<(usize, usize, IntegerType)> = decisions
+        // Verify sorted order using the costs embedded in the decisions
+        // Expected order:
+        // 1. V0 on B0 (Cost ~ 2)
+        // 2. V1 on B1 (Cost ~ 2) -> Tie break on Vessel Index puts V0 first? No, V0 vs V1.
+        //    Wait: V0 on B0 (v=0, b=0, cost=2). V1 on B1 (v=1, b=1, cost=2).
+        //    Arrivals same. Costs same.
+        //    Tie breaker: Decision order. Decision compares VesselIndex first.
+        //    So V0 (0) < V1 (1). V0 on B0 should be first.
+        // 3. V0 on B1 (Cost ~ 50)
+        // 4. V1 on B0 (Cost ~ 50) -> Tie break V0 < V1.
+
+        // Actually, let's verify what the builder produced vs manual expectation
+        let actual_costs: Vec<(usize, usize, IntegerType)> = decisions
             .iter()
             .map(|d| {
-                let v = d.vessel_index();
-                let b = d.berth_index();
-                let ready = unsafe { state.berth_free_time_unchecked(b) };
-                let c = evaluator
-                    .evaluate_vessel_assignment(&model, v, b, ready)
-                    .unwrap();
-                (v.get(), b.get(), c)
+                (
+                    d.vessel_index().get(),
+                    d.berth_index().get(),
+                    d.cost_delta(),
+                )
             })
             .collect();
 
-        // Arrival times are equal for all decisions, so the ordering should be by cost ascending,
-        // then by decision as a tie-breaker.
-        let mut sorted = costs.clone();
-        sorted.sort_by(|a, b| {
+        // Sort manually to verify expectations
+        let mut expected = actual_costs.clone();
+        expected.sort_by(|a, b| {
+            // Primary: Cost (since arrivals are all 10)
             a.2.cmp(&b.2)
+                // Secondary: Vessel Index
                 .then_with(|| a.0.cmp(&b.0))
+                // Tertiary: Berth Index
                 .then_with(|| a.1.cmp(&b.1))
         });
+
         assert_eq!(
-            costs, sorted,
+            actual_costs, expected,
             "With equal arrivals, FCFS must sort by cost ascending then decision"
         );
     }

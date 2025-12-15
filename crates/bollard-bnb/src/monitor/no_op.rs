@@ -76,7 +76,7 @@ where
     fn on_descend(
         &mut self,
         _state: &SearchState<T>,
-        _decision: Decision,
+        _decision: Decision<T>,
         _statistics: &BnbSolverStatistics,
     ) {
     }

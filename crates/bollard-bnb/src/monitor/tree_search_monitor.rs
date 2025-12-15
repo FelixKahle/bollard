@@ -92,7 +92,7 @@ where
     fn on_descend(
         &mut self,
         state: &SearchState<T>,
-        decision: Decision,
+        decision: Decision<T>,
         statistics: &BnbSolverStatistics,
     );
     /// Called when backtracking to a parent state.

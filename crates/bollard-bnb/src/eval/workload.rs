@@ -19,7 +19,9 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::{eval::evaluator::ObjectiveEvaluator, state::SearchState};
+use crate::{
+    berth_availability::BerthAvailability, eval::evaluator::ObjectiveEvaluator, state::SearchState,
+};
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
@@ -99,63 +101,57 @@ where
     fn evaluate_vessel_assignment(
         &mut self,
         model: &Model<T>,
+        _berth_availability: &BerthAvailability<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,
-        berth_ready_time: T,
+        start_time: T,
     ) -> Option<T> {
-        let arrival_time = model.vessel_arrival_time(vessel_index);
-        let latest_departure_deadline = model.vessel_latest_departure_time(vessel_index);
-        let vessel_weight = model.vessel_weight(vessel_index);
+        // Standard cost calculation based on the provided (valid) start_time.
+        let weight = model.vessel_weight(vessel_index);
+        let deadline = model.vessel_latest_departure_time(vessel_index);
 
-        let processing_time_pt = model.vessel_processing_time(vessel_index, berth_index);
-        if processing_time_pt.is_none() {
+        let pt_option = model.vessel_processing_time(vessel_index, berth_index);
+        if pt_option.is_none() {
             return None;
         }
-        let processing_time = processing_time_pt.unwrap_unchecked();
+        let pt = pt_option.unwrap_unchecked();
+        let completion_time = start_time.saturating_add_val(pt);
 
-        let effective_start_time = if arrival_time > berth_ready_time {
-            arrival_time
-        } else {
-            berth_ready_time
-        };
-        let completion_time = effective_start_time.saturating_add_val(processing_time);
-
-        if completion_time > latest_departure_deadline {
+        if completion_time > deadline {
             return None;
         }
 
-        Some(completion_time.saturating_mul_val(vessel_weight))
+        Some(completion_time.saturating_mul_val(weight))
     }
 
     unsafe fn evaluate_vessel_assignment_unchecked(
         &self,
         model: &Model<T>,
+        _berth_availability: &BerthAvailability<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,
-        berth_ready: T,
+        start_time: T,
     ) -> Option<T>
     where
         T: SolverNumeric,
     {
-        let arrival_time = unsafe { model.vessel_arrival_time_unchecked(vessel_index) };
         let weight = unsafe { model.vessel_weight_unchecked(vessel_index) };
-        let opt_processing_time =
-            unsafe { model.vessel_processing_time_unchecked(vessel_index, berth_index) };
-        if opt_processing_time.is_none() {
-            return None;
-        }
-        let processing_time = opt_processing_time.unwrap();
-
-        let effective_start = if arrival_time > berth_ready {
-            arrival_time
-        } else {
-            berth_ready
+        let pt = unsafe {
+            model
+                .vessel_processing_time_unchecked(vessel_index, berth_index)
+                .unwrap_unchecked()
         };
-        let finish_time = effective_start.saturating_add_val(processing_time);
+
+        let finish_time = start_time.saturating_add_val(pt);
         Some(finish_time.saturating_mul_val(weight))
     }
 
-    fn estimate_remaining_cost(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T> {
+    fn estimate_remaining_cost(
+        &mut self,
+        model: &Model<T>,
+        _berth_availability: &BerthAvailability<T>, // Unused in this relaxation
+        state: &SearchState<T>,
+    ) -> Option<T> {
         let num_berths = model.num_berths();
         let num_vessels = model.num_vessels();
 
@@ -208,6 +204,7 @@ where
             return Some(T::zero());
         }
 
+        // WSPT ordering for the simulation
         self.scratch_jobs.sort_unstable_by(|a, b| {
             let score_a = a.weight.saturating_mul_val(b.processing_time);
             let score_b = b.weight.saturating_mul_val(a.processing_time);
@@ -218,6 +215,9 @@ where
 
         for job in &self.scratch_jobs {
             if let Some(Reverse(free_time)) = self.scratch_heap.pop() {
+                // Relaxation: We assume the vessel can start immediately when the berth is free.
+                // We do NOT check arrival times or maintenance windows here, preserving the
+                // optimistic Lower Bound property.
                 let start = free_time;
                 let finish = start.saturating_add_val(job.processing_time);
                 let cost = finish.saturating_mul_val(job.weight);
@@ -225,6 +225,7 @@ where
                 simulated_future_cost = simulated_future_cost.saturating_add_val(cost);
                 self.scratch_heap.push(Reverse(finish));
             } else {
+                // Should be impossible if num_berths > 0
                 return None;
             }
         }

@@ -141,6 +141,8 @@ where
 
                     // 3. Signal stop if optimal
                     if matches!(result.result(), SolverResult::Optimal(_)) {
+                        let name = solver.name();
+                        println!("Portfolio solver '{}' found optimal solution, signaling stop to other solvers.", name);
                         stop_signal.store(true, Ordering::Relaxed);
                     }
 

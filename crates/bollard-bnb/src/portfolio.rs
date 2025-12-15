@@ -41,6 +41,7 @@ where
     inner: BnbSolver<T>,
     decision_builder: B,
     evaluator: E,
+    name: String,
 }
 
 impl<T, B, E> BnbPortfolioSolver<T, B, E>
@@ -53,10 +54,18 @@ where
     /// `DecisionBuilder` and `ObjectiveEvaluator`.
     #[inline]
     pub fn new(decision_builder: B, evaluator: E) -> Self {
+        let name = format!(
+            "BnbPortfolioSolver<{}, {}, {}>",
+            std::any::type_name::<T>(),
+            std::any::type_name::<B>(),
+            std::any::type_name::<E>()
+        );
+
         Self {
             inner: BnbSolver::<T>::new(),
             decision_builder,
             evaluator,
+            name,
         }
     }
 
@@ -77,10 +86,18 @@ where
         decision_builder: B,
         evaluator: E,
     ) -> Self {
+        let name = format!(
+            "BnbPortfolioSolver<{}, {}, {}>",
+            std::any::type_name::<T>(),
+            std::any::type_name::<B>(),
+            std::any::type_name::<E>()
+        );
+
         Self {
             inner: BnbSolver::<T>::preallocated(num_berths, num_vessels),
             decision_builder,
             evaluator,
+            name,
         }
     }
 
@@ -123,7 +140,7 @@ where
     }
 
     fn name(&self) -> &str {
-        "BnbPortfolioSolver"
+        &self.name
     }
 }
 

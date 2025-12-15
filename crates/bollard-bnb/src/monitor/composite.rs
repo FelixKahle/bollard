@@ -223,7 +223,7 @@ where
     fn on_descend(
         &mut self,
         state: &SearchState<T>,
-        decision: Decision,
+        decision: Decision<T>,
         statistics: &BnbSolverStatistics,
     ) {
         for monitor in &mut self.monitors {

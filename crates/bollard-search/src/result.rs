@@ -55,6 +55,28 @@ where
     }
 }
 
+impl<T> SolverResult<T>
+where
+    T: PrimInt + Signed + Copy,
+{
+    /// Returns the objective value if a solution was found (optimal or feasible).
+    #[inline]
+    pub fn objective_value(&self) -> Option<T> {
+        match self {
+            SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => Some(sol.objective_value()),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn unwrap_optimal(&self) -> &Solution<T> {
+        match self {
+            SolverResult::Optimal(sol) => sol,
+            _ => panic!("called `SolverResult::unwrap_optimal()` on a non-optimal result"),
+        }
+    }
+}
+
 /// The reason for the solver's termination.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminationReason {
