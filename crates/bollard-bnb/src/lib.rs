@@ -19,14 +19,16 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+mod berth_availability;
 pub mod bnb;
 pub mod branching;
 pub mod eval;
-pub mod incumbent;
+pub mod fixed;
+mod incumbent;
 pub mod monitor;
 pub mod portfolio;
 pub mod result;
-pub mod stack;
-pub mod state;
+mod stack;
+mod state;
 pub mod stats;
-pub mod trail;
+mod trail;
