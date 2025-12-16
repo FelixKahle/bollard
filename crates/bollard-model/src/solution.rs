@@ -237,7 +237,7 @@ mod tests {
         let mut expected = String::new();
         expected.push_str("Solution Summary\n");
         expected.push_str("   Objective Value: 100\n");
-        expected.push_str("\n");
+        expected.push('\n');
         expected.push_str("   Vessel     | Berth      | Start Time  \n");
         expected.push_str("   -----------+------------+-------------\n");
         expected.push_str("   0          | 0          | 10          \n");
