@@ -19,6 +19,18 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Utilities for representing and querying berth availability over time.
+//! The `BerthAvailability<T>` structure tracks sorted, disjoint intervals
+//! of available and unavailable times for each berth and provides fast
+//! normalization and querying routines used by the Branch-and-Bound solver.
+//! Intervals are kept canonical to enable linear-time merging and efficient
+//! lower-bound searches. Checked and unchecked accessors are provided for
+//! safety in typical use and performance in hot paths. Initialization
+//! consolidates fixed assignments and exclusions into consistent interval
+//! sets, returning false when constraints are contradictory. Use
+//! `earliest_availability` to obtain the next feasible start time for a berth,
+//! and the interval accessors to inspect the current availability state.
+
 use bollard_core::{math::interval::ClosedOpenInterval, num::constants::MinusOne};
 use bollard_model::{index::BerthIndex, model::Model};
 use num_traits::{PrimInt, Signed};
@@ -62,6 +74,10 @@ where
 
     while lo < hi {
         let mid = lo + ((hi - lo) >> 1);
+        debug_assert!(
+            mid < intervals.len(),
+            "`lower_bound_start` computed mid index out of bounds"
+        );
         // SAFETY: mid is always in bounds because lo < hi <= intervals.len(),
         // therefore mid < intervals.len()
         if unsafe { intervals.get_unchecked(mid).start() } < key {
@@ -79,11 +95,6 @@ where
 /// compaction to merge any overlapping or adjacent intervals. The output is
 /// guaranteed to be sorted by start and disjoint.
 ///
-/// Invariants:
-/// - Input may be unsorted; it will be sorted internally.
-/// - Adjacency (a.end == b.start) is treated as mergeable.
-/// - Output is disjoint and sorted.
-///
 /// Complexity:
 /// - O(N log N) for sorting + O(N) for compaction.
 fn merge_intervals_in_place<T>(intervals: &mut Vec<ClosedOpenInterval<T>>)
@@ -94,33 +105,27 @@ where
         return;
     }
 
-    // Ensure sort by start; required for linear in-place compaction.
     intervals.sort_unstable_by_key(|a| a.start());
-    debug_assert!(
-        intervals.windows(2).all(|w| w[0].start() <= w[1].start()),
-        "called `merge_intervals_in_place` with input not sorted by start"
-    );
 
-    // Sweep, coalescing via interval union when overlapping or adjacent.
-    let mut write_idx = 0;
-    for read_idx in 1..intervals.len() {
-        let current = unsafe { *intervals.get_unchecked(write_idx) };
-        let next = unsafe { *intervals.get_unchecked(read_idx) };
+    let mut write_index = 0;
+    for read_index in 1..intervals.len() {
+        let current = unsafe { *intervals.get_unchecked(write_index) };
+        let next = unsafe { *intervals.get_unchecked(read_index) };
 
         if let Some(merged) = current.union(next) {
-            unsafe { *intervals.get_unchecked_mut(write_idx) = merged };
+            unsafe { *intervals.get_unchecked_mut(write_index) = merged };
         } else {
-            write_idx += 1;
-            if write_idx != read_idx {
-                unsafe { *intervals.get_unchecked_mut(write_idx) = next };
+            write_index += 1;
+            if write_index != read_index {
+                unsafe { *intervals.get_unchecked_mut(write_index) = next };
             }
         }
     }
-    intervals.truncate(write_idx + 1);
+    intervals.truncate(write_index + 1);
 
     debug_assert!(
         are_disjoint_and_sorted(intervals),
-        "called `merge_intervals_in_place` but output is not disjoint and sorted"
+        "`merge_intervals_in_place` output is not disjoint and sorted"
     );
 }
 
@@ -161,60 +166,56 @@ fn subtract_intervals_into<T>(
         return;
     }
 
-    // Index into exclusions, advanced monotonically across base intervals.
     let mut blocked_index = 0usize;
 
     for &source_interval in base {
-        // Work on a single mutable segment [cursor_start, cursor_end)
         let mut cursor_start = source_interval.start();
         let cursor_end = source_interval.end();
 
-        // Skip blocked intervals that end before this segment starts.
         while blocked_index < exclusions.len() && exclusions[blocked_index].end() <= cursor_start {
             blocked_index += 1;
+        }
+
+        // If the current base interval ends before the next exclusion starts,
+        // we are strictly "to the left" of any problems. Just push it and continue.
+        if blocked_index < exclusions.len() && cursor_end <= exclusions[blocked_index].start() {
+            output.push(source_interval);
+            continue;
         }
 
         let mut scan_blocked_index = blocked_index;
         while scan_blocked_index < exclusions.len() {
             let blocked = exclusions[scan_blocked_index];
 
-            // If the blocked interval starts at or after our segment end, no more impact.
             if blocked.start() >= cursor_end {
                 break;
             }
 
-            // If there is a left portion before blocked.start(), emit it.
             if cursor_start < blocked.start() {
                 output.push(ClosedOpenInterval::new(cursor_start, blocked.start()));
             }
 
-            // Advance cursor_start to the end of the blocked interval.
             if blocked.end() > cursor_start {
                 cursor_start = blocked.end();
             }
 
-            // If segment fully consumed, stop.
             if cursor_start >= cursor_end {
                 break;
             }
 
-            // If blocked ends before our segment end, move to next blocked.
             if blocked.end() < cursor_end {
                 scan_blocked_index += 1;
             } else {
-                // This blocked consumes the remainder; stop.
                 break;
             }
         }
 
-        // Emit tail if any remains.
         if cursor_start < cursor_end {
             output.push(ClosedOpenInterval::new(cursor_start, cursor_end));
         }
     }
 
     if !output.is_empty() {
-        // Coalesce any adjacency created across successive base intervals.
         merge_intervals_in_place(output);
     }
 }
@@ -225,12 +226,17 @@ fn subtract_intervals_into<T>(
 /// if any pair intersects. Adjacency (right.start == left.end) is not considered
 /// overlap for closed-open intervals.
 ///
-/// Invariants:
+/// ## Invariants:
 /// - `left_intervals` must be sorted and disjoint.
 /// - `right_intervals` must be sorted and disjoint.
 ///
-/// Complexity:
+/// ## Complexity:
 /// - O(|left| + |right|) due to linear advancement with peeking.
+///
+/// # Panics
+///
+/// In debug builds, this function will panic if either input slice is not sorted
+/// by start time or contains overlapping intervals.
 fn has_overlaps<T>(
     left_intervals: &[ClosedOpenInterval<T>],
     right_intervals: &[ClosedOpenInterval<T>],
@@ -254,7 +260,6 @@ where
     let mut right_peekable = right_intervals.iter().peekable();
 
     for left_interval in left_intervals {
-        // Advance past right intervals that end before the left interval starts.
         while let Some(&right_interval) = right_peekable.peek() {
             if right_interval.end() <= left_interval.start() {
                 right_peekable.next();
@@ -263,7 +268,6 @@ where
             }
         }
 
-        // Overlap iff next right interval actually intersects the left interval.
         if let Some(&right_interval) = right_peekable.peek()
             && left_interval.intersects(*right_interval)
         {
@@ -273,27 +277,15 @@ where
     false
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BerthAvailability<T>
 where
     T: PrimInt,
 {
     unavailable_times: Vec<Vec<ClosedOpenInterval<T>>>, // per berth, sorted, non-overlapping disjoint intervals
     available_times: Vec<Vec<ClosedOpenInterval<T>>>, // per berth, sorted, non-overlapping disjoint intervals
+    num_berths: usize,
 }
-
-impl<T> PartialEq for BerthAvailability<T>
-where
-    T: PrimInt,
-{
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.unavailable_times == other.unavailable_times
-            && self.available_times == other.available_times
-    }
-}
-
-impl<T> Eq for BerthAvailability<T> where T: PrimInt {}
 
 impl<T> BerthAvailability<T>
 where
@@ -305,6 +297,7 @@ where
         Self {
             unavailable_times: Vec::new(),
             available_times: Vec::new(),
+            num_berths: 0,
         }
     }
 
@@ -314,6 +307,7 @@ where
         Self {
             unavailable_times: Vec::with_capacity(num_berths),
             available_times: Vec::with_capacity(num_berths),
+            num_berths,
         }
     }
 
@@ -329,11 +323,18 @@ where
         }
     }
 
-    /// Clears all availability data.
+    /// Resets all availability data, clearing intervals for all berths.
     #[inline]
-    pub fn clear(&mut self) {
-        self.unavailable_times.clear();
-        self.available_times.clear();
+    pub fn reset(&mut self) {
+        for vec in &mut self.unavailable_times {
+            vec.clear();
+        }
+        for vec in &mut self.available_times {
+            vec.clear();
+        }
+
+        self.num_berths = 0;
+        debug_assert_eq!(self.unavailable_times.len(), self.available_times.len());
     }
 
     /// Initializes availability based on the model and fixed assignments.
@@ -347,8 +348,11 @@ where
         let num_berths = model.num_berths();
         let num_vessels = model.num_vessels();
 
+        self.num_berths = num_berths;
         self.ensure_capacity(num_berths);
 
+        // Clear existing intervals
+        // Same as `self.reset()` but does not reset num_berths to `0`.
         for vec in &mut self.unavailable_times {
             vec.clear();
         }
@@ -364,12 +368,13 @@ where
                 return false;
             }
 
-            let pt = model.vessel_processing_time(assignment.vessel_index, assignment.berth_index);
-            if pt.is_none() {
+            let processing_time_option =
+                model.vessel_processing_time(assignment.vessel_index, assignment.berth_index);
+            if processing_time_option.is_none() {
                 return false;
             }
 
-            let duration = pt.unwrap_unchecked();
+            let duration = processing_time_option.unwrap_unchecked();
             let start = assignment.start_time;
             let end = start + duration;
 
@@ -387,9 +392,9 @@ where
 
             if !fixed_intervals.is_empty() {
                 for w in 0..fixed_intervals.len() - 1 {
-                    let curr = unsafe { *fixed_intervals.get_unchecked(w) };
+                    let current = unsafe { *fixed_intervals.get_unchecked(w) };
                     let next = unsafe { *fixed_intervals.get_unchecked(w + 1) };
-                    if next.start() < curr.end() {
+                    if next.start() < current.end() {
                         return false;
                     }
                 }
@@ -414,9 +419,10 @@ where
         true
     }
 
+    /// Returns the number of berths tracked.
     #[inline]
     pub fn num_berths(&self) -> usize {
-        self.unavailable_times.len()
+        self.num_berths
     }
 
     /// Returns the available intervals for the given berth.
@@ -536,9 +542,9 @@ where
         let lower_bound = lower_bound_start(intervals, start_time);
 
         if lower_bound > 0 {
-            let iv = &intervals[lower_bound - 1];
-            if start_time >= iv.start() && start_time < iv.end() {
-                let remaining = iv.end() - start_time;
+            let interval = &intervals[lower_bound - 1];
+            if start_time >= interval.start() && start_time < interval.end() {
+                let remaining = interval.end() - start_time;
                 if duration <= remaining {
                     return Some(start_time);
                 }
@@ -546,13 +552,12 @@ where
         }
 
         for iv in &intervals[lower_bound..] {
-            let s = iv.start();
-            let e = iv.end();
-            let candidate_start = if s > start_time { s } else { start_time };
-            if candidate_start >= e {
+            let end = iv.end();
+            let candidate_start = iv.start().max(start_time);
+            if candidate_start >= end {
                 continue;
             }
-            let remaining = e - candidate_start;
+            let remaining = end - candidate_start;
             if duration <= remaining {
                 return Some(candidate_start);
             }
@@ -602,11 +607,7 @@ where
         }
 
         for interval in &intervals[lower_bound..] {
-            let candidate_start = if interval.start() > start_time {
-                interval.start()
-            } else {
-                start_time
-            };
+            let candidate_start = interval.start().max(start_time);
             if candidate_start >= interval.end() {
                 continue;
             }
@@ -632,8 +633,6 @@ mod tests {
     fn iv(s: IntegerType, e: IntegerType) -> ClosedOpenInterval<IntegerType> {
         ClosedOpenInterval::new(s, e)
     }
-
-    // --- Helper Unit Tests ---
 
     #[test]
     fn test_are_disjoint_and_sorted_true_empty() {
@@ -784,8 +783,6 @@ mod tests {
         // inversely also should detect overlap
         assert!(has_overlaps(&b, &a));
     }
-
-    // --- Logic / Integration Tests ---
 
     fn build_model_basic() -> Model<IntegerType> {
         // 2 berths, 2 vessels

@@ -19,6 +19,24 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Branch-and-Bound solver for the Berth Allocation Problem.
+//!
+//! This module implements a stateful search engine that explores feasible
+//! vessel-to-berth schedules while pruning suboptimal branches using bounds
+//! and an incumbent solution. The `BnbSolver` manages reusable internal
+//! structures, supports warm starts via an incumbent, and accepts fixed
+//! assignments when solving variants of the model. A preallocation path
+//! minimizes memory churn across repeated solves, and a fast `reset` keeps
+//! capacities while clearing per-run state.
+//!
+//! The solver coordinates scheduling decisions, feasibility checks, and
+//! objective evaluation, integrates berth availability computations, and
+//! maintains a compact representation of child nodes during expansion. A
+//! search session object encapsulates per-run state, statistics, and timing,
+//! enabling reproducible and debuggable runs. The design emphasizes
+//! determinism under chronological branching, internal consistency at
+//! backtrack points, and end-state cleanliness after each solve.
+
 use crate::{
     berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},
@@ -225,6 +243,7 @@ where
     fn reset(&mut self) {
         self.trail.reset();
         self.stack.reset();
+        self.berth_availabilities.reset();
     }
 }
 

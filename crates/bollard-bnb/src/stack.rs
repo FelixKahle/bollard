@@ -50,6 +50,39 @@ impl<T> Default for SearchStack<T> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct PreallocatedCapacities {
+    entry_capacity: usize,
+    frame_capacity: usize,
+}
+
+/// Calculates preallocated capacities for the stack
+/// based on the problem size (number of berths and vessels).
+#[inline(always)]
+fn preallocated_capacity(num_berths: usize, num_vessels: usize) -> PreallocatedCapacities {
+    // Frame capacity: Sentinel (0) + Root (1) + N assignments = N + 2.
+    let frame_capacity = num_vessels.saturating_add_val(2);
+
+    // Entry capacity calculation:
+    // The stack stores the "frontier" of unvisited siblings.
+    // At depth k (0 to N-1), we push (N-k) * M decisions.
+    // Total = Sum(k=0..N-1) of [(N-k) * M]
+    //       = M * Sum(i=1..N) of i
+    //       = M * (N * (N + 1)) / 2
+    let n = num_vessels;
+
+    // Sum of 1..N = N * (N + 1) / 2
+    let sum_n = n.saturating_mul(n.saturating_add_val(1)) / 2;
+
+    // Total worst-case entries = M * Sum
+    let entry_capacity = sum_n.saturating_mul(num_berths);
+
+    PreallocatedCapacities {
+        entry_capacity,
+        frame_capacity,
+    }
+}
+
 impl<T> SearchStack<T> {
     /// Creates a new, empty `SearchStack`.
     #[inline]
@@ -63,28 +96,27 @@ impl<T> SearchStack<T> {
     /// Creates a preallocated `SearchStack` based on problem size.
     #[inline]
     pub fn preallocated(num_berths: usize, num_vessels: usize) -> Self {
-        let entry_capacity = num_vessels.saturating_mul(num_berths);
-        let frame_capacity = num_vessels.saturating_add_val(1);
+        let capacities = preallocated_capacity(num_berths, num_vessels);
 
         Self {
-            entries: Vec::with_capacity(entry_capacity),
-            frames: Vec::with_capacity(frame_capacity),
+            entries: Vec::with_capacity(capacities.entry_capacity),
+            frames: Vec::with_capacity(capacities.frame_capacity),
         }
     }
 
     /// Ensures the stack has capacity for the given problem size.
     #[inline]
     pub fn ensure_capacity(&mut self, num_berths: usize, num_vessels: usize) {
-        let entry_capacity = num_vessels.saturating_mul(num_berths);
-        let frame_capacity = num_vessels.saturating_add_val(1);
+        let capacities = preallocated_capacity(num_berths, num_vessels);
 
-        if self.entries.capacity() < entry_capacity {
+        if self.entries.capacity() < capacities.entry_capacity {
             self.entries
-                .reserve(entry_capacity - self.entries.capacity());
+                .reserve(capacities.entry_capacity - self.entries.capacity());
         }
 
-        if self.frames.capacity() < frame_capacity {
-            self.frames.reserve(frame_capacity - self.frames.capacity());
+        if self.frames.capacity() < capacities.frame_capacity {
+            self.frames
+                .reserve(capacities.frame_capacity - self.frames.capacity());
         }
     }
 
