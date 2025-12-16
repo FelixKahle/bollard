@@ -35,6 +35,8 @@ use std::iter::FusedIterator;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Decision<T> {
     // Optimize for T = i64 to minimize padding.
+    // This will minimize the size of Decision so we can
+    // fill more cache lines with it.
     /// The start time for the vessel assignment.
     start_time: T,
     /// The cost delta associated with the vessel assignment.
@@ -72,6 +74,165 @@ impl<T: Ord> PartialOrd for Decision<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
+}
+
+/// Checks if assigning the vessel to the current berth at the specified
+/// start time and processing time is symmetric to assigning it to the
+/// previous berth.
+///
+/// # Panics
+///
+/// The caller must ensure that `vessel_index` is within `0..model.num_vessels()`
+/// and that `berth_index` is within `0..model.num_berths()`.
+#[inline(always)]
+fn is_symmetric_to_previous_berth<T>(
+    vessel_index: VesselIndex,
+    berth_index: BerthIndex,
+    current_start: T,
+    current_processing_time: T,
+    model: &Model<T>,
+    state: &SearchState<T>,
+    ba: &BerthAvailability<T>,
+) -> bool
+where
+    T: SolverNumeric,
+{
+    debug_assert!(
+        vessel_index.get() < model.num_vessels(),
+        "called `decision::is_symmetric_to_previous_berth` with vessel index out of bounds: the len is {} but the index is {}",
+        model.num_vessels(),
+        vessel_index.get()
+    );
+    debug_assert!(
+        berth_index.get() < model.num_berths(),
+        "called `decision::is_symmetric_to_previous_berth` with berth index out of bounds: the len is {} but the index is {}",
+        model.num_berths(),
+        berth_index.get()
+    );
+
+    if berth_index.get() == 0 {
+        return false;
+    }
+
+    let previous_berth = BerthIndex::new(berth_index.get() - 1);
+    let current_free = state.berth_free_time(berth_index);
+    let previous_free = state.berth_free_time(previous_berth);
+
+    if current_free != previous_free {
+        return false;
+    }
+
+    let previous_processing_time = model
+        .vessel_processing_time(vessel_index, previous_berth)
+        .unwrap_or_else(T::zero);
+
+    if current_processing_time != previous_processing_time {
+        return false;
+    }
+
+    if !model.vessel_allowed_on_berth(vessel_index, previous_berth) {
+        return false;
+    }
+
+    let arrival = model.vessel_arrival_time(vessel_index);
+
+    let nominal_start = if arrival > current_free {
+        arrival
+    } else {
+        current_free
+    };
+
+    // This uses a custom written, high-performance binary search internally.
+    // Even though its fast to call it still needs to load the berth availability data
+    // from memory, and call the binary search that is O(log N + K) where N is the number of
+    // stored intervals and K is the linear scan after positioning the pointer. Usually both
+    // N and K are small, but this is still more expensive than simple arithmetic operations.
+    let previous_start =
+        ba.earliest_availability(previous_berth, nominal_start, previous_processing_time);
+    previous_start == Some(current_start)
+}
+
+/// Checks if assigning the vessel to the current berth at the specified
+/// start time and processing time is symmetric to assigning it to the
+/// previous berth without performing bounds checks on the indices.
+///
+/// # Panics
+///
+/// In debug builds, this function will panic if `vessel_index` is not within
+/// `0..model.num_vessels()` or if `berth_index` is not within `0..model.num_berths()`.
+///
+/// # Safety
+///
+/// The caller must ensure that `vessel_index` is within `0..model.num_vessels()`
+/// and that `berth_index` is within `0..model.num_berths()`.
+#[inline(always)]
+unsafe fn is_symmetric_to_previous_berth_unchecked<T>(
+    vessel_index: VesselIndex,
+    berth_index: BerthIndex,
+    current_start: T,
+    current_processing_time: T,
+    model: &Model<T>,
+    state: &SearchState<T>,
+    ba: &BerthAvailability<T>,
+) -> bool
+where
+    T: SolverNumeric,
+{
+    debug_assert!(
+        vessel_index.get() < model.num_vessels(),
+        "called `decision::is_symmetric_to_previous_berth_unchecked` with vessel index out of bounds: the len is {} but the index is {}",
+        model.num_vessels(),
+        vessel_index.get()
+    );
+    debug_assert!(
+        berth_index.get() < model.num_berths(),
+        "called `decision::is_symmetric_to_previous_berth_unchecked` with berth index out of bounds: the len is {} but the index is {}",
+        model.num_berths(),
+        berth_index.get()
+    );
+
+    if berth_index.get() == 0 {
+        return false;
+    }
+
+    let previous_berth = BerthIndex::new(berth_index.get() - 1);
+    let current_free = unsafe { state.berth_free_time_unchecked(berth_index) };
+    let previous_free = unsafe { state.berth_free_time_unchecked(previous_berth) };
+
+    if current_free != previous_free {
+        return false;
+    }
+
+    let previous_processing_time = unsafe {
+        model
+            .vessel_processing_time_unchecked(vessel_index, previous_berth)
+            .unwrap_or_else(T::zero)
+    };
+
+    if current_processing_time != previous_processing_time {
+        return false;
+    }
+
+    if unsafe { !model.vessel_allowed_on_berth_unchecked(vessel_index, previous_berth) } {
+        return false;
+    }
+
+    let arrival = unsafe { model.vessel_arrival_time_unchecked(vessel_index) };
+    let nominal_start = if arrival > current_free {
+        arrival
+    } else {
+        current_free
+    };
+
+    // This uses a custom written, high-performance binary search internally.
+    // Even though its fast to call it still needs to load the berth availability data
+    // from memory, and call the binary search that is O(log N + K) where N is the number of
+    // stored intervals and K is the linear scan after positioning the pointer. Usually both
+    // N and K are small, but this is still more expensive than simple arithmetic operations.
+    let previous_start = unsafe {
+        ba.earliest_availability_unchecked(previous_berth, nominal_start, previous_processing_time)
+    };
+    previous_start == Some(current_start)
 }
 
 impl<T> Decision<T>
@@ -164,29 +325,16 @@ where
             return None;
         }
 
-        if berth_index.get() > 0 {
-            let previous_berth_index = BerthIndex::new(berth_index.get() - 1);
-            let previous_free = state.berth_free_time(previous_berth_index);
-
-            if previous_free == berth_free {
-                let previous_actual_start = berth_availability.earliest_availability(
-                    previous_berth_index,
-                    nominal_start,
-                    processing_time,
-                );
-
-                if previous_actual_start == Some(actual_start_time) {
-                    let previous_processing_time = model
-                        .vessel_processing_time(vessel_index, previous_berth_index)
-                        .unwrap_or_else(T::zero);
-
-                    if processing_time == previous_processing_time
-                        && model.vessel_allowed_on_berth(vessel_index, previous_berth_index)
-                    {
-                        return None;
-                    }
-                }
-            }
+        if is_symmetric_to_previous_berth(
+            vessel_index,
+            berth_index,
+            actual_start_time,
+            processing_time,
+            model,
+            state,
+            berth_availability,
+        ) {
+            return None;
         }
 
         let cost_delta = evaluator.evaluate_vessel_assignment(
@@ -266,10 +414,12 @@ where
             return None;
         }
 
-        let processing_time_option = model.vessel_processing_time(vessel_index, berth_index);
+        let processing_time_option =
+            unsafe { model.vessel_processing_time_unchecked(vessel_index, berth_index) };
         if processing_time_option.is_none() {
             return None;
         }
+
         let processing_time = processing_time_option.unwrap_unchecked();
         let berth_free = unsafe { state.berth_free_time_unchecked(berth_index) };
         let arrival = unsafe { model.vessel_arrival_time_unchecked(vessel_index) };
@@ -299,38 +449,18 @@ where
             return None;
         }
 
-        if berth_index.get() > 0 {
-            let previous_berth_index = BerthIndex::new(berth_index.get() - 1);
-            let previous_free = unsafe { state.berth_free_time_unchecked(previous_berth_index) };
-
-            if previous_free == berth_free {
-                let previous_actual_start = unsafe {
-                    berth_availability.earliest_availability_unchecked(
-                        previous_berth_index,
-                        nominal_start,
-                        processing_time,
-                    )
-                };
-
-                if previous_actual_start == Some(actual_start_time) {
-                    let previous_processing_time = unsafe {
-                        model
-                            .vessel_processing_time_unchecked(vessel_index, previous_berth_index)
-                            .unwrap_or_else(T::zero)
-                    };
-
-                    if processing_time == previous_processing_time
-                        && unsafe {
-                            model.vessel_allowed_on_berth_unchecked(
-                                vessel_index,
-                                previous_berth_index,
-                            )
-                        }
-                    {
-                        return None;
-                    }
-                }
-            }
+        if unsafe {
+            is_symmetric_to_previous_berth_unchecked(
+                vessel_index,
+                berth_index,
+                actual_start_time,
+                processing_time,
+                model,
+                state,
+                berth_availability,
+            )
+        } {
+            return None;
         }
 
         let cost_delta = evaluator.evaluate_vessel_assignment(
@@ -405,7 +535,7 @@ where
 mod tests {
     use super::*;
     use crate::eval::wtft::WeightedFlowTimeEvaluator;
-    use bollard_model::index::{BerthIndex as BI, VesselIndex as VI};
+    use bollard_model::index::{BerthIndex, VesselIndex};
     use bollard_model::model::ModelBuilder;
     use bollard_model::time::ProcessingTime;
 
@@ -416,23 +546,358 @@ mod tests {
         let mut b = ModelBuilder::<IntegerType>::new(2, 3);
 
         // Arrivals 0, 5, 10
-        b.set_vessel_arrival_time(VI::new(0), 0)
-            .set_vessel_arrival_time(VI::new(1), 5)
-            .set_vessel_arrival_time(VI::new(2), 10);
+        b.set_vessel_arrival_time(VesselIndex::new(0), 0)
+            .set_vessel_arrival_time(VesselIndex::new(1), 5)
+            .set_vessel_arrival_time(VesselIndex::new(2), 10);
 
         // Weights = 1 each
-        b.set_vessel_weight(VI::new(0), 1)
-            .set_vessel_weight(VI::new(1), 1)
-            .set_vessel_weight(VI::new(2), 1);
+        b.set_vessel_weight(VesselIndex::new(0), 1)
+            .set_vessel_weight(VesselIndex::new(1), 1)
+            .set_vessel_weight(VesselIndex::new(2), 1);
 
         // Processing times: all 5 unless explicitly None later
         for v in 0..3 {
             for b_idx in 0..2 {
-                b.set_vessel_processing_time(VI::new(v), BI::new(b_idx), ProcessingTime::some(5));
+                b.set_vessel_processing_time(
+                    VesselIndex::new(v),
+                    BerthIndex::new(b_idx),
+                    ProcessingTime::some(5),
+                );
             }
         }
 
         b.build()
+    }
+
+    #[test]
+    fn test_symmetric_true_when_previous_berth_is_indistinguishable() {
+        // Model: 2 berths, 1 vessel; arrival=5; proc times equal on both berths.
+        let mut b = ModelBuilder::<IntegerType>::new(2, 1);
+        b.set_vessel_arrival_time(VesselIndex::new(0), 5)
+            .set_vessel_weight(VesselIndex::new(0), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(0),
+                ProcessingTime::some(7),
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(1),
+                ProcessingTime::some(7),
+            );
+        let model = b.build();
+
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        // Equal free times
+        state.set_berth_free_time(BerthIndex::new(0), 5);
+        state.set_berth_free_time(BerthIndex::new(1), 5);
+
+        let v = VesselIndex::new(0);
+        let b1 = BerthIndex::new(1);
+        let pt = model.vessel_processing_time(v, b1).unwrap();
+        let nominal = model.vessel_arrival_time(v).max(state.berth_free_time(b1));
+        let current_start = ba.earliest_availability(b1, nominal, pt).unwrap();
+
+        assert!(is_symmetric_to_previous_berth(
+            v,
+            b1,
+            current_start,
+            pt,
+            &model,
+            &state,
+            &ba
+        ));
+    }
+
+    #[test]
+    fn test_symmetric_false_for_berth_index_zero() {
+        let mut b = ModelBuilder::<IntegerType>::new(2, 1);
+        b.set_vessel_arrival_time(VesselIndex::new(0), 5)
+            .set_vessel_weight(VesselIndex::new(0), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(0),
+                ProcessingTime::some(7),
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(1),
+                ProcessingTime::some(7),
+            );
+        let model = b.build();
+
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        state.set_berth_free_time(BerthIndex::new(0), 5);
+
+        let v = VesselIndex::new(0);
+        let b0 = BerthIndex::new(0);
+        let pt = model.vessel_processing_time(v, b0).unwrap();
+        let nominal = model.vessel_arrival_time(v).max(state.berth_free_time(b0));
+        let current_start = ba.earliest_availability(b0, nominal, pt).unwrap();
+
+        assert!(!is_symmetric_to_previous_berth(
+            v,
+            b0,
+            current_start,
+            pt,
+            &model,
+            &state,
+            &ba
+        ));
+    }
+
+    #[test]
+    fn test_symmetric_false_when_free_times_differ() {
+        let mut b = ModelBuilder::<IntegerType>::new(2, 1);
+        b.set_vessel_arrival_time(VesselIndex::new(0), 5)
+            .set_vessel_weight(VesselIndex::new(0), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(0),
+                ProcessingTime::some(7),
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(1),
+                ProcessingTime::some(7),
+            );
+        let model = b.build();
+
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        state.set_berth_free_time(BerthIndex::new(0), 0);
+        state.set_berth_free_time(BerthIndex::new(1), 5);
+
+        let v = VesselIndex::new(0);
+        let b1 = BerthIndex::new(1);
+        let pt = model.vessel_processing_time(v, b1).unwrap();
+        let nominal = model.vessel_arrival_time(v).max(state.berth_free_time(b1));
+        let current_start = ba.earliest_availability(b1, nominal, pt).unwrap();
+
+        assert!(!is_symmetric_to_previous_berth(
+            v,
+            b1,
+            current_start,
+            pt,
+            &model,
+            &state,
+            &ba
+        ));
+    }
+
+    #[test]
+    fn test_symmetric_false_when_processing_times_differ_on_prev_berth() {
+        // Different PTs: b0=9, b1=7
+        let mut b = ModelBuilder::<IntegerType>::new(2, 1);
+        b.set_vessel_arrival_time(VesselIndex::new(0), 5)
+            .set_vessel_weight(VesselIndex::new(0), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(0),
+                ProcessingTime::some(9),
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(1),
+                ProcessingTime::some(7),
+            );
+        let model = b.build();
+
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        state.set_berth_free_time(BerthIndex::new(0), 5);
+        state.set_berth_free_time(BerthIndex::new(1), 5);
+
+        let v = VesselIndex::new(0);
+        let b1 = BerthIndex::new(1);
+        let pt = model.vessel_processing_time(v, b1).unwrap();
+        let nominal = model.vessel_arrival_time(v).max(state.berth_free_time(b1));
+        let current_start = ba.earliest_availability(b1, nominal, pt).unwrap();
+
+        assert!(!is_symmetric_to_previous_berth(
+            v,
+            b1,
+            current_start,
+            pt,
+            &model,
+            &state,
+            &ba
+        ));
+    }
+
+    #[test]
+    fn test_symmetric_false_when_prev_berth_disallowed() {
+        // Make previous berth forbidden by setting PT None on b0
+        let mut b = ModelBuilder::<IntegerType>::new(2, 1);
+        b.set_vessel_arrival_time(VesselIndex::new(0), 5)
+            .set_vessel_weight(VesselIndex::new(0), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(0),
+                ProcessingTime::none(),
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(1),
+                ProcessingTime::some(7),
+            );
+        let model = b.build();
+
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        state.set_berth_free_time(BerthIndex::new(0), 5);
+        state.set_berth_free_time(BerthIndex::new(1), 5);
+
+        let v = VesselIndex::new(0);
+        let b1 = BerthIndex::new(1);
+        let pt = model.vessel_processing_time(v, b1).unwrap();
+        let nominal = model.vessel_arrival_time(v).max(state.berth_free_time(b1));
+        let current_start = ba.earliest_availability(b1, nominal, pt).unwrap();
+
+        assert!(!is_symmetric_to_previous_berth(
+            v,
+            b1,
+            current_start,
+            pt,
+            &model,
+            &state,
+            &ba
+        ));
+    }
+
+    #[test]
+    fn test_symmetric_false_when_previous_berth_yields_different_start() {
+        // Equal PTs and allowed, but BA difference forces different previous start.
+        let mut b = ModelBuilder::<IntegerType>::new(2, 1);
+        b.set_vessel_arrival_time(VesselIndex::new(0), 0)
+            .set_vessel_weight(VesselIndex::new(0), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(0),
+                ProcessingTime::some(5),
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(1),
+                ProcessingTime::some(5),
+            );
+        let model = b.build();
+
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(
+            &model,
+            &[ // add an availability block on b0 starting later
+            // If your BerthAvailability supports constraints input, use them here;
+            // otherwise we simulate by setting different free times.
+        ]
+        ));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        // Force b0 free later than b1 so previous start cannot match
+        state.set_berth_free_time(BerthIndex::new(0), 10);
+        state.set_berth_free_time(BerthIndex::new(1), 0);
+
+        let v = VesselIndex::new(0);
+        let b1 = BerthIndex::new(1);
+        let pt = model.vessel_processing_time(v, b1).unwrap();
+        let nominal = model.vessel_arrival_time(v).max(state.berth_free_time(b1));
+        let current_start = ba.earliest_availability(b1, nominal, pt).unwrap();
+
+        assert!(!is_symmetric_to_previous_berth(
+            v,
+            b1,
+            current_start,
+            pt,
+            &model,
+            &state,
+            &ba
+        ));
+    }
+
+    #[test]
+    fn test_symmetric_unchecked_true_when_previous_berth_is_indistinguishable() {
+        let mut b = ModelBuilder::<IntegerType>::new(2, 1);
+        b.set_vessel_arrival_time(VesselIndex::new(0), 5)
+            .set_vessel_weight(VesselIndex::new(0), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(0),
+                ProcessingTime::some(7),
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(1),
+                ProcessingTime::some(7),
+            );
+        let model = b.build();
+
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        state.set_berth_free_time(BerthIndex::new(0), 5);
+        state.set_berth_free_time(BerthIndex::new(1), 5);
+
+        let v = VesselIndex::new(0);
+        let b1 = BerthIndex::new(1);
+        let pt = model.vessel_processing_time(v, b1).unwrap();
+        let nominal = model.vessel_arrival_time(v).max(state.berth_free_time(b1));
+        let current_start = ba.earliest_availability(b1, nominal, pt).unwrap();
+
+        let ok = unsafe {
+            is_symmetric_to_previous_berth_unchecked(v, b1, current_start, pt, &model, &state, &ba)
+        };
+        assert!(ok);
+    }
+
+    #[test]
+    fn test_symmetric_unchecked_false_when_processing_times_differ_on_prev_berth() {
+        let mut b = ModelBuilder::<IntegerType>::new(2, 1);
+        b.set_vessel_arrival_time(VesselIndex::new(0), 5)
+            .set_vessel_weight(VesselIndex::new(0), 1)
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(0),
+                ProcessingTime::some(9),
+            )
+            .set_vessel_processing_time(
+                VesselIndex::new(0),
+                BerthIndex::new(1),
+                ProcessingTime::some(7),
+            );
+        let model = b.build();
+
+        let mut ba = BerthAvailability::<IntegerType>::new();
+        assert!(ba.initialize(&model, &[]));
+
+        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
+        state.set_berth_free_time(BerthIndex::new(0), 5);
+        state.set_berth_free_time(BerthIndex::new(1), 5);
+
+        let v = VesselIndex::new(0);
+        let b1 = BerthIndex::new(1);
+        let pt = model.vessel_processing_time(v, b1).unwrap();
+        let nominal = model
+            .vessel_arrival_time(v)
+            .max(unsafe { state.berth_free_time_unchecked(b1) });
+        let current_start = unsafe { ba.earliest_availability_unchecked(b1, nominal, pt).unwrap() };
+
+        let ok = unsafe {
+            is_symmetric_to_previous_berth_unchecked(v, b1, current_start, pt, &model, &state, &ba)
+        };
+        assert!(!ok);
     }
 
     #[test]
@@ -445,10 +910,17 @@ mod tests {
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
 
         // Assign vessel 0 first
-        state.assign_vessel(VI::new(0), BI::new(0), 0);
+        state.assign_vessel(VesselIndex::new(0), BerthIndex::new(0), 0);
 
         // Now attempt decision for vessel 0 again -> should be filtered out
-        let d = Decision::try_new(VI::new(0), BI::new(1), &model, &ba, &state, &mut eval);
+        let d = Decision::try_new(
+            VesselIndex::new(0),
+            BerthIndex::new(1),
+            &model,
+            &ba,
+            &state,
+            &mut eval,
+        );
         assert!(
             d.is_none(),
             "already-assigned vessel should yield no decision"
@@ -465,14 +937,21 @@ mod tests {
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
 
         // Set last decision to time 10, vessel 1
-        state.set_last_decision(10, VI::new(1));
+        state.set_last_decision(10, VesselIndex::new(1));
 
         // Candidate starting before time 10 must be filtered
         {
             // Make berth 0 free at time 0 explicitly to test the time guard
-            state.set_berth_free_time(BI::new(0), 0);
+            state.set_berth_free_time(BerthIndex::new(0), 0);
             // Vessel 0 arrival is 0, processing fits, earliest availability 0 -> actual_start 5? No: nominal max(arrival=0, berth_free=0)=0; availability permits start at 0; but we set last_decision_time=10 -> should filter
-            let d = Decision::try_new(VI::new(0), BI::new(0), &model, &ba, &state, &mut eval);
+            let d = Decision::try_new(
+                VesselIndex::new(0),
+                BerthIndex::new(0),
+                &model,
+                &ba,
+                &state,
+                &mut eval,
+            );
             assert!(
                 d.is_none(),
                 "decisions before last_decision_time must be filtered"
@@ -480,18 +959,32 @@ mod tests {
         }
 
         // Now force decisions at exactly time 10:
-        state.set_berth_free_time(BI::new(0), 10);
-        state.set_berth_free_time(BI::new(1), 10);
+        state.set_berth_free_time(BerthIndex::new(0), 10);
+        state.set_berth_free_time(BerthIndex::new(1), 10);
 
         // At time 10, vessel 0 has index < last_decision_vessel(1) -> filtered
-        let d0 = Decision::try_new(VI::new(0), BI::new(0), &model, &ba, &state, &mut eval);
+        let d0 = Decision::try_new(
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            &model,
+            &ba,
+            &state,
+            &mut eval,
+        );
         assert!(
             d0.is_none(),
             "equal time, lower vessel index than last decision must be filtered"
         );
 
         // Vessel 1 equal to last_decision_vessel -> allowed
-        let d1 = Decision::try_new(VI::new(1), BI::new(0), &model, &ba, &state, &mut eval);
+        let d1 = Decision::try_new(
+            VesselIndex::new(1),
+            BerthIndex::new(0),
+            &model,
+            &ba,
+            &state,
+            &mut eval,
+        );
         assert!(
             d1.is_some(),
             "equal time, same vessel index should be allowed"
@@ -499,7 +992,14 @@ mod tests {
 
         // Vessel 2 greater than last_decision_vessel -> allowed
         // Use lower-index berth (0) to avoid adjacent-berth symmetry filtering.
-        let d2 = Decision::try_new(VI::new(2), BI::new(0), &model, &ba, &state, &mut eval);
+        let d2 = Decision::try_new(
+            VesselIndex::new(2),
+            BerthIndex::new(0),
+            &model,
+            &ba,
+            &state,
+            &mut eval,
+        );
         assert!(
             d2.is_some(),
             "equal time, higher vessel index should be allowed (canonical lower-index berth)"
@@ -510,11 +1010,19 @@ mod tests {
     fn test_adjacent_berth_indistinguishability_is_filtered() {
         let mut bldr = ModelBuilder::<IntegerType>::new(2, 1);
         // Vessel 0 arrives at 5
-        bldr.set_vessel_arrival_time(VI::new(0), 5)
-            .set_vessel_weight(VI::new(0), 1);
+        bldr.set_vessel_arrival_time(VesselIndex::new(0), 5)
+            .set_vessel_weight(VesselIndex::new(0), 1);
         // Both berths have identical processing time 7 for vessel 0
-        bldr.set_vessel_processing_time(VI::new(0), BI::new(0), ProcessingTime::some(7));
-        bldr.set_vessel_processing_time(VI::new(0), BI::new(1), ProcessingTime::some(7));
+        bldr.set_vessel_processing_time(
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            ProcessingTime::some(7),
+        );
+        bldr.set_vessel_processing_time(
+            VesselIndex::new(0),
+            BerthIndex::new(1),
+            ProcessingTime::some(7),
+        );
         let model = bldr.build();
 
         let mut ba = BerthAvailability::<IntegerType>::new();
@@ -524,19 +1032,33 @@ mod tests {
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
 
         // Make both berths have same free time, ensuring indistinguishable slots
-        state.set_berth_free_time(BI::new(0), 5);
-        state.set_berth_free_time(BI::new(1), 5);
+        state.set_berth_free_time(BerthIndex::new(0), 5);
+        state.set_berth_free_time(BerthIndex::new(1), 5);
 
         // Attempt decision on the higher-index berth (1). Because both are indistinguishable,
         // the code should filter B1 and keep only B0 as canonical.
-        let d_b1 = Decision::try_new(VI::new(0), BI::new(1), &model, &ba, &state, &mut eval);
+        let d_b1 = Decision::try_new(
+            VesselIndex::new(0),
+            BerthIndex::new(1),
+            &model,
+            &ba,
+            &state,
+            &mut eval,
+        );
         assert!(
             d_b1.is_none(),
             "indistinguishable adjacent berths should be symmetry-filtered on higher index"
         );
 
         // Lower-index berth (0) should be allowed
-        let d_b0 = Decision::try_new(VI::new(0), BI::new(0), &model, &ba, &state, &mut eval);
+        let d_b0 = Decision::try_new(
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            &model,
+            &ba,
+            &state,
+            &mut eval,
+        );
         assert!(
             d_b0.is_some(),
             "canonical lower-index berth should be allowed"
@@ -546,12 +1068,20 @@ mod tests {
     #[test]
     fn test_processing_time_none_or_forbidden_pair_returns_none() {
         let mut bldr = ModelBuilder::<IntegerType>::new(2, 1);
-        bldr.set_vessel_arrival_time(VI::new(0), 0)
-            .set_vessel_weight(VI::new(0), 1);
+        bldr.set_vessel_arrival_time(VesselIndex::new(0), 0)
+            .set_vessel_weight(VesselIndex::new(0), 1);
 
         // Berth 0 has a processing time, berth 1 is None for vessel 0
-        bldr.set_vessel_processing_time(VI::new(0), BI::new(0), ProcessingTime::some(5));
-        bldr.set_vessel_processing_time(VI::new(0), BI::new(1), ProcessingTime::none());
+        bldr.set_vessel_processing_time(
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            ProcessingTime::some(5),
+        );
+        bldr.set_vessel_processing_time(
+            VesselIndex::new(0),
+            BerthIndex::new(1),
+            ProcessingTime::none(),
+        );
 
         let model = bldr.build();
         let mut ba = BerthAvailability::<IntegerType>::new();
@@ -561,11 +1091,25 @@ mod tests {
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
 
         // None processing time -> decision must be None
-        let d_none = Decision::try_new(VI::new(0), BI::new(1), &model, &ba, &state, &mut eval);
+        let d_none = Decision::try_new(
+            VesselIndex::new(0),
+            BerthIndex::new(1),
+            &model,
+            &ba,
+            &state,
+            &mut eval,
+        );
         assert!(d_none.is_none());
 
         // Allowed, Some -> should produce a decision
-        let d_some = Decision::try_new(VI::new(0), BI::new(0), &model, &ba, &state, &mut eval);
+        let d_some = Decision::try_new(
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            &model,
+            &ba,
+            &state,
+            &mut eval,
+        );
         assert!(d_some.is_some());
     }
 
@@ -579,8 +1123,8 @@ mod tests {
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
 
         // Ensure a feasible nominal start (arrival=5, berth_free=0 -> nominal=5)
-        let v = VI::new(1);
-        let b = BI::new(0);
+        let v = VesselIndex::new(1);
+        let b = BerthIndex::new(0);
 
         let d = Decision::try_new(v, b, &model, &ba, &state, &mut eval)
             .expect("feasible decision must exist");

@@ -126,6 +126,36 @@ where
     }
 }
 
+impl<T> std::fmt::Display for Solution<T>
+where
+    T: PrimInt + Signed + Copy + std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Solution Summary")?;
+        writeln!(f, "   Objective Value: {}", self.objective_value)?;
+        writeln!(f)?;
+
+        if self.num_vessels() == 0 {
+            writeln!(f, "   (No vessels assigned)")?;
+            return Ok(());
+        }
+
+        writeln!(
+            f,
+            "   {:<10} | {:<10} | {:<12}",
+            "Vessel", "Berth", "Start Time"
+        )?;
+        writeln!(f, "   {:-<10}-+-{:-<10}-+-{:-<12}", "", "", "")?;
+        for i in 0..self.num_vessels() {
+            let berth_id = self.berths[i].get();
+            let start_time = self.start_times[i];
+            writeln!(f, "   {:<10} | {:<10} | {:<12}", i, berth_id, start_time)?;
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,5 +226,23 @@ mod tests {
         assert!(dbg.contains("objective_value"));
         assert!(dbg.contains("berths"));
         assert!(dbg.contains("start_times"));
+    }
+
+    #[test]
+    fn test_display_formatting_example() {
+        let sol = Solution::new(100i64, vec![bi(0), bi(1)], vec![10i64, 20i64]);
+
+        let displayed = format!("{}", sol);
+
+        let mut expected = String::new();
+        expected.push_str("Solution Summary\n");
+        expected.push_str("   Objective Value: 100\n");
+        expected.push_str("\n");
+        expected.push_str("   Vessel     | Berth      | Start Time  \n");
+        expected.push_str("   -----------+------------+-------------\n");
+        expected.push_str("   0          | 0          | 10          \n");
+        expected.push_str("   1          | 1          | 20          \n");
+
+        assert_eq!(displayed, expected);
     }
 }

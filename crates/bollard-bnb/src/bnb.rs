@@ -800,6 +800,7 @@ mod tests {
         // Print just the inner SolverResult summary
         println!("{}", outcome.result());
         println!("{}", outcome.statistics());
+        println!("{}", outcome.result().unwrap_optimal());
 
         // 3. Assertions: unwrap the solution from the inner SolverResult
         let solution = match outcome.result() {

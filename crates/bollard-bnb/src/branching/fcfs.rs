@@ -94,20 +94,12 @@ where
     }
 }
 
-/// A decision builder that implements a **First-Come-First-Serve (FCFS)** branching heuristic.
-///
-/// This builder prioritizes vessels by their arrival time. For each unassigned vessel:
-/// 1. It generates fully computed `Decision<T>` objects (validating availability and calculating cost).
-/// 2. It collects all feasible decisions into a buffer.
-/// 3. It sorts them by:
-///    - **Arrival Time** (ascending)
-///    - **Cost Delta** (ascending)
-///    - **Indices** (deterministic tie-break)
-///
-/// This strategy enforces a time-first exploration order, which can be useful for schedules
-/// where respecting arrival chronology improves feasibility.
 #[derive(Debug, Clone, Default)]
 pub struct FcfsHeuristicBuilder<T> {
+    /// Scratch buffer for candidates.
+    ///
+    /// We never deallocate this buffer during the lifetime of the builder.
+    /// This avoids repeated allocations during branching, improving performance.
     candidates: Vec<FcfsCandidate<T>>,
 }
 
@@ -125,14 +117,6 @@ impl<T> FcfsHeuristicBuilder<T> {
     pub fn preallocated(num_berths: usize, num_vessels: usize) -> Self {
         Self {
             candidates: Vec::with_capacity(num_berths * num_vessels),
-        }
-    }
-
-    /// Creates a new `FcfsHeuristicBuilder` with specific capacity.
-    #[inline]
-    pub fn with_capacity(size: usize) -> Self {
-        Self {
-            candidates: Vec::with_capacity(size),
         }
     }
 }
@@ -177,9 +161,6 @@ where
             for b in 0..num_berths {
                 let berth_index = BerthIndex::new(b);
 
-                // Use the Rich Decision pipeline.
-                // This validates feasibility, calculates the actual start time (with availability),
-                // and computes the cost delta.
                 if let Some(decision) = unsafe {
                     Decision::try_new_unchecked(
                         vessel_index,
@@ -196,7 +177,6 @@ where
             }
         }
 
-        // Sort to enforce FCFS order
         self.candidates.sort_unstable();
 
         FcfsHeuristicIter {
