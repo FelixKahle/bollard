@@ -19,6 +19,32 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Hybrid objective evaluation and lower‑bound estimation for berth scheduling.
+//! This module provides `HybridEvaluator<T>`, an implementation of `ObjectiveEvaluator`
+//! that blends availability‑aware feasibility checks with a fast, capacity‑sensitive
+//! remaining‑cost estimate. The approach treats maintenance windows and berth release
+//! times as first‑class information and couples them with workload‑driven sequencing
+//! so the bound reflects both temporal constraints and congestion effects in a single
+//! coherent approximation.
+//!
+//! The evaluator operates on already‑adjusted start times and reports infeasible
+//! assignments as `None`, allowing the search to respect structural constraints
+//! rather than masking them with inflated penalties. For bound computation, it reads
+//! the current state’s berth free times and projects when remaining vessels can
+//! actually begin processing. It then organizes the outstanding workload with a
+//! lightweight heap to approximate an order that reduces delay for heavy tasks while
+//! staying consistent with berth availability. This hybrid view tends to dominate
+//! purely availability‑blind or purely weight‑only estimates by capturing when the
+//! system truly becomes capable of servicing the backlog.
+//!
+//! Internally, small caches help avoid recomputation of per‑berth release times and
+//! per‑vessel workload summaries while keeping behavior deterministic. The design
+//! maintains regularity, ensuring costs do not decrease when completion is delayed,
+//! and it keeps the bound optimistic so pruning remains correct. In practice this
+//! makes the evaluator a dependable default: it is quick to evaluate, sensitive to
+//! maintenance and congestion, and stable across a wide range of instances without
+//! tuning or bespoke heuristics.
+
 use crate::{
     berth_availability::BerthAvailability, eval::evaluator::ObjectiveEvaluator, state::SearchState,
 };
@@ -31,34 +57,36 @@ use num_traits::{PrimInt, Signed};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-/// Data required for the Workload (Capacity) simulation.
+/// Internal record used by the capacity‑oriented workload relaxation. Each job
+/// summarizes an unassigned vessel by its shortest feasible processing time
+/// across all berths and its objective weight. The relaxation treats these jobs
+/// as becoming runnable when a berth frees, using the minimal duration to keep
+/// the bound optimistic while still reflecting parallel capacity limits.
 #[derive(Clone, Copy, Debug)]
 struct WorkloadJob<T> {
+    /// Shortest feasible processing time of the vessel over all berths, chosen
+    /// to preserve optimism in the workload simulation.
     min_processing_time: T,
+    /// Objective weight multiplied by the simulated completion time to accrue
+    /// weighted completion cost.
     weight: T,
 }
 
-/// A hybrid objective evaluator that combines local constraint checking with global capacity analysis.
+/// A hybrid objective evaluator that fuses feasibility‑aware projection with a
+/// capacity‑sensitive workload relaxation. It estimates the remaining cost by
+/// considering when each vessel could realistically finish under berth closures,
+/// arrivals, and deadlines, while also accounting for how much work can be
+/// processed in parallel given the number of berths. The bound is taken as the
+/// maximum of these two views so it stays optimistic yet reacts to both local
+/// constraints and global congestion.
 ///
-/// This evaluator computes a lower bound by solving two relaxed sub-problems simultaneously
-/// and returning the tighter (maximum) value:
-///
-/// $$ LB = \max(LB_{\text{feasibility}}, LB_{\text{capacity}}) $$
-///
-/// # Logic
-///
-/// * **Feasibility (Local Projection):** Calculates the best-case completion time for each vessel
-///   individually, respecting complex constraints like maintenance windows, arrival times, and
-///   berth availability. This catches bottlenecks where specific ships cannot fit into existing gaps.
-/// * **Capacity (Global Workload):** Simulates a parallel machine schedule using a Min-Heap to
-///   determine if the total volume of work can physically fit into the remaining time horizon.
-///   This catches congestion where too many ships compete for too few berths.
-///
-/// # Performance
-///
-/// This implementation uses a **single unified pass** over the unassigned vessels to populate the
-/// data structures for both bounds. This minimizes iteration overhead and CPU cache misses compared
-/// to running two separate evaluators sequentially.
+/// The implementation prepares data for both components in a single pass over
+/// the unassigned vessels, which reduces iteration overhead and improves cache
+/// locality compared with running separate evaluators. This design preserves
+/// regularity, keeps the estimate availability‑aware, and tends to deliver a
+/// tighter bound in congested settings without sacrificing correctness or
+/// determinism.
+
 #[derive(Debug)]
 pub struct HybridEvaluator<T>
 where

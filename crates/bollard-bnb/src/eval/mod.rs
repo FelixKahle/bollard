@@ -21,5 +21,6 @@
 
 pub mod evaluator;
 pub mod hybrid;
+pub mod validation;
 pub mod workload;
 pub mod wtft;

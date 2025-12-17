@@ -40,7 +40,7 @@
 use crate::{
     berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},
-    eval::evaluator::ObjectiveEvaluator,
+    eval::{self, evaluator::ObjectiveEvaluator},
     fixed::FixedAssignment,
     incumbent::{IncumbentStore, NoSharedIncumbent, SharedIncumbentAdapter},
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
@@ -162,6 +162,12 @@ where
         self.solve_internal(model, &[], builder, evaluator, monitor, backing)
     }
 
+    /// Solve the given model using the provided `DecisionBuilder`,
+    /// `ObjectiveEvaluator`, `TreeSearchMonitor`, and fixed assignments.
+    ///
+    /// This variant does not use a shared incumbent and thus
+    /// acts as a standalone, single threaded solver.
+    #[inline]
     pub fn solve_with_fixed<B, E, S>(
         &mut self,
         model: &Model<T>,
@@ -180,6 +186,15 @@ where
         self.solve_internal(model, fixed, builder, evaluator, monitor, backing)
     }
 
+    /// Solve the given model using the provided `DecisionBuilder`,
+    /// `ObjectiveEvaluator`, `TreeSearchMonitor`, fixed assignments,
+    /// and `SharedIncumbent`.
+    ///
+    /// This variant uses the shared incumbent to synchronize
+    /// the best known solution between different solver instances.
+    /// The branch and bound algorithm will use the incumbent
+    /// to prune branches that cannot improve upon the shared best solution.
+    #[inline]
     pub fn solve_with_fixed_and_incumbent<B, E, S>(
         &mut self,
         model: &Model<T>,
@@ -218,6 +233,12 @@ where
         I: IncumbentStore<T>,
         T: SolverNumeric,
     {
+        debug_assert!(
+            eval::validation::is_regular_evaluator_exhaustive(evaluator, model, 10_000),
+            "ObjectiveEvaluator '{}' is not regular. Monotonicity violated.",
+            evaluator.name()
+        );
+
         let session = BnbSolverSearchSession::new(
             self,
             model,

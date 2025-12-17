@@ -36,6 +36,21 @@ use num_traits::{PrimInt, Signed};
 ///
 /// Both methods now have access to `BerthAvailability`, allowing cost calculations and
 /// bounds to account for static constraints like maintenance windows.
+///
+/// # Requirements: Regular Objective Function
+///
+/// Implementations of this trait **must** represent a **regular objective function**.
+///
+/// A regular objective function is non-decreasing with respect to the completion times of
+/// the vessels. In practical terms, this means that completing a vessel earlier (or at the
+/// same time) should never result in a higher cost than completing it later.
+///
+/// **The solver relies on this property for correctness.**
+///
+/// If a non-regular objective is used (for example, one that includes earliness penalties
+/// where finishing *too* early increases the cost), the solver's dominance rules and
+/// bounding logic may incorrectly prune the optimal solution, leading to valid
+/// schedules being discarded.
 pub trait ObjectiveEvaluator<T>
 where
     T: PrimInt + Signed,

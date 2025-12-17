@@ -19,6 +19,27 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Weighted flow time evaluation and availability‑aware bounding. This module
+//! implements `WeightedFlowTimeEvaluator<T>`, an `ObjectiveEvaluator` for the
+//! weighted completion objective, integrating berth availability to keep both
+//! local scoring and global bounds aligned with real operating constraints.
+//!
+//! Local evaluation treats the provided start time as the actual beginning of
+//! service and computes a weighted completion cost. It reports infeasibility as
+//! `None` when a vessel cannot be processed on the chosen berth or would miss
+//! its deadline, preserving the solver’s understanding of the search space.
+//!
+//! The remaining‑cost estimate blends a feasibility‑aware projection with a
+//! lightweight workload relaxation. It first examines each unassigned vessel
+//! against every berth’s current free time and earliest usable window so that
+//! the best attainable finish time respects closures and deadlines. It then
+//! forms a coarse single‑machine schedule over shortest feasible processing
+//! times, starts it no earlier than the earliest berth release or arrival, and
+//! scales by berth count. Taking the maximum of these two views yields a bound
+//! that stays optimistic yet reacts to maintenance and congestion. Scratch
+//! buffers are reused for determinism and speed, and saturating arithmetic
+//! prevents overflow while maintaining non‑decreasing costs.
+
 use crate::{
     berth_availability::BerthAvailability, eval::evaluator::ObjectiveEvaluator, state::SearchState,
 };
@@ -49,7 +70,35 @@ where
     }
 }
 
-/// Evaluator for the weighted flow time objective.
+/// Evaluator for the weighted flow time objective (sum of weight × completion time),
+/// aware of berth availability for both local scoring and global lower bounds.
+/// It implements `ObjectiveEvaluator` and is suitable wherever a regular objective
+/// is required, meaning costs do not decrease when completion is delayed.
+///
+/// Local evaluation treats the provided start time as the actual beginning of service
+/// and returns a weighted completion cost when the assignment is feasible. If the
+/// vessel cannot be processed on the chosen berth or the completion would exceed its
+/// deadline, the result is `None`, which cleanly communicates infeasibility to the
+/// solver without inflating scores. Saturating arithmetic is used to avoid overflow
+/// near numeric limits while preserving monotonicity.
+///
+/// The remaining‑cost estimate combines two complementary views of the future. It
+/// first projects, for each unassigned vessel, the best attainable finish time over
+/// all berths given current berth free times, availability windows, arrivals, and
+/// deadlines; this captures feasibility against closures and ensures the bound does
+/// not assume impossible starts. It then builds a coarse, single‑machine relaxation
+/// over each vessel’s shortest feasible processing time, begins no earlier than the
+/// earliest berth release or arrival among the remaining vessels, and scales by the
+/// berth count to approximate parallel capacity. Taking the maximum of these views
+/// yields an optimistic yet availability‑sensitive bound that responds to both
+/// maintenance and congestion.
+///
+/// The scratch buffers store per‑berth free times and per‑vessel summaries used by
+/// the bound computation. They are reused across calls to reduce allocation, keep
+/// behavior deterministic, and avoid coupling the solver to transient memory traffic.
+/// Use `preallocated` when constructing many evaluators or solving large instances to
+/// minimize reallocation. This design provides predictable performance and integrates
+/// naturally with availability‑aware branching.
 #[derive(Debug)]
 pub struct WeightedFlowTimeEvaluator<T>
 where
