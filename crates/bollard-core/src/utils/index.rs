@@ -59,6 +59,7 @@ pub trait TypedIndexTag: Clone {
 /// let index = MyIndex::new(5);
 /// assert_eq!(index.get(), 5);
 /// ```
+#[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TypedIndex<T> {
     index: usize,
@@ -85,6 +86,7 @@ impl<T> TypedIndex<T> {
     /// let index = MyIndex::new(5);
     /// assert_eq!(index.get(), 5);
     /// ```
+    #[inline(always)]
     pub const fn new(index: usize) -> Self {
         Self {
             index,
@@ -111,8 +113,35 @@ impl<T> TypedIndex<T> {
     /// let index = MyIndex::new(5);
     /// assert_eq!(index.get(), 5);
     /// ```
+    #[inline(always)]
     pub const fn get(&self) -> usize {
         self.index
+    }
+
+    /// Checks if the index is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_core::utils::index::{TypedIndex, TypedIndexTag};
+    ///
+    /// #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+    /// struct MyTag;
+    ///
+    /// impl TypedIndexTag for MyTag {
+    ///     const NAME: &'static str = "MyIndex";
+    /// }
+    ///
+    /// type MyIndex = TypedIndex<MyTag>;
+    ///
+    /// let index = MyIndex::new(0);
+    /// assert!(index.is_zero());
+    /// let index = MyIndex::new(5);
+    /// assert!(!index.is_zero());
+    /// ```
+    #[inline(always)]
+    pub const fn is_zero(&self) -> bool {
+        self.index == 0
     }
 }
 

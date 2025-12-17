@@ -19,6 +19,23 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! First‑Come‑First‑Served (FCFS) branching
+//!
+//! Implements a heuristic decision builder that prioritizes feasible assignments
+//! by earliest vessel arrival time. Among candidates with equal arrival, ties are
+//! broken by objective cost to promote earlier completion of high‑impact work.
+//!
+//! The builder constructs “rich decisions” that already respect model topology,
+//! berth availability, and evaluator constraints. Infeasible pairs are filtered
+//! out before ordering.
+//!
+//! Deterministic ordering (arrival primary, cost secondary) improves search
+//! stability and pruning effectiveness compared to naive enumeration, while
+//! remaining lightweight and cache‑friendly.
+//!
+//! Produces a fused iterator of decisions: once exhausted, subsequent `next()`
+//! calls return `None`.
+
 use crate::{
     berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},

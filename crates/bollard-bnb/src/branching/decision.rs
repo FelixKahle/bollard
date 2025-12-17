@@ -19,6 +19,30 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Decision building and symmetry handling
+//!
+//! Defines the `Decision<T>` type and the `DecisionBuilder` trait used to
+//! generate feasible `(vessel, berth)` assignments for branch‑and‑bound.
+//!
+//! A `Decision` carries indices, computed start time, and objective cost delta,
+//! making it suitable for immediate evaluation and ordering.
+//!
+//!
+//! Feasibility integrates three aspects:
+//! - Model topology (processing times must exist and be allowed)
+//! - Berth availability (respecting opening intervals and closures)
+//! - Evaluator constraints (e.g., deadlines)
+//!
+//! Symmetry reduction filters indistinguishable adjacent berth options under
+//! identical state and processing conditions, preserving canonical schedules
+//! while avoiding redundant branches.
+//!
+//! Ordering is stable via `Ord`, enabling consistent tie‑breaking and
+//! deterministic traversal by builders.
+//!
+//! Builders implement `DecisionBuilder` to produce iterators over rich decisions.
+//! Once an iterator is exhausted, it is fused and yields `None` thereafter.
+
 use crate::{
     berth_availability::BerthAvailability, eval::evaluator::ObjectiveEvaluator, state::SearchState,
 };
@@ -110,7 +134,7 @@ where
         berth_index.get()
     );
 
-    if berth_index.get() == 0 {
+    if berth_index.is_zero() {
         return false;
     }
 
@@ -191,7 +215,7 @@ where
         berth_index.get()
     );
 
-    if berth_index.get() == 0 {
+    if berth_index.is_zero() {
         return false;
     }
 

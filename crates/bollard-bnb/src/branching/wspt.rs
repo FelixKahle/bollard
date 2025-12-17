@@ -19,6 +19,21 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Cost‑guided (WSPT‑style) branching
+//!
+//! Implements a decision builder that orders feasible `(vessel, berth)`
+//! assignments by increasing immediate objective cost (weighted finish time),
+//! similar in spirit to the Weighted Shortest Processing Time principle.
+//!
+//! Feasible options are collected as rich decisions that respect model topology,
+//! berth availability, and evaluator constraints. Global ordering is cost
+//! ascending, with deterministic tie‑breaking by decision indices.
+//!
+//! This best‑first strategy helps find strong incumbents early and improves
+//! pruning in branch‑and‑bound compared to arbitrary enumeration.
+//!
+//! Produces a fused iterator of decisions; once exhausted, `next()` returns `None`.
+
 use crate::{
     berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},

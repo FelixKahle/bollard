@@ -19,6 +19,22 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Slack‑guided best‑first branching
+//!
+//! Implements a decision builder that prioritizes vessels with the tightest
+//! time slack to reduce the risk of infeasibility later in the search.
+//!
+//! For each unassigned vessel, feasible `(vessel, berth)` options are collected
+//! as “rich decisions”, and the best‑case finish time is computed. Slack is
+//! defined as `deadline − min_finish_time`. Vessels with smaller slack are
+//! scheduled earlier.
+//!
+//! Global ordering is by ascending slack, then ascending cost, and finally
+//! deterministic decision order. This produces stable, high‑quality branches
+//! for branch‑and‑bound, improving pruning compared to naive enumeration.
+//!
+//! Produces a fused iterator of decisions; once exhausted, `next()` returns `None`.
+
 use crate::{
     berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},

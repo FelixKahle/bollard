@@ -19,6 +19,26 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Chronological exhaustive branching
+//!
+//! Provides a decision builder that iterates feasible `(vessel, berth)` assignments
+//! in a deterministic row‑major order (vessels × berths).
+//!
+//! The iterator yields only “Rich Decisions” that already respect model topology,
+//! berth availability, and evaluator constraints (including deadlines). Vessels
+//! that are already assigned are skipped.
+//!
+//! Symmetry reduction is applied via `Decision::try_new_unchecked` to avoid
+//! exploring indistinguishable branches (e.g., equivalent berths under identical
+//! state and processing conditions), while preserving canonical optimal schedules.
+//!
+//! Implements `Iterator<Item = Decision<T>>` and `FusedIterator`: once exhausted,
+//! subsequent `next()` calls return `None`.
+//!
+//! This chronological approach keeps traversal stable and reduces search space
+//! compared to naive permutations, improving cache locality and branch‑and‑bound
+//! pruning effectiveness.
+
 use crate::{
     berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},
@@ -86,9 +106,6 @@ where
 /// This iterator traverses the assignment space in row-major order
 /// (vessels × berths), skipping already-assigned vessels and yielding only
 /// decisions deemed feasible by the model, availability map, and evaluator.
-///
-/// It uses the "Rich Decision" pattern: every item yielded is a fully calculated
-/// `Decision<T>` containing valid start times and costs.
 #[derive(Debug)]
 pub struct ExhaustiveIter<'a, T, E>
 where

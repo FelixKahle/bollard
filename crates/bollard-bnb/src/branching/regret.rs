@@ -19,6 +19,24 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Regret‑guided best‑first branching
+//!
+//! Implements a decision builder that prioritizes vessels where choosing
+//! suboptimally would hurt most, using a simple regret metric over feasible
+//! `(vessel, berth)` options.
+//!
+//! For each unassigned vessel, local options are filtered for feasibility
+//! (model topology, berth availability, evaluator constraints), then ordered
+//! by ascending cost to compute regret as the gap between the best and
+//! second‑best. Vessels with a single feasible option receive maximal regret.
+//!
+//! All options are promoted into a global list sorted by descending regret,
+//! then by ascending cost, and finally by deterministic decision order.
+//! This yields “rich decisions” suitable for branch‑and‑bound with stable
+//! tie‑breaking and improved pruning compared to naive enumeration.
+//!
+//! Produces a fused iterator of decisions; once exhausted, `next()` returns `None`.
+
 use crate::{
     berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},

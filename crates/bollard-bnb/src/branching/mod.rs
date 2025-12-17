@@ -19,6 +19,22 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Branching strategies for berth allocation
+//!
+//! Defines decision types and multiple builders that generate feasible
+//! `(vessel, berth)` assignments for branch‑and‑bound. Each builder produces
+//! rich decisions (with start times and costs) and applies deterministic
+//! ordering to improve search stability and pruning.
+//!
+//! Provided builders:
+//! - `chronological`: row‑major traversal with symmetry reduction.
+//! - `fcfs`: first‑come‑first‑served (arrival‑time priority, cost tie‑break).
+//! - `wspt`: cost‑guided, akin to weighted shortest processing time.
+//! - `regret`: best‑first by regret (gap between best and second‑best).
+//! - `slack`: best‑first by tightest time slack (deadline pressure).
+//!
+//! All iterators are fused: once exhausted, further `next()` calls yield `None`.
+
 pub mod chronological;
 pub mod decision;
 pub mod fcfs;
