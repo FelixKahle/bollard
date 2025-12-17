@@ -106,7 +106,6 @@ where
         berth_index: BerthIndex,
         start_time: T,
     ) -> Option<T> {
-        // Standard cost calculation based on the provided (valid) start_time.
         let weight = model.vessel_weight(vessel_index);
         let deadline = model.vessel_latest_departure_time(vessel_index);
 
@@ -136,14 +135,21 @@ where
         T: SolverNumeric,
     {
         let weight = unsafe { model.vessel_weight_unchecked(vessel_index) };
-        let pt = unsafe {
-            model
-                .vessel_processing_time_unchecked(vessel_index, berth_index)
-                .unwrap_unchecked()
-        };
+        let deadline = unsafe { model.vessel_latest_departure_time_unchecked(vessel_index) };
 
-        let finish_time = start_time.saturating_add_val(pt);
-        Some(finish_time.saturating_mul_val(weight))
+        let pt_option =
+            unsafe { model.vessel_processing_time_unchecked(vessel_index, berth_index) };
+        if pt_option.is_none() {
+            return None;
+        }
+        let pt = pt_option.unwrap_unchecked();
+        let completion_time = start_time.saturating_add_val(pt);
+
+        if completion_time > deadline {
+            return None;
+        }
+
+        Some(completion_time.saturating_mul_val(weight))
     }
 
     fn estimate_remaining_cost(

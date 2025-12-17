@@ -359,7 +359,7 @@ mod tests {
             chronological::ChronologicalExhaustiveBuilder, fcfs::FcfsHeuristicBuilder,
             regret::RegretHeuristicBuilder, wspt::WsptHeuristicBuilder,
         },
-        eval::workload::WorkloadEvaluator,
+        eval::hybrid::HybridEvaluator,
         portfolio::BnbPortfolioSolver,
     };
     use bollard_model::{
@@ -402,7 +402,7 @@ mod tests {
                 model.num_berths(),
                 model.num_vessels(),
             ),
-            WorkloadEvaluator::preallocated(model.num_berths(), model.num_vessels()),
+            HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
         );
 
         let second_solver = BnbPortfolioSolver::new(
@@ -410,12 +410,12 @@ mod tests {
                 model.num_berths(),
                 model.num_vessels(),
             ),
-            WorkloadEvaluator::preallocated(model.num_berths(), model.num_vessels()),
+            HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
         );
 
         let third_solver = BnbPortfolioSolver::new(
             ChronologicalExhaustiveBuilder,
-            WorkloadEvaluator::preallocated(model.num_berths(), model.num_vessels()),
+            HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
         );
 
         let fourth_solver = BnbPortfolioSolver::new(
@@ -423,11 +423,10 @@ mod tests {
                 model.num_berths(),
                 model.num_vessels(),
             ),
-            WorkloadEvaluator::preallocated(model.num_berths(), model.num_vessels()),
+            HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
         );
 
         let mut solver = SolverBuilder::<IntegerType>::new()
-            .with_time_limit(std::time::Duration::from_secs(100))
             .add_solver(first_solver)
             .add_solver(second_solver)
             .add_solver(third_solver)

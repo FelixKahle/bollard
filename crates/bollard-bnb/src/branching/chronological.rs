@@ -41,15 +41,6 @@ use std::iter::FusedIterator;
 /// and each outgoing edge represents assigning the next admissible
 /// `(vessel → berth)` pair according to chronological ordering and symmetry rules.
 ///
-/// ### Structural Guarantees
-///
-/// - **Non-decreasing time along every branch**
-///   (`start_time(next) ≥ start_time(previous)`).
-/// - **Symmetry breaking between identical berths**
-///   (equivalent schedules are never generated).
-/// - **Deterministic ordering** of generated children (row-major vessel × berth).
-/// - **Non-binary branching**: each node may have 0..B children depending on feasibility.
-///
 /// The resulting search space is significantly smaller than the naive full
 /// permutation tree, while still covering all canonical optimal schedules.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

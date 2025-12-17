@@ -137,21 +137,21 @@ where
         T: SolverNumeric,
     {
         let weight = unsafe { model.vessel_weight_unchecked(vessel_index) };
-        // Assuming checked by builder or model integrity; but checking deadline is cheap safety.
-        // If strict speed is required, deadline check can be skipped if builder guaranteed it.
-        // Here we keep it for consistency unless profile suggests removal.
-        // let deadline = unsafe { model.vessel_latest_departure_time_unchecked(vessel_index) };
+        let deadline = unsafe { model.vessel_latest_departure_time_unchecked(vessel_index) };
 
-        let pt = unsafe {
-            model
-                .vessel_processing_time_unchecked(vessel_index, berth_index)
-                .unwrap_unchecked()
-        };
-        let finish = start_time.saturating_add_val(pt);
+        let pt_option =
+            unsafe { model.vessel_processing_time_unchecked(vessel_index, berth_index) };
+        if pt_option.is_none() {
+            return None;
+        }
+        let pt = pt_option.unwrap_unchecked();
+        let completion_time = start_time.saturating_add_val(pt);
 
-        // If we strictly trust the builder, we skip deadline check here.
-        // Keeping it consistent with logic above if needed, but 'unchecked' usually implies trust.
-        Some(finish.saturating_mul_val(weight))
+        if completion_time > deadline {
+            return None;
+        }
+
+        Some(completion_time.saturating_mul_val(weight))
     }
 
     fn estimate_remaining_cost(
@@ -218,8 +218,6 @@ where
                 let processing_time = processing_time_opt.unwrap_unchecked();
                 let tentative_start = arrival.max(current_free_time);
 
-                // CRITICAL UPDATE: Use availability map for LB lookahead
-                // If we ignore availability, we calculate an overly optimistic finish time.
                 let possible_finish = unsafe {
                     berth_availability
                         .earliest_availability_unchecked(

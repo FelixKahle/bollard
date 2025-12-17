@@ -41,7 +41,6 @@ use std::iter::FusedIterator;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FcfsCandidate<T> {
     arrival_time: T,
-    // The decision carries the cost_delta, so we don't need a separate field.
     decision: Decision<T>,
 }
 
@@ -94,6 +93,12 @@ where
     }
 }
 
+/// A First-Come-First-Serve (FCFS) heuristic decision builder.
+///
+/// This builder prioritizes vessel assignments based on their arrival times,
+/// favoring vessels that arrive earlier. In cases where multiple vessels have
+/// the same arrival time, it breaks ties by preferring assignments with lower
+/// costs, and further ties are resolved using the natural ordering of `Decision`.
 #[derive(Debug, Clone, Default)]
 pub struct FcfsHeuristicBuilder<T> {
     /// Scratch buffer for candidates.

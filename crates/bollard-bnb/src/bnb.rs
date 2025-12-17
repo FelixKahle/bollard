@@ -745,7 +745,7 @@ where
 mod tests {
     use super::*;
     use crate::branching::regret::RegretHeuristicBuilder;
-    use crate::eval::workload::WorkloadEvaluator;
+    use crate::eval::hybrid::HybridEvaluator;
     use crate::eval::wtft::WeightedFlowTimeEvaluator;
     use crate::monitor::no_op::NoOperationMonitor;
     use crate::{
@@ -800,12 +800,13 @@ mod tests {
     #[test]
     fn test_solver_with_berths_vessels() {
         let model = build_model(2, 10);
+        println!("{}", model.complexity());
 
         let mut solver = BnbSolver::<IntegerType>::new();
         let mut builder =
             RegretHeuristicBuilder::preallocated(model.num_berths(), model.num_vessels());
         let mut evaluator =
-            WorkloadEvaluator::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
+            HybridEvaluator::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
 
         // 1. Run the solver (timing is now handled internally in result.statistics)
         let outcome = solver.solve(
@@ -820,6 +821,14 @@ mod tests {
         println!("{}", outcome.result());
         println!("{}", outcome.statistics());
         println!("{}", outcome.result().unwrap_optimal());
+        println!(
+            "Coverage {}",
+            model
+                .complexity()
+                .coverage(outcome.statistics().nodes_explored)
+                .map(|c| format!("{:.2}%", c))
+                .unwrap_or_else(|| "None".to_string())
+        );
 
         // 3. Assertions: unwrap the solution from the inner SolverResult
         let solution = match outcome.result() {

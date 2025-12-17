@@ -31,6 +31,110 @@ fn flatten_index(num_berths: usize, vessel_index: VesselIndex, berth_index: Bert
     vessel_index.get() * num_berths + berth_index.get()
 }
 
+/// Represents the theoretical search space size of the Berth Allocation Problem.
+///
+/// The search space is approximated as $N! \times M^N$, where:
+/// * $N$ is the number of vessels (sequence permutations).
+/// * $M$ is the number of berths (assignment combinations).
+///
+/// Since these numbers exceed standard integer limits (e.g., $10^{800}$),
+/// this struct stores the value in **Logarithmic Space** ($\log_{10}$).
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+pub struct Complexity {
+    /// The base-10 logarithm of the total search space size.
+    /// If the size is $1.5 \times 10^{20}$, this stores $20.176$.
+    log_val: f64,
+}
+
+impl Complexity {
+    /// Calculates the complexity for a given number of vessels and berths.
+    pub fn new(num_vessels: usize, num_berths: usize) -> Self {
+        if num_vessels == 0 {
+            return Complexity { log_val: 0.0 };
+        }
+
+        let n = num_vessels as f64;
+        let m = num_berths as f64;
+
+        // The total search space (Leaf Nodes) is calculated as: L = N! * M^N
+        //
+        // Proof:
+        // 1. At depth k (0..N-1), we choose one of (N-k) remaining vessels.
+        // 2. We assign that vessel to one of M berths.
+        // 3. Branching factor at depth k is: B_k = (N-k) * M.
+        // 4. Total combinations = product of all B_k = (N * M) * ((N-1) * M) * ...
+        //                       = (N * (N-1) * ... * 1) * (M * M * ... * M)
+        //                       = N! * M^N.
+        //
+        // Since N! * M^N overflows u128 instantly, we sum their logs:
+        // log10(Total) = log10(N!) + log10(M^N)
+        //              = sum(log10(i)) + N * log10(M)
+
+        // Calculate log10(N!) = sum(log10(i)) for i=1 to N
+        let mut log_factorial = 0.0;
+        for i in 1..=num_vessels {
+            log_factorial += (i as f64).log10();
+        }
+
+        // Calculate log10(M^N) = N * log10(M)
+        // If M=0, the space is technically 0, but we handle it gracefully as 0 log contribution.
+        let log_powers = if num_berths > 0 { n * m.log10() } else { 0.0 };
+
+        Complexity {
+            log_val: log_factorial + log_powers,
+        }
+    }
+
+    /// Returns the percentage of the search space that was actually explored.
+    /// Returns None if the space is too massive to represent as f64.
+    pub fn coverage(&self, nodes_explored: u64) -> Option<f64> {
+        if self.log_val > 15.0 {
+            return Some(0.0);
+        }
+
+        let total_size = 10.0_f64.powf(self.log_val);
+        if total_size == 0.0 {
+            return None;
+        }
+
+        Some((nodes_explored as f64 / total_size) * 100.0)
+    }
+
+    /// Returns the exponent (order of magnitude).
+    /// E.g., for $1.2 \times 10^{842}$, returns 842.
+    #[inline]
+    pub fn exponent(&self) -> u64 {
+        self.log_val.floor() as u64
+    }
+
+    /// Returns the mantissa (coefficient).
+    /// E.g., for $1.2 \times 10^{842}$, returns 1.2.
+    #[inline]
+    pub fn mantissa(&self) -> f64 {
+        let fractional_part = self.log_val - self.log_val.floor();
+        10.0_f64.powf(fractional_part)
+    }
+
+    /// Returns the raw Log10 value. Useful for progress bars.
+    #[inline]
+    pub fn raw(&self) -> f64 {
+        self.log_val
+    }
+}
+
+impl std::fmt::Display for Complexity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.2} × 10^{}", self.mantissa(), self.exponent(),)
+    }
+}
+
+impl std::fmt::Debug for Complexity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Complexity(log10={:.4})", self.log_val)
+    }
+}
+
 /// The immutable data model describing vessels, berths, opening times, and processing times.
 ///
 /// This struct holds all pre-validated, queryable data:
@@ -93,6 +197,23 @@ where
     #[inline]
     pub fn num_berths(&self) -> usize {
         self.opening_times.len()
+    }
+
+    /// Returns the complexity of the model's search space.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let builder = ModelBuilder::<i64>::new(2, 3);
+    /// let model = builder.build();
+    /// let complexity = model.complexity();
+    /// println!("Model complexity: {}", complexity);
+    /// ```
+    #[inline]
+    pub fn complexity(&self) -> Complexity {
+        Complexity::new(self.num_vessels(), self.num_berths())
     }
 
     /// Returns a slice of all arrival times.
@@ -2114,5 +2235,85 @@ mod tests {
         assert!(!is_open(64));
         assert!(is_open(59));
         assert!(is_open(65));
+    }
+
+    #[test]
+    fn test_complexity_zero_vessels() {
+        // N = 0, any M -> log10(size) = 0.0
+        let c = Complexity::new(0, 5);
+        assert_eq!(c.raw(), 0.0);
+        assert_eq!(c.exponent(), 0);
+        assert!((c.mantissa() - 1.0).abs() < 1e-12);
+        assert_eq!(c.coverage(0), Some(0.0));
+        assert_eq!(c.coverage(1), Some(100.0)); // total size = 10^0 = 1
+    }
+
+    #[test]
+    fn test_complexity_small_values_n3_m2() {
+        // N = 3, M = 2  => size = 3! * 2^3 = 6 * 8 = 48
+        let c = Complexity::new(3, 2);
+        let expected_log = 48f64.log10();
+        assert!((c.raw() - expected_log).abs() < 1e-12);
+        assert_eq!(c.exponent(), 1);
+        assert!((c.mantissa() - 4.8).abs() < 1e-12);
+
+        // coverage checks: total = 48, so:
+        assert!((c.coverage(24).unwrap() - 50.0).abs() < 1e-9);
+        assert!((c.coverage(48).unwrap() - 100.0).abs() < 1e-9);
+
+        // Display formatting should use 2 decimals and the multiplication sign
+        let s = format!("{}", c);
+        assert_eq!(s, "4.80 × 10^1");
+    }
+
+    #[test]
+    fn test_complexity_m_zero_uses_factorial_only() {
+        // N = 3, M = 0  => size = 3! = 6
+        let c = Complexity::new(3, 0);
+        let expected_log = 6f64.log10();
+        assert!((c.raw() - expected_log).abs() < 1e-12);
+        assert_eq!(c.exponent(), 0);
+        assert!((c.mantissa() - 6.0).abs() < 1e-12);
+
+        // coverage for small exact space
+        assert!((c.coverage(3).unwrap() - 50.0).abs() < 1e-9);
+        assert!((c.coverage(6).unwrap() - 100.0).abs() < 1e-9);
+
+        // Display should show "6.00 × 10^0"
+        let s = format!("{}", c);
+        assert_eq!(s, "6.00 × 10^0");
+    }
+
+    #[test]
+    fn test_complexity_coverage_small_space() {
+        // N = 2, M = 1 => size = 2! * 1^2 = 2
+        let c = Complexity::new(2, 1);
+        assert!((c.coverage(0).unwrap() - 0.0).abs() < 1e-9);
+        assert!((c.coverage(1).unwrap() - 50.0).abs() < 1e-9);
+        assert!((c.coverage(2).unwrap() - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_complexity_coverage_huge_space_returns_zero() {
+        // 30! dominates -> log10(30!) ~ 32.4 (> 15) => coverage returns Some(0.0)
+        let c = Complexity::new(30, 2);
+        assert_eq!(c.coverage(1_000_000), Some(0.0));
+        assert_eq!(c.coverage(u64::MAX), Some(0.0));
+    }
+
+    #[test]
+    fn test_model_complexity_matches_counts() {
+        // Model::complexity() should be equivalent to Complexity::new(num_vessels, num_berths)
+        let builder = ModelBuilder::<i64>::new(4, 7);
+        let model = builder.build();
+        let c_model = model.complexity();
+        let c_direct = Complexity::new(model.num_vessels(), model.num_berths());
+
+        // Should match exactly because both are computed identically
+        assert!((c_model.raw() - c_direct.raw()).abs() < 1e-12);
+        assert_eq!(c_model.exponent(), c_direct.exponent());
+        assert!((c_model.mantissa() - c_direct.mantissa()).abs() < 1e-12);
+        assert_eq!(format!("{}", c_model), format!("{}", c_direct));
+        assert_eq!(format!("{:?}", c_model), format!("{:?}", c_direct));
     }
 }
