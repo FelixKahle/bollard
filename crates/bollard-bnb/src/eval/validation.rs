@@ -124,10 +124,13 @@ where
         return true;
     }
 
-    for v_idx in 0..model.num_vessels() {
-        let vessel = VesselIndex::new(v_idx);
-        let arrival = model.vessel_arrival_time(vessel);
-        let deadline = model.vessel_latest_departure_time(vessel);
+    // SAFETY: We control the indices, which never extend the model bounds.
+    // Therefore all unchecked calls here are safe.
+
+    for vessel_index in 0..model.num_vessels() {
+        let vessel = VesselIndex::new(vessel_index);
+        let arrival = unsafe { model.vessel_arrival_time_unchecked(vessel) };
+        let deadline = unsafe { model.vessel_latest_departure_time_unchecked(vessel) };
 
         let span = deadline.saturating_sub_val(arrival);
         let divisor = T::from_usize(max_iterations_per_vessel).unwrap_or(T::one());
@@ -139,9 +142,9 @@ where
             T::one()
         };
 
-        for b_idx in 0..model.num_berths() {
-            let berth = BerthIndex::new(b_idx);
-            if !model.vessel_allowed_on_berth(vessel, berth) {
+        for berth_index in 0..model.num_berths() {
+            let berth = BerthIndex::new(berth_index);
+            if unsafe { !model.vessel_allowed_on_berth_unchecked(vessel, berth) } {
                 continue;
             }
 
@@ -155,13 +158,15 @@ where
             };
 
             for t in points {
-                let score = evaluator.evaluate_vessel_assignment(
-                    model,
-                    &berth_availability,
-                    vessel,
-                    berth,
-                    t,
-                );
+                let score = unsafe {
+                    evaluator.evaluate_vessel_assignment_unchecked(
+                        model,
+                        &berth_availability,
+                        vessel,
+                        berth,
+                        t,
+                    )
+                };
 
                 if !check_monotonicity(last_valid_cost, score) {
                     return false;
@@ -176,6 +181,18 @@ where
     true
 }
 
+/// Returns whether the sampled cost sequence remains non-decreasing while
+/// treating infeasible samples as neutral.
+///
+/// This helper is used when validating objective regularity over sampled
+/// start times. It compares only when both values are `Some`; any transition
+/// that involves `None` is considered monotonic (returns `true`). This lets you
+/// skip infeasible points (represented by `None`) without breaking the
+/// non-decreasing check.
+///
+/// Behavior:
+/// - If both `last_some` and `current` are `Some`, returns `current >= last_some`.
+/// - If either is `None`, returns `true`.
 #[inline(always)]
 fn check_monotonicity<T: SolverNumeric>(last_some: Option<T>, current: Option<T>) -> bool {
     match (last_some, current) {

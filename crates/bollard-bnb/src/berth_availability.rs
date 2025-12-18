@@ -31,11 +31,10 @@
 //! `earliest_availability` to obtain the next feasible start time for a berth,
 //! and the interval accessors to inspect the current availability state.
 
+use crate::fixed::FixedAssignment;
 use bollard_core::{math::interval::ClosedOpenInterval, num::constants::MinusOne};
 use bollard_model::{index::BerthIndex, model::Model};
 use num_traits::{PrimInt, Signed};
-
-use crate::fixed::FixedAssignment;
 
 /// Checks whether the given intervals are disjoint and sorted by start time.
 ///

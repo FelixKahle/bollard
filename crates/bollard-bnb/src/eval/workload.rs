@@ -207,21 +207,20 @@ where
 
         self.scratch_jobs.clear();
 
-        for i in 0..num_vessels {
-            let vessel_index = VesselIndex::new(i);
+        for vessel_index in 0..num_vessels {
+            let vessel = VesselIndex::new(vessel_index);
 
-            if unsafe { state.is_vessel_assigned_unchecked(vessel_index) } {
+            if unsafe { state.is_vessel_assigned_unchecked(vessel) } {
                 continue;
             }
 
-            let weight = unsafe { model.vessel_weight_unchecked(vessel_index) };
+            let weight = unsafe { model.vessel_weight_unchecked(vessel) };
             let mut min_duration = T::max_value();
             let mut feasible = false;
 
-            for b in 0..num_berths {
-                let berth_index = BerthIndex::new(b);
-                let pt =
-                    unsafe { model.vessel_processing_time_unchecked(vessel_index, berth_index) };
+            for berth_index in 0..num_berths {
+                let berth = BerthIndex::new(berth_index);
+                let pt = unsafe { model.vessel_processing_time_unchecked(vessel, berth) };
 
                 if pt.is_none() {
                     continue;
@@ -248,7 +247,6 @@ where
             return Some(T::zero());
         }
 
-        // WSPT ordering for the simulation
         self.scratch_jobs.sort_unstable_by(|a, b| {
             let score_a = a.weight.saturating_mul_val(b.processing_time);
             let score_b = b.weight.saturating_mul_val(a.processing_time);
@@ -259,9 +257,6 @@ where
 
         for job in &self.scratch_jobs {
             if let Some(Reverse(free_time)) = self.scratch_heap.pop() {
-                // Relaxation: We assume the vessel can start immediately when the berth is free.
-                // We do NOT check arrival times or maintenance windows here, preserving the
-                // optimistic Lower Bound property.
                 let start = free_time;
                 let finish = start.saturating_add_val(job.processing_time);
                 let cost = finish.saturating_mul_val(job.weight);
@@ -269,7 +264,6 @@ where
                 simulated_future_cost = simulated_future_cost.saturating_add_val(cost);
                 self.scratch_heap.push(Reverse(finish));
             } else {
-                // Should be impossible if num_berths > 0
                 return None;
             }
         }

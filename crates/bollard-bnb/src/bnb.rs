@@ -216,6 +216,11 @@ where
 
     /// Internal solve method that takes an `IncumbentStore`,
     /// which is usually either a `NoSharedIncumbent` or a `SharedIncumbentAdapter`.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, this function will panic if the provided
+    /// `ObjectiveEvaluator` is not regular (i.e., monotonicity is violated).
     #[inline(always)]
     fn solve_internal<B, E, S, I>(
         &mut self,
