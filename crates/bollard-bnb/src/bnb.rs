@@ -852,7 +852,7 @@ mod tests {
             model
                 .complexity()
                 .coverage(outcome.statistics().nodes_explored)
-                .map(|c| format!("{:.2}%", c))
+                .map(|c| format!("{}%", c))
                 .unwrap_or_else(|| "None".to_string())
         );
 

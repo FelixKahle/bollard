@@ -19,6 +19,18 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Console logging monitor for tree search
+//!
+//! `LogTreeSearchMonitor` prints a compact progress table at a configurable
+//! interval, showing elapsed time, nodes explored, best objective, backtracks,
+//! and pruned counts.
+//!
+//! Behavior
+//! - Prints a header on enter and a footer on exit.
+//! - Uses a step mask to limit clock checks (lower overhead).
+//!
+//! Configure via `new(interval)` or `with_clock_check_mask(interval, mask)`.
+
 use crate::{
     branching::decision::Decision,
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
@@ -91,31 +103,29 @@ where
     }
 
     const HEADER_FOOTER_RULE: &str =
-        "----------------------------------------------------------------------------------";
+        "------------------------------------------------------------------------";
 
     #[inline(always)]
     fn print_header(&self) {
         println!(
-            "{:<9} | {:>14} | {:>7} | {:>14} | {:>10} | {:>13}",
-            "Elapsed", "Nodes", "Depth", "Best Solution", "Backtracks", "Pruned"
+            "{:<9} | {:>14} | {:>14} | {:>10} | {:>13}",
+            "Elapsed", "Nodes", "Best Solution", "Backtracks", "Pruned"
         );
         println!("{}", Self::HEADER_FOOTER_RULE);
     }
 
     #[inline(always)]
-    fn log_line(&mut self, state: &SearchState<T>, stats: &BnbSolverStatistics) {
+    fn log_line(&mut self, stats: &BnbSolverStatistics) {
         let elapsed = self.start_time.elapsed().as_secs_f32();
 
         let nodes = stats.nodes_explored;
-        let depth = state.num_assigned_vessels();
         let backtracks = stats.backtracks;
         let pruned = stats.prunings_infeasible + stats.prunings_bound;
 
         println!(
-            "{:<9} | {:>14} | {:>7} | {:>14} | {:>10} | {:>13}",
+            "{:<9} | {:>14} | {:>14} | {:>10} | {:>13}",
             format!("{:.1}s", elapsed),
             nodes,
-            depth,
             self.best_objective
                 .as_ref()
                 .map_or("Inf".to_string(), |sol| sol.to_string()),
@@ -147,11 +157,11 @@ where
         println!("Search finished.");
     }
 
-    fn on_step(&mut self, state: &SearchState<T>, statistics: &BnbSolverStatistics) {
+    fn on_step(&mut self, _state: &SearchState<T>, statistics: &BnbSolverStatistics) {
         if (statistics.steps & self.clock_check_mask) == 0
             && self.last_log_time.elapsed() >= self.log_interval
         {
-            self.log_line(state, statistics);
+            self.log_line(statistics);
         }
     }
 

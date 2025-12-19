@@ -19,6 +19,19 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! No‑op monitor for tree search
+//!
+//! `NoOperationMonitor` implements `TreeSearchMonitor` and deliberately does
+//! nothing. Use it to disable monitoring with minimal overhead or as a
+//! placeholder where a monitor is required by type.
+//!
+//! Behavior
+//! - Always returns `SearchCommand::Continue`.
+//! - Ignores all callbacks (`on_*` methods are no‑ops).
+//! - Stateless; only carries `PhantomData<T>`.
+//!
+//! Suitable for baselines, tests, and as a neutral element in composite monitors.
+
 use crate::{
     branching::decision::Decision,
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},

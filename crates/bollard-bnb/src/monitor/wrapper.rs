@@ -19,6 +19,18 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Adapter for external search monitors
+//!
+//! `WrapperMonitor` bridges this crate’s `TreeSearchMonitor` with a generic
+//! `SearchMonitor` from `bollard_search`. It forwards lifecycle events and
+//! commands to the inner monitor while ignoring tree‑specific callbacks.
+//!
+//! Behavior
+//! - Delegates: enter, step, solution, exit, and `search_command`.
+//! - No‑ops: prune, descend, backtrack, lower‑bound, and decisions‑enqueued.
+//! - `name()` is `WrapperMonitor(inner.name())`.
+//! - Holds `&mut dyn SearchMonitor<T>`; lifetime‑bound, single owner.
+
 use crate::{
     branching::decision::Decision,
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},

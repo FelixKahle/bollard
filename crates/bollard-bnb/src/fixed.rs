@@ -19,6 +19,15 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Fixed assignments for berth allocation
+//!
+//! `FixedAssignment<T>` is a compact value object that pins a vessel to a berth
+//! at a concrete start time. It’s used to express pre‑placed work, seeds/warm
+//! starts, or to serialize schedules from solver output.
+//!
+//! Ordering
+//! - Total order: by `start_time`, then `vessel_index`, then `berth_index`.
+
 use bollard_model::index::{BerthIndex, VesselIndex};
 
 /// A fixed assignment of a vessel to a berth at a specific start time.

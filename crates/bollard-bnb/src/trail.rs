@@ -21,6 +21,24 @@
 
 #![allow(dead_code)]
 
+//! Backtracking trail for branch‑and‑bound
+//!
+//! Provides a compact, cache‑friendly undo log for mutating `SearchState`.
+//! The trail records assignment deltas (`TrailEntry`) and lightweight frame
+//! markers (`FrameEntry`) so a decision level can be rolled back in O(k)
+//! by iterating recent entries in reverse.
+//!
+//! Core pieces
+//! - `SearchTrail`: linear log with a stack of frames; supports `push_frame`,
+//!   `apply_assignment(_unchecked)`, `backtrack`, `clear`, and `reset`.
+//! - `TrailEntry`/`FrameEntry`: minimal data to restore berth times,
+//!   assignments, objective, and last‑decision metadata.
+//!
+//! Performance notes
+//! - Use `preallocated`/`ensure_capacity` to reduce reallocations at scale;
+//!   hot‑path methods provide unchecked variants guarded by debug asserts.
+//! - Designed for tight search loops; operations are inline‑friendly.
+
 use crate::state::SearchState;
 use bollard_model::index::{BerthIndex, VesselIndex};
 use num_traits::{PrimInt, Zero};

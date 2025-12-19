@@ -19,6 +19,18 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Monitoring combinators for tree search
+//!
+//! Provides `CompositeTreeSearchMonitor`, a fan‑out monitor that forwards every
+//! event to its children. This lets you mix logging, metrics, visualization,
+//! and early‑stopping without coupling them to the solver.
+//!
+//! Behavior
+//! - Events are dispatched to child monitors in insertion order.
+//! - `search_command` short‑circuits on the first non‑`Continue` response;
+//!   put stricter stop conditions first.
+//! - Other callbacks always fan out to all children.
+
 use crate::{
     branching::decision::Decision,
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},

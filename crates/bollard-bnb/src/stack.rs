@@ -21,6 +21,22 @@
 
 #![allow(dead_code)]
 
+//! Frame‑structured decision stack for branch‑and‑bound
+//!
+//! `SearchStack<T>` is a LIFO of pending `Decision<T>` with frame markers to
+//! delimit decision levels. Pushing a frame records the current length; popping
+//! truncates back to that point in O(1).
+//!
+//! Highlights
+//! - Frames: `push_frame`, `pop_frame`, `current_frame_entries` (slice view).
+//! - Entries: `push`, `extend`, `pop`, `all_entries`, `iter`.
+//! - Capacity: `preallocated`/`ensure_capacity` to minimize reallocations;
+//!   `reset` clears while retaining capacity; `allocated_memory_bytes` reports use.
+//!
+//! Design
+//! - Linear storage for cache locality; no per‑decision heap churn.
+//! - Operations are inline‑friendly and suited for tight solver loops.
+
 use crate::branching::decision::Decision;
 use bollard_core::num::ops::saturating_arithmetic::SaturatingAddVal;
 

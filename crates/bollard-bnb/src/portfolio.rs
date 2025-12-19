@@ -19,6 +19,28 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Portfolio integration for branch‑and‑bound
+//!
+//! Exposes `BnbPortfolioSolver<T, B, E>`, an adapter that implements
+//! `bollard_search::portfolio::PortofolioSolver<T>` by combining the core
+//! `BnbSolver<T>` with a `DecisionBuilder` and `ObjectiveEvaluator`.
+//! The portfolio `SearchMonitor` is bridged via `monitor::wrapper::WrapperMonitor`.
+//!
+//! Behavior
+//! - `invoke(context)`: runs BnB with the given `model`, `incumbent`, and
+//!   portfolio monitor; returns a `PortfolioSolverResult<T>`.
+//! - `name()`: includes concrete type names for `T`, `B`, and `E`.
+//!
+//! Constructors
+//! - `new(builder, evaluator)`
+//! - `preallocated(num_berths, num_vessels, builder, evaluator)` (shifts
+//!   allocation time; does not change asymptotic performance).
+//!
+//! Notes
+//! - Trait bounds for portfolio use: `B: DecisionBuilder<T, E> + Send + Sync`,
+//!   `E: ObjectiveEvaluator<T> + Send + Sync`.
+//! - Accessors expose the inner solver, builder, and evaluator for inspection.
+
 use crate::{
     bnb::BnbSolver, branching::decision::DecisionBuilder, eval::evaluator::ObjectiveEvaluator,
     monitor::wrapper::WrapperMonitor,
