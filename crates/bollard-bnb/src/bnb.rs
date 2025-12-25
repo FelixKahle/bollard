@@ -892,7 +892,7 @@ mod tests {
 
         // Standard setup matching existing tests
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -939,7 +939,7 @@ mod tests {
         // Use preallocated solver to exercise capacity paths
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -988,7 +988,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1040,7 +1040,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1092,7 +1092,7 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1178,7 +1178,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1240,7 +1240,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1292,7 +1292,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1331,7 +1331,7 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
 
         // Run twice with separate evaluator instances to exercise internal backtracking paths
         for run in 0..2 {
@@ -1391,7 +1391,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
 
         // Use two separate evaluator instances with NoOperationMonitor
         let mut evaluator1 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
@@ -1438,7 +1438,7 @@ mod tests {
         // Preallocated solver to exercise capacity logic
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
 
         // Run three times with fresh evaluators to ensure no residual state remains
         for run in 0..3 {
@@ -1500,7 +1500,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
 
         // Evaluator for the first run
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
@@ -1598,7 +1598,7 @@ mod tests {
         // If Model is immutable, this acts as a conceptual check using the existing spacing.
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1640,7 +1640,7 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
 
         // Create several evaluators to test internal consistency across different evaluator instances
         for i in 0..3 {
@@ -1685,7 +1685,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1743,7 +1743,7 @@ mod tests {
         let model = builder.build();
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::default(); // simplistic
 
         let outcome = solver.solve(
@@ -1771,7 +1771,7 @@ mod tests {
 
         // 1. Run without incumbent to obtain a baseline best solution
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator_cold = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1885,7 +1885,7 @@ mod tests {
 
         // Fresh solver and components
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1942,7 +1942,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1991,7 +1991,7 @@ mod tests {
 
         // Baseline run to get a best solution
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator1 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -2031,7 +2031,7 @@ mod tests {
         // First model 2x5
         let model_a = build_model(2, 5);
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator_a = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model_a.num_berths(),
             model_a.num_vessels(),
@@ -2085,7 +2085,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
 
         let mut evaluator1 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
@@ -2174,7 +2174,7 @@ mod tests {
         // Gurobi Verification: 575.0
         let model = build_model_with_closing_times(2, 8);
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -2223,7 +2223,7 @@ mod tests {
         let model = builder.build();
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -2256,7 +2256,7 @@ mod tests {
         // Gurobi Verification: 607.0
         let model = build_model_with_closing_times(2, 6);
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),

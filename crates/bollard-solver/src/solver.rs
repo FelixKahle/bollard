@@ -23,8 +23,8 @@ use bollard_model::model::Model;
 use bollard_search::{
     incumbent::SharedIncumbent,
     monitor::{
-        composite::CompositeMonitor, interrupt::InterruptMonitor,
-        solution_limit::SolutionLimitMonitor, time_limit::TimeLimitMonitor,
+        composite::CompositeMonitor, interrupt::InterruptMonitor, solution::SolutionMonitor,
+        time_limit::TimeLimitMonitor,
     },
     num::SolverNumeric,
     portfolio::{PortfolioSolverContext, PortfolioSolverResult, PortofolioSolver},
@@ -126,11 +126,8 @@ where
                     // Always add the interrupt monitor so this thread can be stopped
                     // if another thread finishes early.
                     monitor.add_monitor(InterruptMonitor::new(stop_signal));
+                    monitor.add_monitor(SolutionMonitor::new(global_solution_count, solution_limit));
 
-                    if let Some(limit) = solution_limit {
-                        monitor
-                            .add_monitor(SolutionLimitMonitor::new(global_solution_count, limit));
-                    }
                     if let Some(limit) = time_limit {
                         monitor.add_monitor(TimeLimitMonitor::new(limit));
                     }
@@ -159,49 +156,6 @@ where
         results
     }
 
-    /// Aggregates results, builds statistics, and determines the final outcome.
-    fn construct_outcome(
-        &self,
-        start_time: std::time::Instant,
-        results: Vec<PortfolioSolverResult<T>>,
-    ) -> SolverOutcome<T> {
-        let stats = self.build_statistics(start_time, results.len());
-
-        // Find the best solution and potentially the result wrapper that contained it
-        // (so we can steal its specific abort message).
-        let best_result_wrapper = self.find_best_result_wrapper(&results);
-        let best_solution = self.find_best_solution(&results);
-
-        // Optimality is proven if ANY thread returned Optimal.
-        let optimality_proven = results
-            .iter()
-            .any(|r| matches!(r.result(), SolverResult::Optimal(_)));
-
-        // Infeasibility is proven only if ALL threads returned Infeasible.
-        let all_infeasible = !results.is_empty()
-            && results
-                .iter()
-                .all(|r| matches!(r.result(), SolverResult::Infeasible));
-
-        if let Some(sol) = best_solution {
-            if optimality_proven {
-                return SolverOutcome::optimal(sol, stats);
-            }
-            // If we have a solution but didn't prove optimality, it's Feasible (Aborted).
-            // We pass the result wrapper to see if it has a specific abort reason.
-            let reason_str = self.determine_abort_reason(best_result_wrapper);
-            return SolverOutcome::feasible(sol, reason_str, stats);
-        }
-
-        if all_infeasible {
-            return SolverOutcome::infeasible(stats);
-        }
-
-        // No solution found -> Unknown.
-        let reason_str = self.determine_abort_reason(None);
-        SolverOutcome::unknown(reason_str, stats)
-    }
-
     /// Finds the absolute best solution among all thread results and the shared incumbent.
     fn find_best_solution(
         &self,
@@ -220,26 +174,6 @@ where
             .cloned()
     }
 
-    /// Finds the `PortfolioSolverResult` corresponding to the best solution found by threads.
-    /// This is used to extract the TerminationReason string from the thread that actually found the best result.
-    fn find_best_result_wrapper<'r>(
-        &self,
-        results: &'r [PortfolioSolverResult<T>],
-    ) -> Option<&'r PortfolioSolverResult<T>> {
-        results
-            .iter()
-            .filter(|r| {
-                matches!(
-                    r.result(),
-                    SolverResult::Optimal(_) | SolverResult::Feasible(_)
-                )
-            })
-            .min_by_key(|r| match r.result() {
-                SolverResult::Optimal(s) | SolverResult::Feasible(s) => s.objective_value(),
-                _ => unreachable!("filtered above"),
-            })
-    }
-
     fn build_statistics(
         &self,
         start_time: std::time::Instant,
@@ -252,39 +186,63 @@ where
             .build()
     }
 
-    /// Determines the reason string for an aborted/feasible outcome.
-    ///
-    /// Priority:
-    /// 1. The specific reason returned by the solver that found the best result (if available).
-    /// 2. The Stop Signal (interrupt).
-    /// 3. Global Time/Solution Limits.
-    fn determine_abort_reason(&self, best_result: Option<&PortfolioSolverResult<T>>) -> String {
-        let reason = best_result
-            // 1. Try to extract specific message from the best thread result
-            .and_then(|res| match res.termination_reason() {
-                TerminationReason::Aborted(msg) => Some(msg.clone()),
-                _ => None,
-            })
-            // 2. Check for manual interrupt signal
-            .or_else(|| {
-                self.stop_signal
-                    .load(Ordering::Relaxed)
-                    .then(|| "Interrupt signal received".to_string())
-            })
-            // 3. Check if a time limit was configured (and presumably hit)
-            .or_else(|| {
-                self.time_limit
-                    .map(|limit| format!("time limit reached after {:.3}s", limit.as_secs_f64()))
-            })
-            // 4. Check if a solution limit was configured
-            .or_else(|| {
-                self.solution_limit
-                    .map(|limit| format!("solution limit {} reached", limit))
-            })
-            // 5. Fallback default
-            .unwrap_or_else(|| "portfolio finished without proving optimality".to_string());
+    fn construct_outcome(
+        &self,
+        start_time: std::time::Instant,
+        results: Vec<PortfolioSolverResult<T>>,
+    ) -> SolverOutcome<T> {
+        let stats = self.build_statistics(start_time, results.len());
 
-        format!("Aborted: {}", reason)
+        // 1. Always identify the best solution globally first.
+        let best_solution = self.find_best_solution(&results);
+
+        // 2. Check if ANY thread mathematically proved the global optimum.
+        let optimality_proven = results
+            .iter()
+            .any(|r| matches!(r.result(), SolverResult::Optimal(_)));
+
+        // 3. Hierarchy: Optimality > Infeasibility > Aborted
+        if let Some(sol) = best_solution {
+            if optimality_proven {
+                return SolverOutcome::optimal(sol, stats);
+            }
+            // If we have a solution but no proof, it's the best "Feasible" one.
+            let reason = self.determine_abort_reason(&results);
+            return SolverOutcome::feasible(sol, reason, stats);
+        }
+
+        // 4. If no solution was found, was it because it's impossible?
+        if results
+            .iter()
+            .any(|r| matches!(r.result(), SolverResult::Infeasible))
+        {
+            return SolverOutcome::infeasible(stats);
+        }
+
+        // 5. Fallback: Unknown
+        let reason = self.determine_abort_reason(&results);
+        SolverOutcome::unknown(reason, stats)
+    }
+
+    fn determine_abort_reason(&self, results: &[PortfolioSolverResult<T>]) -> String {
+        // 1. Explicit Monitor trigger (Time/Solution limit)
+        if let Some(msg) = results.iter().find_map(|res| {
+            if let TerminationReason::Aborted(msg) = res.termination_reason() {
+                Some(msg.clone())
+            } else {
+                None
+            }
+        }) {
+            return msg;
+        }
+
+        // 2. Global signal (Ctrl+C or Optimality found elsewhere)
+        if self.stop_signal.load(Ordering::Relaxed) {
+            return "external interrupt".to_string();
+        }
+
+        // 3. Natural Exhaustion (Heuristic finished its work)
+        "search space exhausted without proof".to_string()
     }
 }
 
@@ -414,8 +372,8 @@ mod tests {
         );
 
         let third_solver = BnbPortfolioSolver::new(
-            ChronologicalExhaustiveBuilder,
-            HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
+            ChronologicalExhaustiveBuilder::new(),
+            HybridEvaluator::<i64>::preallocated(model.num_berths(), model.num_vessels()),
         );
 
         let fourth_solver = BnbPortfolioSolver::new(

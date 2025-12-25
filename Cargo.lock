@@ -32,8 +32,10 @@ dependencies = [
 name = "bollard_ffi"
 version = "0.1.0"
 dependencies = [
+ "bollard_bnb",
  "bollard_core",
  "bollard_model",
+ "bollard_search",
  "libc",
  "num-traits",
 ]

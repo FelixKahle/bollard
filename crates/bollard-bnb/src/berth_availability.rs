@@ -31,6 +31,13 @@
 //! `earliest_availability` to obtain the next feasible start time for a berth,
 //! and the interval accessors to inspect the current availability state.
 
+// This implementation derives from my Bachelor's thesis,
+// "Efficient Data Structures and Algorithms for a High-Performance
+// Berth Allocation Solver Framework" (University of Hamburg, 2025).
+// The thesis implementation was called `IntervalSet`. For this module,
+// I've tuned it for cache locality and pared it down to essentials:
+// a precomputed, sorted `Vec` of disjoint intervals constructed at initialization.
+
 use crate::fixed::FixedAssignment;
 use bollard_core::{math::interval::ClosedOpenInterval, num::constants::MinusOne};
 use bollard_model::{index::BerthIndex, model::Model};

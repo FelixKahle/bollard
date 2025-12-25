@@ -23,5 +23,5 @@ pub mod composite;
 pub mod index;
 pub mod interrupt;
 pub mod search_monitor;
-pub mod solution_limit;
+pub mod solution;
 pub mod time_limit;

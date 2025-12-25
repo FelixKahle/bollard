@@ -30,5 +30,7 @@ crate-type = ["cdylib"]
 [dependencies]
 bollard_core = { path = "../bollard-core" }
 bollard_model = { path = "../bollard-model" }
+bollard_bnb = { path = "../bollard-bnb" }
+bollard_search = { path = "../bollard-search" }
 num-traits = "0.2.19"
 libc = "0.2.178"

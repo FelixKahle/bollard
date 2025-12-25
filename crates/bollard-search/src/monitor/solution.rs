@@ -26,23 +26,24 @@ use crate::{
 use bollard_model::{model::Model, solution::Solution};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// A monitor that terminates the search when a specified number of solutions has been found.
+/// A monitor that terminates the search when a specified number of solutions has been found,
+/// or continues indefinitely if no limit is set just updating the solution count.
 /// This monitor keeps track of the number of solutions found using an atomic counter
-/// and compares it against a predefined solution limit.
+/// and compares it against a predefined solution limit if provided.
 #[derive(Debug)]
-pub struct SolutionLimitMonitor<'a, T> {
+pub struct SolutionMonitor<'a, T> {
     solutions_found: &'a AtomicU64,
-    solution_limit: u64,
+    solution_limit: Option<u64>,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<'a, T> SolutionLimitMonitor<'a, T>
+impl<'a, T> SolutionMonitor<'a, T>
 where
     T: SolverNumeric,
 {
     /// Creates a new `SolutionLimitMonitor`.
     #[inline]
-    pub fn new(solutions_found: &'a AtomicU64, solution_limit: u64) -> Self {
+    pub fn new(solutions_found: &'a AtomicU64, solution_limit: Option<u64>) -> Self {
         Self {
             solutions_found,
             solution_limit,
@@ -50,19 +51,34 @@ where
         }
     }
 
+    /// Creates a new `SolutionLimitMonitor` with a specified solution limit.
+    #[inline]
+    pub fn with_limit(solutions_found: &'a AtomicU64, limit: u64) -> Self {
+        Self::new(solutions_found, Some(limit))
+    }
+
+    /// Creates a new `SolutionLimitMonitor` without a solution limit.
+    #[inline]
+    pub fn without_limit(solutions_found: &'a AtomicU64) -> Self {
+        Self::new(solutions_found, None)
+    }
+
     /// Checks if the solution limit has been reached.
     #[inline]
     fn reached_limit(&self) -> bool {
-        self.solutions_found.load(Ordering::Relaxed) >= self.solution_limit
+        if let Some(limit) = self.solution_limit {
+            return self.solutions_found.load(Ordering::Relaxed) >= limit;
+        }
+        false
     }
 }
 
-impl<'a, T> SearchMonitor<T> for SolutionLimitMonitor<'a, T>
+impl<'a, T> SearchMonitor<T> for SolutionMonitor<'a, T>
 where
     T: SolverNumeric,
 {
     fn name(&self) -> &str {
-        "SolutionLimitMonitor"
+        "SolutionMonitor"
     }
 
     fn on_enter_search(&mut self, _model: &Model<T>) {}
@@ -86,7 +102,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::SolutionLimitMonitor;
+    use super::SolutionMonitor;
     use crate::monitor::search_monitor::{SearchCommand, SearchMonitor};
     use crate::num::SolverNumeric;
     use bollard_model::solution::Solution;
@@ -103,7 +119,7 @@ mod tests {
     fn test_continue_before_limit_and_terminate_at_limit() {
         let counter = AtomicU64::new(0);
         let limit = 3;
-        let mut monitor = SolutionLimitMonitor::<i64>::new(&counter, limit);
+        let mut monitor = SolutionMonitor::<i64>::new(&counter, Some(limit));
 
         // Before any solution, command is Continue
         assert!(matches!(monitor.search_command(), SearchCommand::Continue));
@@ -134,8 +150,8 @@ mod tests {
         let counter = AtomicU64::new(0);
         let limit = 4;
 
-        let mut m1 = SolutionLimitMonitor::<i64>::new(&counter, limit);
-        let mut m2 = SolutionLimitMonitor::<i64>::new(&counter, limit);
+        let mut m1 = SolutionMonitor::<i64>::new(&counter, Some(limit));
+        let mut m2 = SolutionMonitor::<i64>::new(&counter, Some(limit));
 
         // m1 finds 2 solutions
         m1.on_solution_found(&dummy_solution(1));
@@ -169,7 +185,7 @@ mod tests {
             let c = Arc::clone(&counter);
             handles.push(thread::spawn(move || {
                 // Monitor is constructed inside the thread, borrowing from the cloned Arc.
-                let mut m = super::SolutionLimitMonitor::<i64>::new(Arc::as_ref(&c), limit);
+                let mut m = super::SolutionMonitor::<i64>::new(Arc::as_ref(&c), Some(limit));
 
                 // Simulate this thread finding 3 solutions
                 let dummy = bollard_model::solution::Solution::new(0i64, Vec::new(), Vec::new());

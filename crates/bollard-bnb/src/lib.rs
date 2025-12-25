@@ -64,6 +64,6 @@ pub mod monitor;
 pub mod portfolio;
 pub mod result;
 mod stack;
-mod state;
+pub mod state;
 pub mod stats;
 mod trail;

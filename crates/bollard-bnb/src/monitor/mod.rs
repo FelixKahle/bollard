@@ -38,5 +38,7 @@
 pub mod composite;
 pub mod log;
 pub mod no_op;
+pub mod solution;
+pub mod time;
 pub mod tree_search_monitor;
 pub mod wrapper;

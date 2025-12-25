@@ -215,7 +215,7 @@ mod tests {
         let model = build_model(2, 10);
 
         // Construct inner solver, builder, and evaluator
-        let builder = ChronologicalExhaustiveBuilder;
+        let builder = ChronologicalExhaustiveBuilder::new();
         let evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),

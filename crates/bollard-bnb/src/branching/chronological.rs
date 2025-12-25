@@ -64,9 +64,28 @@ use std::iter::FusedIterator;
 /// The resulting search space is significantly smaller than the naive full
 /// permutation tree, while still covering all canonical optimal schedules.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct ChronologicalExhaustiveBuilder;
+pub struct ChronologicalExhaustiveBuilder<T> {
+    _phantom: std::marker::PhantomData<T>,
+}
 
-impl<T, E> DecisionBuilder<T, E> for ChronologicalExhaustiveBuilder
+impl<T> ChronologicalExhaustiveBuilder<T> {
+    /// Creates a new `ChronologicalExhaustiveBuilder`.
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn preallocated(_num_berths: usize, _num_vessels: usize) -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T, E> DecisionBuilder<T, E> for ChronologicalExhaustiveBuilder<T>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
@@ -249,7 +268,7 @@ mod tests {
 
         // Evaluator is now actively used by the builder via Decision::try_new
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
 
         let iter = builder.next_decision(&mut eval, &model, &berth_availability, &state);
         let decisions: Vec<Decision<IntegerType>> = iter.collect();
@@ -282,7 +301,7 @@ mod tests {
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
 
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut it = builder.next_decision(&mut eval, &model, &berth_availability, &state);
 
         // Exhaust the iterator
