@@ -19,6 +19,7 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+use crate::result::BnbSolverFFIOutcome;
 use bollard_bnb::{
     bnb::BnbSolver,
     branching::{
@@ -130,7 +131,7 @@ macro_rules! generate_solve {
             solution_limit: usize,
             time_limit_ms: i64,
             enable_log: bool,
-        ) -> *mut BnbSolverOutcome<i64> {
+        ) -> *mut BnbSolverFFIOutcome {
             assert!(
                 !solver_ptr.is_null(),
                 "called `{}` with null solver pointer",
@@ -158,7 +159,8 @@ macro_rules! generate_solve {
                 enable_log,
             );
 
-            Box::into_raw(Box::new(outcome))
+            let ffi_outcome = BnbSolverFFIOutcome::from(outcome);
+            Box::into_raw(Box::new(ffi_outcome))
         }
     };
 }
