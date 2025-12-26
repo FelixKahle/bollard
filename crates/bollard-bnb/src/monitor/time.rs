@@ -30,10 +30,12 @@
 //! tune how frequently the clock is checked versus search throughput.
 
 use crate::{
+    branching::decision::Decision,
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
     state::SearchState,
     stats::BnbSolverStatistics,
 };
+use bollard_model::model::Model;
 use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
 use std::time::{Duration, Instant};
@@ -83,11 +85,7 @@ where
         "TimeLimitMonitor"
     }
 
-    fn on_enter_search(
-        &mut self,
-        _model: &bollard_model::model::Model<T>,
-        _statistics: &BnbSolverStatistics,
-    ) {
+    fn on_enter_search(&mut self, _model: &Model<T>, _statistics: &BnbSolverStatistics) {
         self.start_time = Instant::now();
     }
 
@@ -123,7 +121,7 @@ where
     fn on_descend(
         &mut self,
         _state: &SearchState<T>,
-        _decision: crate::branching::decision::Decision<T>,
+        _decision: Decision<T>,
         _statistics: &BnbSolverStatistics,
     ) {
     }

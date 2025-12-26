@@ -19,6 +19,87 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Foreign Function Interface (FFI) for the Bollard Solver
+//!
+//! This module provides a stable, C-compatible ABI for interacting with the
+//! Bollard Branch-and-Bound solver. It serves as the bridge between the Rust
+//! core and external environments (such as C, C++, Python, Julia, or C#) while preserving
+//! the solver’s performance characteristics and safety guarantees at the boundary.
+//!
+//! ## Overview
+//!
+//! The FFI is designed around opaque pointers and explicit resource management.
+//! It exposes the solver's capabilities through a combinatoric set of functions
+//! that allow users to select specific **Objective Evaluators** and **Search Heuristics**.
+//!
+//! ## Usage Lifecycle
+//!
+//! A typical integration flow involves the following steps:
+//!
+//! 1.  **Instantiation**: Create a solver instance using `bollard_bnb_solver_new`
+//!     or `bollard_bnb_solver_preallocated`.
+//! 2.  **Modeling**: Construct a `Model` using the sibling `model` FFI module.
+//! 3.  **Solving**: Call one of the specific solve functions (see "Exported Functions" below).
+//!     This step accepts constraints (time limits, solution limits) and optional
+//!     fixed assignments.
+//! 4.  **Inspection**: Read the results from the returned `BnbSolverFfiOutcome`.
+//! 5.  **Cleanup**: Explicitly free the outcome, the model, and the solver to avoid memory leaks.
+//!
+//! ## Safety
+//!
+//! This module makes extensive use of `unsafe` code to handle raw pointers.
+//! External callers **must** ensure:
+//!
+//! * Pointers passed to these functions are valid and allocated by this library.
+//! * Pointers are not used after being passed to a `_free` function.
+//! * The `fixed_len` argument accurately reflects the size of the buffer pointed to by `fixed_ptr`.
+//! * `NULL` pointers are not passed unless explicitly allowed (currently, most functions panic on NULL).
+//!
+//! ## Exported Functions
+//!
+//! The following functions are available for FFI consumers.
+//!
+//! ### Lifecycle Management
+//! * `bollard_bnb_solver_new`
+//! * `bollard_bnb_solver_preallocated`
+//! * `bollard_bnb_solver_free`
+//!
+//! ### Solve Functions (Hybrid Evaluator)
+//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_chronological_exhaustive_builder`
+//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_chronological_exhaustive_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_fcfs_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_fcfs_heuristic_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_regret_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_regret_heuristic_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_slack_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_slack_heuristic_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_wspt_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_wspt_heuristic_builder_with_fixed`
+//!
+//! ### Solve Functions (Workload Evaluator)
+//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_chronological_exhaustive_builder`
+//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_chronological_exhaustive_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_fcfs_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_fcfs_heuristic_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_regret_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_regret_heuristic_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_slack_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_slack_heuristic_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_wspt_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_wspt_heuristic_builder_with_fixed`
+//!
+//! ### Solve Functions (Weighted Flow Time Evaluator)
+//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_chronological_exhaustive_builder`
+//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_chronological_exhaustive_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_fcfs_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_fcfs_heuristic_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_regret_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_regret_heuristic_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_slack_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_slack_heuristic_builder_with_fixed`
+//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_wspt_heuristic_builder`
+//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_wspt_heuristic_builder_with_fixed`
+
 use crate::result::BnbSolverFfiOutcome;
 use bollard_bnb::{
     bnb::BnbSolver,

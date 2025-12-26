@@ -19,6 +19,74 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Foreign Function Interface (FFI) for Bollard Models
+//!
+//! This module provides a C-compatible API for defining and inspecting the scheduling
+//! problems (models) used by the Bollard solver. It acts as a bridge between
+//! external environments (C, C++, Python, etc.) and the Rust core.
+//!
+//! ## Overview
+//!
+//! The API follows the **Builder Pattern**:
+//!
+//! 1.  **Mutable Construction**: Users allocate a `ModelBuilder` to define the problem parameters
+//!     (vessels, berths, timings, weights).
+//! 2.  **Immutable Finalization**: The builder is transformed into a `Model`. This `Model` is
+//!     highly optimized, immutable, and thread-safe, ready to be passed to the solver.
+//!
+//! ## Usage Lifecycle
+//!
+//! A typical integration flow involves the following steps:
+//!
+//! 1.  **Instantiation**: Create a builder using `bollard_model_builder_new`.
+//! 2.  **Configuration**: Populate the builder with data:
+//!     * **Vessels**: Set arrival, departure, and weights.
+//!     * **Processing**: Define processing times for valid Vessel-Berth pairs.
+//!     * **Availability**: Define opening/closing intervals for berths (using Closed-Open semantics).
+//! 3.  **Finalization**: Call `bollard_model_builder_build`.
+//!     * **Important**: This step consumes the builder. The builder pointer becomes invalid immediately after this call.
+//! 4.  **Solving**: Pass the resulting `Model` pointer to the solver FFI.
+//! 5.  **Cleanup**: Explicitly free the `Model` using `bollard_model_free` when it is no longer needed.
+//!
+//! ## Safety
+//!
+//! This module uses `unsafe` code to interact with raw pointers. Callers **must** ensure:
+//!
+//! * **Pointer Validity**: Pointers must be allocated by this library.
+//! * **Ownership Transfer**: After calling `bollard_model_builder_build`, the builder pointer must **not** be used or freed; ownership of the underlying data is transferred to the new `Model`.
+//! * **Bounds**: Indices for vessels and berths must be within the ranges defined during instantiation.
+//! * **Null Pointers**: Passing `NULL` will result in a panic.
+//!
+//! ## Exported Functions
+//!
+//! ### Lifecycle & Finalization
+//! * `bollard_model_builder_new`
+//! * `bollard_model_builder_free`
+//! * `bollard_model_builder_build`
+//! * `bollard_model_free`
+//!
+//! ### Configuration (Builder)
+//! * `bollard_model_builder_set_arrival_time`
+//! * `bollard_model_builder_set_latest_departure_time`
+//! * `bollard_model_builder_set_vessel_weight`
+//! * `bollard_model_builder_set_processing_time`
+//! * `bollard_model_builder_forbid_vessel_berth_assignment`
+//! * `bollard_model_builder_add_opening_time`
+//! * `bollard_model_builder_add_closing_time`
+//!
+//! ### Inspection (Model)
+//! * `bollard_model_num_vessels`
+//! * `bollard_model_num_berths`
+//! * `bollard_model_get_vessel_weight`
+//! * `bollard_model_get_vessel_arrival_time`
+//! * `bollard_model_get_vessel_latest_departure_time`
+//! * `bollard_model_get_processing_time`
+//! * `bollard_model_get_num_berth_opening_times`
+//! * `bollard_model_get_berth_opening_time`
+//! * `bollard_model_get_num_berth_closing_times`
+//! * `bollard_model_get_berth_closing_time`
+//! * `bollard_model_get_model_log_complexity`
+
 use bollard_core::math::interval::ClosedOpenInterval;
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
@@ -27,24 +95,6 @@ use bollard_model::{
 };
 
 /// Creates a new Bollard model builder with the specified number of vessels and berths.
-///
-/// # Examples
-///
-/// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_model_builder_free};
-///
-/// let num_vessels = 10;
-/// let num_berths = 5;
-/// let model_builder_ptr = bollard_model_builder_new(num_berths, num_vessels);
-///
-/// // Use the model builder...
-/// assert!(!model_builder_ptr.is_null());
-///
-/// // Remember to free the model builder when done
-/// unsafe {
-///    bollard_model_builder_free(model_builder_ptr);
-/// }
-/// ```
 #[no_mangle]
 pub extern "C" fn bollard_model_builder_new(
     num_berths: usize,
@@ -61,18 +111,6 @@ pub extern "C" fn bollard_model_builder_new(
 /// This function is unsafe because it dereferences a raw pointer.
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_new`.
-///
-/// # Examples
-///
-/// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_model_builder_free};
-///
-/// let model_builder_ptr = bollard_model_builder_new(10, 5);
-/// // Use the model builder...
-/// unsafe {
-///     bollard_model_builder_free(model_builder_ptr);
-/// }
-/// ```
 #[no_mangle]
 pub unsafe extern "C" fn bollard_model_builder_free(ptr: *mut ModelBuilder<i64>) {
     if !ptr.is_null() {
@@ -87,23 +125,6 @@ pub unsafe extern "C" fn bollard_model_builder_free(ptr: *mut ModelBuilder<i64>)
 /// This function is unsafe because it dereferences a raw pointer.
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_new`.
-///
-/// # Examples
-///
-/// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_model_builder_add_closing_time, bollard_model_builder_free};
-///
-/// let model_builder_ptr = bollard_model_builder_new(10, 5);
-/// // Add closing time for berth at index 0
-/// unsafe {
-///     bollard_model_builder_add_closing_time(model_builder_ptr, 0, 100, 200);
-/// }
-///
-/// // Remember to free the model builder when done
-/// unsafe {
-///     bollard_model_builder_free(model_builder_ptr);
-/// }
-/// ```
 #[no_mangle]
 pub unsafe extern "C" fn bollard_model_builder_add_closing_time(
     ptr: *mut ModelBuilder<i64>,
@@ -137,23 +158,6 @@ pub unsafe extern "C" fn bollard_model_builder_add_closing_time(
 /// This function is unsafe because it dereferences a raw pointer.
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_new`.
-///
-/// # Examples
-///
-/// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_model_builder_add_opening_time, bollard_model_builder_free};
-///
-/// let model_builder_ptr = bollard_model_builder_new(10, 5);
-/// // Add opening time for berth at index 0
-/// unsafe {
-///     bollard_model_builder_add_opening_time(model_builder_ptr, 0, 300, 400);
-/// }
-///
-/// // Remember to free the model builder when done
-/// unsafe {
-///     bollard_model_builder_free(model_builder_ptr);
-/// }
-/// ```
 #[no_mangle]
 pub unsafe extern "C" fn bollard_model_builder_add_opening_time(
     ptr: *mut ModelBuilder<i64>,
@@ -186,21 +190,6 @@ pub unsafe extern "C" fn bollard_model_builder_add_opening_time(
 /// This function is unsafe because it dereferences a raw pointer.
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_new`.
-///
-/// # Examples
-///
-/// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_model_builder_set_arrival_time};
-///
-/// let model_builder_ptr = bollard_model_builder_new(10, 5);
-/// // Set arrival time for vessel at index 0
-/// unsafe {
-///     bollard_model_builder_set_arrival_time(model_builder_ptr, 0, 100);
-/// }
-/// // Remember to free the model builder when done
-/// unsafe {
-///     bollard_model_builder_free(model_builder_ptr);
-/// }
 #[no_mangle]
 pub unsafe extern "C" fn bollard_model_builder_set_arrival_time(
     ptr: *mut ModelBuilder<i64>,
@@ -229,21 +218,6 @@ pub unsafe extern "C" fn bollard_model_builder_set_arrival_time(
 /// This function is unsafe because it dereferences a raw pointer.
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_new`.
-///
-/// # Examples
-///
-/// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_model_builder_set_latest_departure_time};
-///
-/// let model_builder_ptr = bollard_model_builder_new(10, 5);
-/// // Set latest departure time for vessel at index 0
-/// unsafe {
-///     bollard_model_builder_set_latest_departure_time(model_builder_ptr, 0, 200);
-/// }
-/// // Remember to free the model builder when done
-/// unsafe {
-///     bollard_model_builder_free(model_builder_ptr);
-/// }
 #[no_mangle]
 pub unsafe extern "C" fn bollard_model_builder_set_latest_departure_time(
     ptr: *mut ModelBuilder<i64>,
@@ -273,22 +247,6 @@ pub unsafe extern "C" fn bollard_model_builder_set_latest_departure_time(
 /// This function is unsafe because it dereferences a raw pointer.
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_new`.
-///
-/// # Examples
-///
-/// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_set_vessel_weight};
-///
-/// let model_builder_ptr = bollard_model_builder_new(10, 5);
-/// // Set weight for vessel at index 0
-/// unsafe {
-///     bollard_set_vessel_weight(model_builder_ptr, 0, 50);
-/// }
-/// // Remember to free the model builder when done
-/// unsafe {
-///     bollard_model_builder_free(model_builder_ptr);
-/// }
-/// ```
 #[no_mangle]
 pub unsafe extern "C" fn bollard_model_builder_set_vessel_weight(
     ptr: *mut ModelBuilder<i64>,
@@ -323,22 +281,6 @@ pub unsafe extern "C" fn bollard_model_builder_set_vessel_weight(
 /// This function is unsafe because it dereferences a raw pointer.
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_new`.
-///
-/// # Examples
-///
-/// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_model_builder_set_processing_time};
-///
-/// let model_builder_ptr = bollard_model_builder_new(10, 5);
-/// // Set processing time for vessel at index 0 and berth at index 0
-/// unsafe {
-///     bollard_model_builder_set_processing_time(model_builder_ptr, 0, 0, 150);
-/// }
-/// // Remember to free the model builder when done
-/// unsafe {
-///     bollard_model_builder_free(model_builder_ptr);
-/// }
-/// ```
 #[no_mangle]
 pub unsafe extern "C" fn bollard_model_builder_set_processing_time(
     ptr: *mut ModelBuilder<i64>,
@@ -384,23 +326,6 @@ pub unsafe extern "C" fn bollard_model_builder_set_processing_time(
 /// This function is unsafe because it dereferences a raw pointer.
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_new`.
-///
-/// # Examples
-///
-/// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_model_builder_forbid_vessel_berth_assignment, bollard_model_builder_free};
-///
-/// let model_builder_ptr = bollard_model_builder_new(10, 5);
-/// // Forbid assignment of vessel at index 0 to berth at index 0
-/// unsafe {
-///    bollard_model_builder_forbid_vessel_berth_assignment(model_builder_ptr, 0, 0);
-/// }
-///
-/// // Remember to free the model builder when done
-/// unsafe {
-///    bollard_model_builder_free(model_builder_ptr);
-/// }
-/// ```
 #[no_mangle]
 pub unsafe extern "C" fn bollard_model_builder_forbid_vessel_berth_assignment(
     ptr: *mut ModelBuilder<i64>,
