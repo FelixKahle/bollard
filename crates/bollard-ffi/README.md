@@ -1,9 +1,3 @@
-Here is the comprehensive `README.md` for the crate.
-
-It is structured to serve as the definitive reference guide, incorporating the architectural overview, safety protocols, integration examples, and—crucially—the **complete, documented inventory of every exported function**, organized by module.
-
----
-
 # Bollard FFI
 
 **Foreign Function Interface (FFI) bindings for the Bollard scheduling ecosystem.**
