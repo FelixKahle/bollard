@@ -42,7 +42,7 @@
 //! 2.  **Configuration**: Populate the builder with data:
 //!     * **Vessels**: Set arrival, departure, and weights.
 //!     * **Processing**: Define processing times for valid Vessel-Berth pairs.
-//!     * **Availability**: Define opening/closing intervals for berths (using Closed-Open semantics).
+//!     * **Availability**: Define opening/closing intervals for berths (using the `FfiOpenClosedInterval` struct).
 //! 3.  **Finalization**: Call `bollard_model_builder_build`.
 //!     * **Important**: This step consumes the builder. The builder pointer becomes invalid immediately after this call.
 //! 4.  **Solving**: Pass the resulting `Model` pointer to the solver FFI.
@@ -57,7 +57,7 @@
 //! * **Bounds**: Indices for vessels and berths must be within the ranges defined during instantiation.
 //! * **Null Pointers**: Passing `NULL` will result in a panic.
 //!
-//! ## Exported Functions
+//! ## Exported API
 //!
 //! ### Lifecycle & Finalization
 //! * `bollard_model_builder_new`
@@ -86,6 +86,9 @@
 //! * `bollard_model_get_num_berth_closing_times`
 //! * `bollard_model_get_berth_closing_time`
 //! * `bollard_model_get_model_log_complexity`
+//!
+//! ### Data Structures
+//! * `FfiOpenClosedInterval`
 
 use bollard_core::math::interval::ClosedOpenInterval;
 use bollard_model::{
@@ -93,6 +96,65 @@ use bollard_model::{
     model::{Model, ModelBuilder},
     time::ProcessingTime,
 };
+
+/// A C-compatible representation of a closed-open interval [start_inclusive, end_exclusive).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FfiOpenClosedInterval {
+    pub start_inclusive: i64,
+    pub end_exclusive: i64,
+}
+
+impl FfiOpenClosedInterval {
+    /// Creates a new `FfiOpenClosedInterval`.
+    #[inline]
+    pub fn new(start_inclusive: i64, end_exclusive: i64) -> Self {
+        assert!(
+            start_inclusive <= end_exclusive,
+            "called `FfiOpenClosedInterval::new` with invalid interval: [{}, {})",
+            start_inclusive,
+            end_exclusive
+        );
+
+        Self {
+            start_inclusive,
+            end_exclusive,
+        }
+    }
+
+    /// Returns the start of the interval (inclusive).
+    #[inline]
+    pub fn start(&self) -> i64 {
+        self.start_inclusive
+    }
+
+    /// Returns the end of the interval (exclusive).
+    #[inline]
+    pub fn end(&self) -> i64 {
+        self.end_exclusive
+    }
+}
+
+impl From<ClosedOpenInterval<i64>> for FfiOpenClosedInterval {
+    fn from(interval: ClosedOpenInterval<i64>) -> Self {
+        Self {
+            start_inclusive: interval.start(),
+            end_exclusive: interval.end(),
+        }
+    }
+}
+
+impl From<FfiOpenClosedInterval> for ClosedOpenInterval<i64> {
+    fn from(val: FfiOpenClosedInterval) -> Self {
+        ClosedOpenInterval::new(val.start_inclusive, val.end_exclusive)
+    }
+}
+
+impl std::fmt::Display for FfiOpenClosedInterval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}, {})", self.start_inclusive, self.end_exclusive)
+    }
+}
 
 /// Creates a new Bollard model builder with the specified number of vessels and berths.
 #[no_mangle]
@@ -129,8 +191,7 @@ pub unsafe extern "C" fn bollard_model_builder_free(ptr: *mut ModelBuilder<i64>)
 pub unsafe extern "C" fn bollard_model_builder_add_closing_time(
     ptr: *mut ModelBuilder<i64>,
     berth_index: usize,
-    time_start_inclusive: i64,
-    time_end_exclusive: i64,
+    interval: FfiOpenClosedInterval,
 ) {
     assert!(
         !ptr.is_null(),
@@ -145,10 +206,7 @@ pub unsafe extern "C" fn bollard_model_builder_add_closing_time(
         builder.num_berths()
     );
 
-    builder.add_berth_closing_time(
-        BerthIndex::new(berth_index),
-        ClosedOpenInterval::new(time_start_inclusive, time_end_exclusive),
-    );
+    builder.add_berth_closing_time(BerthIndex::new(berth_index), interval.into());
 }
 
 /// Adds an opening time interval for a specific berth in the Bollard model builder.
@@ -162,8 +220,7 @@ pub unsafe extern "C" fn bollard_model_builder_add_closing_time(
 pub unsafe extern "C" fn bollard_model_builder_add_opening_time(
     ptr: *mut ModelBuilder<i64>,
     berth_index: usize,
-    time_start_inclusive: i64,
-    time_end_exclusive: i64,
+    interval: FfiOpenClosedInterval,
 ) {
     assert!(
         !ptr.is_null(),
@@ -177,10 +234,7 @@ pub unsafe extern "C" fn bollard_model_builder_add_opening_time(
         builder.num_berths()
     );
 
-    builder.add_berth_opening_time(
-        BerthIndex::new(berth_index),
-        ClosedOpenInterval::new(time_start_inclusive, time_end_exclusive),
-    );
+    builder.add_berth_opening_time(BerthIndex::new(berth_index), interval.into());
 }
 
 /// Sets the arrival time for a specific vessel in the Bollard model builder.
@@ -669,9 +723,7 @@ pub unsafe extern "C" fn bollard_model_get_berth_closing_time(
     ptr: *const Model<i64>,
     berth_index: usize,
     interval_index: usize,
-    time_start_inclusive: *mut i64,
-    time_end_exclusive: *mut i64,
-) {
+) -> FfiOpenClosedInterval {
     assert!(
         !ptr.is_null(),
         "called `bollard_model_get_berth_closing_time` with null pointer"
@@ -694,8 +746,7 @@ pub unsafe extern "C" fn bollard_model_get_berth_closing_time(
     );
 
     let interval = &intervals[interval_index];
-    *time_start_inclusive = interval.start();
-    *time_end_exclusive = interval.end();
+    FfiOpenClosedInterval::from(*interval)
 }
 
 /// Retrieves a specific opening time interval for a berth in the Bollard model.
@@ -715,9 +766,7 @@ pub unsafe extern "C" fn bollard_model_get_berth_opening_time(
     ptr: *const Model<i64>,
     berth_index: usize,
     interval_index: usize,
-    time_start_inclusive: *mut i64,
-    time_end_exclusive: *mut i64,
-) {
+) -> FfiOpenClosedInterval {
     assert!(
         !ptr.is_null(),
         "called `bollard_model_get_berth_opening_time` with null pointer"
@@ -740,8 +789,7 @@ pub unsafe extern "C" fn bollard_model_get_berth_opening_time(
     );
 
     let interval = &intervals[interval_index];
-    *time_start_inclusive = interval.start();
-    *time_end_exclusive = interval.end();
+    FfiOpenClosedInterval::from(*interval)
 }
 
 /// Returns the log complexity of the Bollard model as a floating-point number.
@@ -777,9 +825,9 @@ mod tests {
         let builder = bollard_model_builder_new(2, 2);
 
         // Opening and closing intervals
-        bollard_model_builder_add_opening_time(builder, 0, 0, 100);
-        bollard_model_builder_add_opening_time(builder, 1, 10, 50);
-        bollard_model_builder_add_closing_time(builder, 0, 20, 30);
+        bollard_model_builder_add_opening_time(builder, 0, FfiOpenClosedInterval::new(0, 100));
+        bollard_model_builder_add_opening_time(builder, 1, FfiOpenClosedInterval::new(10, 50));
+        bollard_model_builder_add_closing_time(builder, 0, FfiOpenClosedInterval::new(20, 30));
 
         // Vessel timings and weights
         bollard_model_builder_set_arrival_time(builder, 0, 5);
@@ -911,17 +959,15 @@ mod tests {
     fn test_opening_intervals_first_interval_is_valid() {
         unsafe {
             let model = build_fixture();
-            let mut l: i64 = -1;
-            let mut r: i64 = -1;
 
             if bollard_model_get_num_berth_opening_times(model, 0) > 0 {
-                bollard_model_get_berth_opening_time(model, 0, 0, &mut l, &mut r);
-                assert!(l >= 0 && r > l);
+                let iv = bollard_model_get_berth_opening_time(model, 0, 0);
+                assert!(iv.start() >= 0 && iv.end() > iv.start());
             }
 
             if bollard_model_get_num_berth_opening_times(model, 1) > 0 {
-                bollard_model_get_berth_opening_time(model, 1, 0, &mut l, &mut r);
-                assert!(l >= 0 && r > l);
+                let iv = bollard_model_get_berth_opening_time(model, 1, 0);
+                assert!(iv.start() >= 0 && iv.end() > iv.start());
             }
 
             bollard_model_free(model);
@@ -945,10 +991,8 @@ mod tests {
             let model = build_fixture();
             let num_close_b0 = bollard_model_get_num_berth_closing_times(model, 0);
             if num_close_b0 > 0 {
-                let mut l: i64 = -1;
-                let mut r: i64 = -1;
-                bollard_model_get_berth_closing_time(model, 0, 0, &mut l, &mut r);
-                assert!(l >= 0 && r > l);
+                let iv = bollard_model_get_berth_closing_time(model, 0, 0);
+                assert!(iv.start() >= 0 && iv.end() > iv.start());
             }
             bollard_model_free(model);
         }
