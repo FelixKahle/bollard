@@ -35,7 +35,7 @@ use bollard_model::{
 ///
 /// let num_vessels = 10;
 /// let num_berths = 5;
-/// let model_builder_ptr = bollard_model_builder_new(num_vessels, num_berths);
+/// let model_builder_ptr = bollard_model_builder_new(num_berths, num_vessels);
 ///
 /// // Use the model builder...
 /// assert!(!model_builder_ptr.is_null());
@@ -47,10 +47,10 @@ use bollard_model::{
 /// ```
 #[no_mangle]
 pub extern "C" fn bollard_model_builder_new(
-    num_vessels: usize,
     num_berths: usize,
+    num_vessels: usize,
 ) -> *mut ModelBuilder<i64> {
-    let builder = ModelBuilder::<i64>::new(num_vessels, num_berths);
+    let builder = ModelBuilder::<i64>::new(num_berths, num_vessels);
     Box::into_raw(Box::new(builder))
 }
 
@@ -190,31 +190,31 @@ pub unsafe extern "C" fn bollard_model_builder_add_opening_time(
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_set_arrival_time};
+/// # use bollard_ffi::{bollard_model_builder_new, bollard_model_builder_set_arrival_time};
 ///
 /// let model_builder_ptr = bollard_model_builder_new(10, 5);
 /// // Set arrival time for vessel at index 0
 /// unsafe {
-///     bollard_set_arrival_time(model_builder_ptr, 0, 100);
+///     bollard_model_builder_set_arrival_time(model_builder_ptr, 0, 100);
 /// }
 /// // Remember to free the model builder when done
 /// unsafe {
 ///     bollard_model_builder_free(model_builder_ptr);
 /// }
 #[no_mangle]
-pub unsafe extern "C" fn bollard_set_arrival_time(
+pub unsafe extern "C" fn bollard_model_builder_set_arrival_time(
     ptr: *mut ModelBuilder<i64>,
     vessel_index: usize,
     time: i64,
 ) {
     assert!(
         !ptr.is_null(),
-        "called `bollard_set_arrival_time` with null pointer"
+        "called `bollard_model_builder_set_arrival_time` with null pointer"
     );
     let builder = &mut *ptr;
 
     assert!(vessel_index < builder.num_vessels(),
-        "called `bollard_set_arrival_time` with vessel index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_builder_set_arrival_time` with vessel index out of bounds: the len is {} but the index is {}",
         vessel_index,
         builder.num_vessels()
     );
@@ -233,32 +233,32 @@ pub unsafe extern "C" fn bollard_set_arrival_time(
 /// # Examples
 ///
 /// ```rust
-/// # use bollard_ffi::{bollard_model_builder_new, bollard_set_latest_departure_time};
+/// # use bollard_ffi::{bollard_model_builder_new, bollard_model_builder_set_latest_departure_time};
 ///
 /// let model_builder_ptr = bollard_model_builder_new(10, 5);
 /// // Set latest departure time for vessel at index 0
 /// unsafe {
-///     bollard_set_latest_departure_time(model_builder_ptr, 0, 200);
+///     bollard_model_builder_set_latest_departure_time(model_builder_ptr, 0, 200);
 /// }
 /// // Remember to free the model builder when done
 /// unsafe {
 ///     bollard_model_builder_free(model_builder_ptr);
 /// }
 #[no_mangle]
-pub unsafe extern "C" fn bollard_set_latest_departure_time(
+pub unsafe extern "C" fn bollard_model_builder_set_latest_departure_time(
     ptr: *mut ModelBuilder<i64>,
     vessel_index: usize,
     time: i64,
 ) {
     assert!(
         !ptr.is_null(),
-        "called `bollard_set_latest_departure_time` with null pointer"
+        "called `bollard_model_builder_set_latest_departure_time` with null pointer"
     );
 
     let builder = &mut *ptr;
 
     assert!(vessel_index < builder.num_vessels(),
-        "called `bollard_set_latest_departure_time` with vessel index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_builder_set_latest_departure_time` with vessel index out of bounds: the len is {} but the index is {}",
         vessel_index,
         builder.num_vessels()
     );
@@ -857,12 +857,12 @@ mod tests {
         bollard_model_builder_add_closing_time(builder, 0, 20, 30);
 
         // Vessel timings and weights
-        bollard_set_arrival_time(builder, 0, 5);
-        bollard_set_latest_departure_time(builder, 0, 40);
+        bollard_model_builder_set_arrival_time(builder, 0, 5);
+        bollard_model_builder_set_latest_departure_time(builder, 0, 40);
         bollard_model_builder_set_vessel_weight(builder, 0, 3);
 
-        bollard_set_arrival_time(builder, 1, 15);
-        bollard_set_latest_departure_time(builder, 1, 60);
+        bollard_model_builder_set_arrival_time(builder, 1, 15);
+        bollard_model_builder_set_latest_departure_time(builder, 1, 60);
         bollard_model_builder_set_vessel_weight(builder, 1, 5);
 
         // Processing times

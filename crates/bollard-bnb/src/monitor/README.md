@@ -17,6 +17,8 @@ Monitors can gather metrics, log progress, or request early stopping based on th
 - `log`: Periodic console progress (elapsed, nodes, best objective, backtracks, pruned). Uses a step mask to reduce clock checks and overhead.
 - `no_op`: Neutral monitor that ignores all callbacks and always returns `Continue`.
 - `wrapper`: Adapter to `bollard_search::SearchMonitor`. Forwards generic lifecycle events and ignores tree‑specific ones.
+- `time`: Tracks elapsed time and requests early stopping when a time limit is exceeded.
+- `solution`: Tracks the amount of solutions found and requests early stopping when a solution limit is reached.
 
 ## Design Notes
 

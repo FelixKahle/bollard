@@ -44,13 +44,13 @@ use std::ffi::CString;
 /// and valid until the struct is freed.
 #[repr(C)]
 #[derive(Debug, Clone)]
-pub struct BnbSolverFFIOutcome {
+pub struct BnbSolverFfiOutcome {
     inner: BnbSolverOutcome<i64>,     // Internal outcome with i64 objective
     termination_reason_cstr: CString, // Owned C string for termination reason
     status_cstr: CString,             // Owned C string for status
 }
 
-impl BnbSolverFFIOutcome {
+impl BnbSolverFfiOutcome {
     /// Constructs a `BnbSolverFFIOutcome` from a `BnbSolverOutcome<i64>`.
     #[inline]
     pub fn new(inner: BnbSolverOutcome<i64>) -> Self {
@@ -75,9 +75,21 @@ impl BnbSolverFFIOutcome {
             status_cstr,
         }
     }
+
+    pub fn inner(&self) -> &BnbSolverOutcome<i64> {
+        &self.inner
+    }
+
+    pub fn termination_reason(&self) -> &CString {
+        &self.termination_reason_cstr
+    }
+
+    pub fn status(&self) -> &CString {
+        &self.status_cstr
+    }
 }
 
-impl From<BnbSolverOutcome<i64>> for BnbSolverFFIOutcome {
+impl From<BnbSolverOutcome<i64>> for BnbSolverFfiOutcome {
     #[inline]
     fn from(outcome: BnbSolverOutcome<i64>) -> Self {
         Self::new(outcome)
@@ -96,7 +108,7 @@ impl From<BnbSolverOutcome<i64>> for BnbSolverFFIOutcome {
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_free(ptr: *mut BnbSolverFFIOutcome) {
+pub unsafe extern "C" fn bollard_bnb_outcome_free(ptr: *mut BnbSolverFfiOutcome) {
     if !ptr.is_null() {
         drop(Box::from_raw(ptr));
     }
@@ -112,7 +124,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_free(ptr: *mut BnbSolverFFIOutcome)
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_termination_reason(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> *const c_char {
     assert!(
         !ptr.is_null(),
@@ -136,7 +148,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_termination_reason(
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_status_str(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> *const c_char {
     assert!(
         !ptr.is_null(),
@@ -157,7 +169,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_status_str(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_has_solution(ptr: *const BnbSolverFFIOutcome) -> bool {
+pub unsafe extern "C" fn bollard_bnb_outcome_has_solution(ptr: *const BnbSolverFfiOutcome) -> bool {
     assert!(
         !ptr.is_null(),
         "called `bollard_bnb_outcome_has_solution` with null pointer"
@@ -183,7 +195,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_has_solution(ptr: *const BnbSolverF
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_objective(ptr: *const BnbSolverFFIOutcome) -> i64 {
+pub unsafe extern "C" fn bollard_bnb_outcome_get_objective(ptr: *const BnbSolverFfiOutcome) -> i64 {
     assert!(
         !ptr.is_null(),
         "called `bollard_bnb_outcome_get_objective` with null pointer"
@@ -210,7 +222,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_objective(ptr: *const BnbSolver
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_num_vessels(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> usize {
     assert!(
         !ptr.is_null(),
@@ -239,7 +251,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_num_vessels(
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_berth(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
     vessel_idx: usize,
 ) -> usize {
     assert!(
@@ -280,7 +292,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_berth(
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_start_time(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
     vessel_idx: usize,
 ) -> i64 {
     assert!(
@@ -317,7 +329,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_start_time(
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_start_times(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> *const i64 {
     assert!(
         !ptr.is_null(),
@@ -347,7 +359,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_start_times(
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_berths(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> *const usize {
     assert!(
         !ptr.is_null(),
@@ -386,7 +398,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_berths(
 /// that the output arrays have sufficient space to hold the solution data.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_copy_solution(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
     out_berths: *mut usize,
     out_start_times: *mut i64,
 ) {
@@ -433,7 +445,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_copy_solution(
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_nodes_explored(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
@@ -456,7 +468,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_nodes_explored(
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_backtracks(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
@@ -479,7 +491,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_backtracks(
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_decisions_generated(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
@@ -501,7 +513,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_decisions_generated(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_max_depth(ptr: *const BnbSolverFFIOutcome) -> u64 {
+pub unsafe extern "C" fn bollard_bnb_outcome_get_max_depth(ptr: *const BnbSolverFfiOutcome) -> u64 {
     assert!(
         !ptr.is_null(),
         "called `bollard_bnb_outcome_get_max_depth` with null pointer"
@@ -523,7 +535,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_max_depth(ptr: *const BnbSolver
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_prunings_infeasible(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
@@ -546,7 +558,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_prunings_infeasible(
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_prunings_bound(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
@@ -569,7 +581,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_prunings_bound(
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_solutions_found(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
@@ -591,7 +603,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_solutions_found(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_steps(ptr: *const BnbSolverFFIOutcome) -> u64 {
+pub unsafe extern "C" fn bollard_bnb_outcome_get_steps(ptr: *const BnbSolverFfiOutcome) -> u64 {
     assert!(
         !ptr.is_null(),
         "called `bollard_bnb_outcome_get_steps` with null pointer"
@@ -613,7 +625,7 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_steps(ptr: *const BnbSolverFFIO
 /// allocated by Bollard.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_outcome_get_time_total_ms(
-    ptr: *const BnbSolverFFIOutcome,
+    ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),

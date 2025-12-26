@@ -30,6 +30,8 @@
 //! - `log`: periodic console progress reporting.
 //! - `no_op`: zero‑overhead placeholder.
 //! - `wrapper`: adapter to `bollard_search::SearchMonitor`.
+//! - `time`: time limit enforcement.
+//! - `solution`: solution‑based termination.
 //!
 //! Notes
 //! - Callbacks take `&mut self`; keep handlers fast and non‑blocking.
