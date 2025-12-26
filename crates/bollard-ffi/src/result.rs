@@ -43,7 +43,7 @@
 //! 3.  **Data Extraction**:
 //!     * Use accessors like `bollard_bnb_outcome_get_objective` for scalar values.
 //!     * Use `bollard_bnb_outcome_copy_solution` to efficiently populate client-side arrays
-//!         with berth assignments and start times.
+//!       with berth assignments and start times.
 //! 4.  **Telemetry**: Inspect solver performance using the statistics functions (e.g., nodes explored).
 //! 5.  **Cleanup**: When finished, pass the pointer to `bollard_bnb_outcome_free` to release all
 //!     associated memory (including the internal C-strings).
@@ -55,7 +55,7 @@
 //! * **Pointer Validity**: Pointers must be valid and returned by a Bollard solve function.
 //! * **Null Pointers**: Functions marked with `# Panics` will abort the process if passed `NULL`.
 //! * **Lifetime**: Pointers returned by string accessors (e.g., `get_status_str`) are only valid
-//!     as long as the parent `BnbSolverFfiOutcome` is not freed.
+//!   as long as the parent `BnbSolverFfiOutcome` is not freed.
 //!
 //! ## Exported Functions
 //!
