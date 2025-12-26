@@ -19,6 +19,23 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Solver outcome and termination
+//!
+//! `BnbSolverOutcome<T>` packages the final `SolverResult<T>`, a
+//! `TerminationReason`, and the collected `BnbSolverStatistics`.
+//! Convenience constructors cover optimal, infeasible, and aborted runs.
+//!
+//! Behavior
+//! - Acts as the canonical return type from the solver.
+//! - Convertible into `PortfolioSolverResult<T>`; mapping preserves the
+//!   termination reason and solution when available, and enforces the
+//!   invariant that `OptimalityProven` implies an `Optimal` result.
+//!
+//! Notes
+//! - Keeps statistics alongside the result for reporting/monitoring.
+//! - Generic over the objective type `T`; the portfolio conversion is
+//!   implemented for `T: PrimInt + Signed`.
+
 use crate::stats::BnbSolverStatistics;
 use bollard_model::solution::Solution;
 use bollard_search::{

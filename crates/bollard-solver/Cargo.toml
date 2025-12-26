@@ -20,18 +20,14 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 [package]
-name = "bollard_ffi"
+name = "bollard_solver"
 version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
+edition.workspace = true
 
 [dependencies]
 bollard_core = { path = "../bollard-core" }
-bollard_model = { path = "../bollard-model" }
-bollard_bnb = { path = "../bollard-bnb" }
 bollard_search = { path = "../bollard-search" }
+bollard_bnb = { path = "../bollard-bnb" }
+bollard_model = { path = "../bollard-model" }
 num-traits = "0.2.19"
-libc = "0.2.178"
-paste = "1.0.15"
+tracing = "0.1.43"

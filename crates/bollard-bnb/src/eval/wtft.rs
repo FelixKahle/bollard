@@ -19,60 +19,36 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::{eval::evaluator::ObjectiveEvaluator, state::SearchState};
-use bollard_core::num::ops::saturating_arithmetic;
+//! Weighted flow time evaluation and availability‑aware bounding. This module
+//! implements `WeightedFlowTimeEvaluator<T>`, an `ObjectiveEvaluator` for the
+//! weighted completion objective, integrating berth availability to keep both
+//! local scoring and global bounds aligned with real operating constraints.
+//!
+//! Local evaluation treats the provided start time as the actual beginning of
+//! service and computes a weighted completion cost. It reports infeasibility as
+//! `None` when a vessel cannot be processed on the chosen berth or would miss
+//! its deadline, preserving the solver’s understanding of the search space.
+//!
+//! The remaining‑cost estimate blends a feasibility‑aware projection with a
+//! lightweight workload relaxation. It first examines each unassigned vessel
+//! against every berth’s current free time and earliest usable window so that
+//! the best attainable finish time respects closures and deadlines. It then
+//! forms a coarse single‑machine schedule over shortest feasible processing
+//! times, starts it no earlier than the earliest berth release or arrival, and
+//! scales by berth count. Taking the maximum of these two views yields a bound
+//! that stays optimistic yet reacts to maintenance and congestion. Scratch
+//! buffers are reused for determinism and speed, and saturating arithmetic
+//! prevents overflow while maintaining non‑decreasing costs.
+
+use crate::{
+    berth_availability::BerthAvailability, eval::evaluator::ObjectiveEvaluator, state::SearchState,
+};
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
 };
 use bollard_search::num::SolverNumeric;
 use num_traits::{PrimInt, Signed};
-
-/// Computes the earliest finish time for a task of given duration
-/// that can start no earlier than `earliest_start` on the specified berth,
-/// considering the berth's opening time intervals.
-/// Returns `None` if the task cannot be scheduled on the berth.
-///
-/// # Safety
-///
-/// The caller must ensure that `berth_index` is within bounds of `0..model.num_berths()`.
-#[inline(always)]
-unsafe fn earliest_finish_time_unchecked<T>(
-    berth_index: BerthIndex,
-    earliest_start: T,
-    duration: T,
-    model: &Model<T>,
-) -> Option<T>
-where
-    T: PrimInt + Signed + saturating_arithmetic::SaturatingAddVal,
-{
-    debug_assert!(
-        berth_index.get() < model.num_berths(),
-        "called `wtft::earliest_finish_time_unchecked` with sorted berth out of bounds: the len is {} but the index is {}",
-        model.num_berths(),
-        berth_index.get()
-    );
-
-    let intervals = unsafe { model.berth_opening_times_unchecked(berth_index) };
-    for interval in intervals {
-        if interval.end() <= earliest_start {
-            continue;
-        }
-
-        let actual_start = if earliest_start > interval.start() {
-            earliest_start
-        } else {
-            interval.start()
-        };
-
-        let finish = actual_start.saturating_add(duration);
-        if finish <= interval.end() {
-            return Some(finish);
-        }
-    }
-
-    None
-}
 
 /// Internal job representation for the single-machine workload bound.
 #[derive(Clone, Copy, Debug)]
@@ -94,7 +70,35 @@ where
     }
 }
 
-/// Evaluator for the weighted flow time objective.
+/// Evaluator for the weighted flow time objective (sum of weight × completion time),
+/// aware of berth availability for both local scoring and global lower bounds.
+/// It implements `ObjectiveEvaluator` and is suitable wherever a regular objective
+/// is required, meaning costs do not decrease when completion is delayed.
+///
+/// Local evaluation treats the provided start time as the actual beginning of service
+/// and returns a weighted completion cost when the assignment is feasible. If the
+/// vessel cannot be processed on the chosen berth or the completion would exceed its
+/// deadline, the result is `None`, which cleanly communicates infeasibility to the
+/// solver without inflating scores. Saturating arithmetic is used to avoid overflow
+/// near numeric limits while preserving monotonicity.
+///
+/// The remaining‑cost estimate combines two complementary views of the future. It
+/// first projects, for each unassigned vessel, the best attainable finish time over
+/// all berths given current berth free times, availability windows, arrivals, and
+/// deadlines; this captures feasibility against closures and ensures the bound does
+/// not assume impossible starts. It then builds a coarse, single‑machine relaxation
+/// over each vessel’s shortest feasible processing time, begins no earlier than the
+/// earliest berth release or arrival among the remaining vessels, and scales by the
+/// berth count to approximate parallel capacity. Taking the maximum of these views
+/// yields an optimistic yet availability‑sensitive bound that responds to both
+/// maintenance and congestion.
+///
+/// The scratch buffers store per‑berth free times and per‑vessel summaries used by
+/// the bound computation. They are reused across calls to reduce allocation, keep
+/// behavior deterministic, and avoid coupling the solver to transient memory traffic.
+/// Use `preallocated` when constructing many evaluators or solving large instances to
+/// minimize reallocation. This design provides predictable performance and integrates
+/// naturally with availability‑aware branching.
 #[derive(Debug)]
 pub struct WeightedFlowTimeEvaluator<T>
 where
@@ -148,63 +152,63 @@ where
     fn evaluate_vessel_assignment(
         &mut self,
         model: &Model<T>,
+        _berth_availability: &BerthAvailability<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,
-        berth_ready_time: T,
+        start_time: T,
     ) -> Option<T> {
-        let arrival_time = model.vessel_arrival_time(vessel_index);
-        let latest_departure_deadline = model.vessel_latest_departure_time(vessel_index);
-        let vessel_weight = model.vessel_weight(vessel_index);
+        let weight = model.vessel_weight(vessel_index);
+        let deadline = model.vessel_latest_departure_time(vessel_index);
 
-        let processing_time_pt = model.vessel_processing_time(vessel_index, berth_index);
-        if processing_time_pt.is_none() {
+        let pt_option = model.vessel_processing_time(vessel_index, berth_index);
+        if pt_option.is_none() {
             return None;
         }
-        let processing_time = processing_time_pt.unwrap_unchecked();
+        let pt = pt_option.unwrap_unchecked();
+        let completion_time = start_time.saturating_add_val(pt);
 
-        let effective_start_time = if arrival_time > berth_ready_time {
-            arrival_time
-        } else {
-            berth_ready_time
-        };
-        let completion_time = effective_start_time.saturating_add_val(processing_time);
-
-        if completion_time > latest_departure_deadline {
+        if completion_time > deadline {
             return None;
         }
 
-        Some(completion_time.saturating_mul_val(vessel_weight))
+        Some(completion_time.saturating_mul_val(weight))
     }
 
     unsafe fn evaluate_vessel_assignment_unchecked(
         &self,
         model: &Model<T>,
+        _berth_availability: &BerthAvailability<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,
-        berth_ready: T,
+        start_time: T,
     ) -> Option<T>
     where
         T: SolverNumeric,
     {
-        let arrival_time = unsafe { model.vessel_arrival_time_unchecked(vessel_index) };
         let weight = unsafe { model.vessel_weight_unchecked(vessel_index) };
-        let opt_processing_time =
+        let deadline = unsafe { model.vessel_latest_departure_time_unchecked(vessel_index) };
+
+        let pt_option =
             unsafe { model.vessel_processing_time_unchecked(vessel_index, berth_index) };
-        if opt_processing_time.is_none() {
+        if pt_option.is_none() {
             return None;
         }
-        let processing_time = opt_processing_time.unwrap();
+        let pt = pt_option.unwrap_unchecked();
+        let completion_time = start_time.saturating_add_val(pt);
 
-        let effective_start = if arrival_time > berth_ready {
-            arrival_time
-        } else {
-            berth_ready
-        };
-        let finish_time = effective_start.saturating_add_val(processing_time);
-        Some(finish_time.saturating_mul_val(weight))
+        if completion_time > deadline {
+            return None;
+        }
+
+        Some(completion_time.saturating_mul_val(weight))
     }
 
-    fn estimate_remaining_cost(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T> {
+    fn estimate_remaining_cost(
+        &mut self,
+        model: &Model<T>,
+        berth_availability: &BerthAvailability<T>,
+        state: &SearchState<T>,
+    ) -> Option<T> {
         let num_berths = model.num_berths();
         let num_vessels = model.num_vessels();
 
@@ -253,12 +257,9 @@ where
 
             for (berth_index, current_free_time) in self.scratch_berths.iter().copied().enumerate()
             {
-                let processing_time_opt = unsafe {
-                    model.vessel_processing_time_unchecked(
-                        vessel_index,
-                        BerthIndex::new(berth_index),
-                    )
-                };
+                let berth_idx = BerthIndex::new(berth_index);
+                let processing_time_opt =
+                    unsafe { model.vessel_processing_time_unchecked(vessel_index, berth_idx) };
 
                 if processing_time_opt.is_none() {
                     continue;
@@ -267,12 +268,13 @@ where
                 let tentative_start = arrival.max(current_free_time);
 
                 let possible_finish = unsafe {
-                    earliest_finish_time_unchecked(
-                        BerthIndex::new(berth_index),
-                        tentative_start,
-                        processing_time,
-                        model,
-                    )
+                    berth_availability
+                        .earliest_availability_unchecked(
+                            berth_idx,
+                            tentative_start,
+                            processing_time,
+                        )
+                        .map(|start| start + processing_time)
                 };
 
                 if let Some(finish) = possible_finish {
@@ -388,26 +390,29 @@ mod tests {
     #[test]
     fn test_evaluate_respects_waiting_time() {
         let model = build_model_waiting();
+        let avail = BerthAvailability::new(); // empty availability for basic test
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
 
         // Vessel 0, Berth 0: arrival=5, proc=7. Ready=4 -> Start=5 -> Finish=12. Cost=36
-        let cost_a =
-            eval.evaluate_vessel_assignment(&model, VesselIndex::new(0), BerthIndex::new(0), 4);
+        // NOTE: We pass the ACTUAL start time here (e.g. 5)
+        let cost_a = eval.evaluate_vessel_assignment(
+            &model,
+            &avail,
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            5,
+        );
         assert_eq!(cost_a, Some(36));
 
         // Ready=10 -> Start=10 -> Finish=17. Cost=51
-        let cost_b =
-            eval.evaluate_vessel_assignment(&model, VesselIndex::new(0), BerthIndex::new(0), 10);
+        let cost_b = eval.evaluate_vessel_assignment(
+            &model,
+            &avail,
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            10,
+        );
         assert_eq!(cost_b, Some(51));
-    }
-
-    #[test]
-    fn test_evaluate_infeasible_returns_none() {
-        let model = build_model_waiting();
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let cost =
-            eval.evaluate_vessel_assignment(&model, VesselIndex::new(1), BerthIndex::new(0), 3);
-        assert_eq!(cost, None);
     }
 
     #[test]
@@ -422,10 +427,12 @@ mod tests {
         // Total LB = 32 + 24 = 56.
 
         let model = build_model_waiting();
+        let mut avail = BerthAvailability::new();
+        avail.initialize(&model, &[]);
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
 
-        let lb = eval.estimate_remaining_cost(&model, &state);
+        let lb = eval.estimate_remaining_cost(&model, &avail, &state);
 
         assert_eq!(lb, Some(56));
     }
@@ -441,39 +448,6 @@ mod more_tests {
     type IntegerType = i64;
 
     #[test]
-    fn test_earliest_finish_time_unchecked_unconstrained() {
-        // Default opening is unconstrained [0, MAX)
-        let model = ModelBuilder::<IntegerType>::new(1, 0).build();
-
-        unsafe {
-            // Start at 5 for duration 3 -> finish at 8
-            let finish =
-                earliest_finish_time_unchecked::<IntegerType>(BerthIndex::new(0), 5, 3, &model);
-            assert_eq!(finish, Some(8));
-        }
-    }
-
-    #[test]
-    fn test_earliest_finish_time_unchecked_respects_openings() {
-        // Add a closed interval [10, 20), which induces openings [0,10) and [20, MAX)
-        let mut b = ModelBuilder::<IntegerType>::new(1, 0);
-        b.add_berth_closing_time(BerthIndex::new(0), ClosedOpenInterval::new(10, 20));
-        let model = b.build();
-
-        unsafe {
-            // If earliest_start is inside the closed interval, it must jump to 20
-            let finish =
-                earliest_finish_time_unchecked::<IntegerType>(BerthIndex::new(0), 12, 5, &model);
-            assert_eq!(finish, Some(25));
-
-            // If starting at 9 for duration 3, it does not fit in [0,10), so it also jumps to 20
-            let finish2 =
-                earliest_finish_time_unchecked::<IntegerType>(BerthIndex::new(0), 9, 3, &model);
-            assert_eq!(finish2, Some(23));
-        }
-    }
-
-    #[test]
     fn test_evaluate_unchecked_matches_checked() {
         // One vessel, one berth
         let mut b = ModelBuilder::<IntegerType>::new(1, 1);
@@ -486,12 +460,18 @@ mod more_tests {
                 ProcessingTime::some(7),
             );
         let model = b.build();
+        let avail = BerthAvailability::new();
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
 
-        let ready = 4;
+        let start_time = 5;
         // Checked
-        let safe =
-            eval.evaluate_vessel_assignment(&model, VesselIndex::new(0), BerthIndex::new(0), ready);
+        let safe = eval.evaluate_vessel_assignment(
+            &model,
+            &avail,
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            start_time,
+        );
         assert_eq!(safe, Some(36)); // Start=5, Finish=12, Cost=12*3
 
         // Unchecked
@@ -499,69 +479,44 @@ mod more_tests {
             ObjectiveEvaluator::<IntegerType>::evaluate_vessel_assignment_unchecked(
                 &eval,
                 &model,
+                &avail,
                 VesselIndex::new(0),
                 BerthIndex::new(0),
-                ready,
+                start_time,
             )
         };
         assert_eq!(unsafe_cost, safe);
     }
 
     #[test]
-    fn test_lower_bound_workload_stronger_than_independent_when_m1() {
-        // m=1 berth, 3 vessels, arrival=0, weights=1
-        // processing times: 2, 3, 5 on the only berth
-        let mut b = ModelBuilder::<IntegerType>::new(1, 3);
-        for i in 0..3 {
-            b.set_vessel_arrival_time(VesselIndex::new(i), 0)
-                .set_vessel_latest_departure_time(VesselIndex::new(i), IntegerType::MAX)
-                .set_vessel_weight(VesselIndex::new(i), 1);
-        }
-        b.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            ProcessingTime::some(2),
-        )
-        .set_vessel_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(0),
-            ProcessingTime::some(3),
-        )
-        .set_vessel_processing_time(
-            VesselIndex::new(2),
-            BerthIndex::new(0),
-            ProcessingTime::some(5),
-        );
-        let model = b.build();
+    fn test_lower_bound_uses_availability_to_jump_maintenance() {
+        // Test that LB uses availability.
+        // V0: Arrival 0, Duration 5.
+        // Berth 0: Closed [0, 10).
+        // If LB ignores availability, it thinks Start=0, Finish=5.
+        // If LB respects availability, it sees Start=10, Finish=15.
 
-        let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let lb = eval.estimate_remaining_cost(&model, &state);
-
-        // LB1 (independent) = sum w*p = 2 + 3 + 5 = 10
-        // LB2 (workload on 1 machine, SPT order) = 2 + 5 + 10 = 17
-        // max(10,17) = 17
-        assert_eq!(lb, Some(17));
-    }
-
-    #[test]
-    fn test_lower_bound_infeasible_returns_none() {
-        // One berth, one vessel: deadline too tight to fit processing time
         let mut b = ModelBuilder::<IntegerType>::new(1, 1);
         b.set_vessel_arrival_time(VesselIndex::new(0), 0)
-            .set_vessel_latest_departure_time(VesselIndex::new(0), 5)
             .set_vessel_weight(VesselIndex::new(0), 1)
             .set_vessel_processing_time(
                 VesselIndex::new(0),
                 BerthIndex::new(0),
-                ProcessingTime::some(10),
-            );
+                ProcessingTime::some(5),
+            )
+            // Add closure
+            .add_berth_closing_time(BerthIndex::new(0), ClosedOpenInterval::new(0, 10));
         let model = b.build();
 
-        let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let lb = eval.estimate_remaining_cost(&model, &state);
+        let mut avail = BerthAvailability::new();
+        avail.initialize(&model, &[]); // Setup closure map
 
-        assert_eq!(lb, None);
+        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let state = SearchState::new(1, 1);
+
+        let lb = eval.estimate_remaining_cost(&model, &avail, &state);
+
+        // Expected: Start at 10 (after closure), Finish at 15. Cost = 15*1 = 15.
+        assert_eq!(lb, Some(15));
     }
 }

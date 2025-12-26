@@ -19,6 +19,24 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Incumbent management for branch‑and‑bound
+//!
+//! Declares `IncumbentStore<T>`, a minimal interface to read/update the best
+//! known objective (upper bound) and publish new solutions during search.
+//! This abstracts over local (single‑threaded) and shared (multi‑solver) use.
+//!
+//! Implementations
+//! - `NoSharedIncumbent<T>`: local only. `initial_upper_bound = T::MAX`,
+//!   `tighten(x) = x`, and `on_solution_found` is a no‑op.
+//! - `SharedIncumbentAdapter<'a, T>`: wraps `bollard_search::incumbent::SharedIncumbent<T>`;
+//!   `initial_upper_bound()` mirrors the shared value, `tighten(x)` returns
+//!   `min(shared, x)`, and `on_solution_found` attempts installation.
+//!
+//! Notes
+//! - `SharedIncumbentAdapter` holds a borrowed handle and is lifetime‑bound.
+//! - Use shared incumbents to coordinate bounds across parallel/portfolio runs.
+//! - Constrained by `T: SolverNumeric`.
+
 use bollard_model::solution::Solution;
 use bollard_search::{incumbent::SharedIncumbent, num::SolverNumeric};
 use std::marker::PhantomData;

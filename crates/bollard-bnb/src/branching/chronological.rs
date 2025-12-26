@@ -19,7 +19,28 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Chronological exhaustive branching
+//!
+//! Provides a decision builder that iterates feasible `(vessel, berth)` assignments
+//! in a deterministic row‑major order (vessels × berths).
+//!
+//! The iterator yields only “Rich Decisions” that already respect model topology,
+//! berth availability, and evaluator constraints (including deadlines). Vessels
+//! that are already assigned are skipped.
+//!
+//! Symmetry reduction is applied via `Decision::try_new_unchecked` to avoid
+//! exploring indistinguishable branches (e.g., equivalent berths under identical
+//! state and processing conditions), while preserving canonical optimal schedules.
+//!
+//! Implements `Iterator<Item = Decision<T>>` and `FusedIterator`: once exhausted,
+//! subsequent `next()` calls return `None`.
+//!
+//! This chronological approach keeps traversal stable and reduces search space
+//! compared to naive permutations, improving cache locality and branch‑and‑bound
+//! pruning effectiveness.
+
 use crate::{
+    berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},
     eval::evaluator::ObjectiveEvaluator,
     state::SearchState,
@@ -29,6 +50,7 @@ use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
 };
+use bollard_search::num::SolverNumeric;
 use num_traits::{PrimInt, Signed};
 use std::iter::FusedIterator;
 
@@ -39,74 +61,37 @@ use std::iter::FusedIterator;
 /// and each outgoing edge represents assigning the next admissible
 /// `(vessel → berth)` pair according to chronological ordering and symmetry rules.
 ///
-/// ### Structural Guarantees
-///
-/// - **Non-decreasing time along every branch**
-///   (`start_time(next) ≥ start_time(previous)`).
-/// - **Symmetry breaking between identical berths**
-///   (equivalent schedules are never generated).
-/// - **Deterministic ordering** of generated children (row-major vessel × berth).
-/// - **Non-binary branching**: each node may have 0..B children depending on feasibility.
-///
 /// The resulting search space is significantly smaller than the naive full
 /// permutation tree, while still covering all canonical optimal schedules.
-///
-/// ---
-///
-/// ### Example Search Tree (Unicode Box Layout)
-///
-/// Instance:
-/// ```text
-/// Vessels:  v0, v1
-/// Berths:   b0, b1
-/// Arrival:  all at t=0
-/// Processing times: identical across berths
-/// Both berths initially free
-/// ```
-///
-/// Resulting exploration tree (ignoring pruning and cost bounds):
-///
-/// ```text
-/// (root)
-/// ├── v0 → b0
-/// │   ├── v1 → b0
-/// │   └── v1 → b1
-/// └── v1 → b0
-///      └── v0 → b1
-/// ```
-///
-/// **Interpretation:**
-///
-/// - At the root, `v0→b1` and `v1→b1` are *not generated* because `b0` and `b1`
-///   are symmetric at time zero with identical processing rules. Only the first
-///   canonical representative berth (`b0`) is allowed.
-///
-/// - After scheduling `v0→b0`, symmetry disappears (berths now differ in free
-///   time), so both placements of `v1` become distinct and valid branches.
-///
-/// - In the right subtree (`v1→b0`), the only valid follow-up is `v0→b1`,
-///   because the chronological/tie-breaking rule rejects equal-time assignments
-///   where a lower-indexed vessel would appear *after* a higher-indexed one.
-///
-/// ---
-///
-/// ### Why this Matters
-///
-/// This builder creates a **reduced exact search tree**:
-///
-/// - large symmetric subtrees are eliminated at the branching level, not later;
-/// - chronological monotonicity prevents infeasible temporal reorderings;
-/// - deterministic traversal ensures reproducible search and stable pruning.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct ChronologicalExhaustiveBuilder;
+pub struct ChronologicalExhaustiveBuilder<T> {
+    _phantom: std::marker::PhantomData<T>,
+}
 
-impl<T, E> DecisionBuilder<T, E> for ChronologicalExhaustiveBuilder
+impl<T> ChronologicalExhaustiveBuilder<T> {
+    /// Creates a new `ChronologicalExhaustiveBuilder`.
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn preallocated(_num_berths: usize, _num_vessels: usize) -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T, E> DecisionBuilder<T, E> for ChronologicalExhaustiveBuilder<T>
 where
-    T: PrimInt + Signed + MinusOne,
+    T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
 {
     type DecisionIterator<'a>
-        = ExhaustiveIter<'a, T>
+        = ExhaustiveIter<'a, T, E>
     where
         T: 'a,
         E: 'a,
@@ -118,15 +103,18 @@ where
 
     fn next_decision<'a>(
         &'a mut self,
-        _evaluator: &'a mut E,
+        evaluator: &'a mut E,
         model: &'a Model<T>,
+        berth_availability: &'a BerthAvailability<T>,
         state: &'a SearchState<T>,
     ) -> Self::DecisionIterator<'a> {
         ExhaustiveIter {
             current_vessel: VesselIndex::new(0),
             current_berth: BerthIndex::new(0),
+            berth_availability,
             model,
             state,
+            evaluator,
         }
     }
 }
@@ -136,23 +124,9 @@ where
 ///
 /// This iterator traverses the assignment space in row-major order
 /// (vessels × berths), skipping already-assigned vessels and yielding only
-/// decisions deemed feasible by the model and current search state.
-/// It is the concrete iterator returned by
-/// `ChronologicalExhaustiveBuilder::next_decision`.
-///
-/// Properties:
-/// - Row-major iteration: vessels are advanced outer-most; berths wrap modulo `num_berths`.
-/// - Skips vessels already assigned in `state`.
-/// - Yields only feasible `Decision`s (as determined by `Decision::try_new_unchecked`).
-/// - Fused: once it returns `None`, subsequent calls also return `None`.
-///
-/// Chronological guarantee:
-/// - Time moves forward along any branch. Feasibility checks in `Decision`
-///   enforce non-decreasing start times and tie-breaking rules
-///   (see `branching/decision.rs`: `try_new`, `try_new_unchecked`,
-///   and tests such as `test_try_new_enforces_chronological_order_by_start_time`).
-#[derive(Debug, Clone)]
-pub struct ExhaustiveIter<'a, T>
+/// decisions deemed feasible by the model, availability map, and evaluator.
+#[derive(Debug)]
+pub struct ExhaustiveIter<'a, T, E>
 where
     T: PrimInt + Signed + MinusOne,
 {
@@ -160,13 +134,16 @@ where
     current_berth: BerthIndex,
     model: &'a Model<T>,
     state: &'a SearchState<T>,
+    berth_availability: &'a BerthAvailability<T>,
+    evaluator: &'a mut E,
 }
 
-impl<'a, T> Iterator for ExhaustiveIter<'a, T>
+impl<'a, T, E> Iterator for ExhaustiveIter<'a, T, E>
 where
-    T: PrimInt + Signed + MinusOne,
+    T: SolverNumeric,
+    E: ObjectiveEvaluator<T>,
 {
-    type Item = Decision;
+    type Item = Decision<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let num_vessels = self.model.num_vessels();
@@ -188,8 +165,17 @@ where
                 continue;
             }
 
+            // Use the Rich Decision pipeline to validate and calculate costs.
+            // This handles availability lookups, cost evaluation, and symmetry breaking.
             if let Some(decision) = unsafe {
-                Decision::try_new_unchecked(vessel_index, berth_index, self.model, self.state)
+                Decision::try_new_unchecked(
+                    vessel_index,
+                    berth_index,
+                    self.model,
+                    self.berth_availability,
+                    self.state,
+                    self.evaluator,
+                )
             } {
                 return Some(decision);
             }
@@ -199,7 +185,12 @@ where
     }
 }
 
-impl<'a, T> FusedIterator for ExhaustiveIter<'a, T> where T: PrimInt + Signed + MinusOne {}
+impl<'a, T, E> FusedIterator for ExhaustiveIter<'a, T, E>
+where
+    T: SolverNumeric,
+    E: ObjectiveEvaluator<T>,
+{
+}
 
 #[cfg(test)]
 mod tests {
@@ -271,14 +262,16 @@ mod tests {
     #[test]
     fn test_chronological_iter_yields_row_major_feasible_pairs() {
         let model = build_small_model();
+        let mut berth_availability = BerthAvailability::new();
+        berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
 
-        // Evaluator is unused by the chronological builder but required by the trait.
+        // Evaluator is now actively used by the builder via Decision::try_new
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
+        let mut builder = ChronologicalExhaustiveBuilder::new();
 
-        let mut iter = builder.next_decision(&mut eval, &model, &state);
-        let decisions: Vec<Decision> = iter.by_ref().collect();
+        let iter = builder.next_decision(&mut eval, &model, &berth_availability, &state);
+        let decisions: Vec<Decision<IntegerType>> = iter.collect();
         assert!(
             !decisions.is_empty(),
             "Expected at least one feasible decision"
@@ -303,11 +296,13 @@ mod tests {
     #[test]
     fn test_chronological_iter_is_fused() {
         let model = build_small_model();
+        let mut berth_availability = BerthAvailability::new();
+        berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
 
         let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder;
-        let mut it = builder.next_decision(&mut eval, &model, &state);
+        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut it = builder.next_decision(&mut eval, &model, &berth_availability, &state);
 
         // Exhaust the iterator
         while it.next().is_some() {}

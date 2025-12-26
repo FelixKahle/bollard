@@ -19,7 +19,32 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::{eval::evaluator::ObjectiveEvaluator, state::SearchState};
+//! Workload‑based lower‑bound evaluation for berth scheduling. This module defines
+//! `WorkloadEvaluator<T>`, an `ObjectiveEvaluator` that derives an optimistic cost
+//! by simulating the remaining workload on the available berths with a lightweight
+//! parallel‑machine model. It reads each berth’s next free time from the current
+//! search state and treats unassigned vessels as immediately available, selecting
+//! for each vessel the fastest feasible processing option across berths to preserve
+//! optimism. The resulting jobs are ordered using a WSPT‑style priority so that heavy
+//! tasks tend to be completed earlier in the simulation, producing a bound that is
+//! sensitive to both capacity and workload mix while remaining safely optimistic.
+//!
+//! Local evaluation interprets the provided start time as the actual beginning of
+//! service and returns the weighted completion cost when the assignment is feasible;
+//! if the vessel cannot be completed by its deadline or has no processing time on
+//! the chosen berth, the result is `None`. For the bound, maintenance windows and
+//! arrivals are relaxed deliberately to keep the estimate below or equal to the true
+//! remaining cost, while berth release times are respected to reflect real capacity
+//! limits. If any remaining vessel is infeasible on all berths, the evaluator returns
+//! `None` to signal that the branch cannot lead to a valid schedule. Saturating
+//! arithmetic is used when composing times and costs to avoid overflow without
+//! violating monotonicity. The implementation favors determinism and low overhead,
+//! with optional preallocation to reduce transient allocations when evaluating many
+//! branches in large instances.
+
+use crate::{
+    berth_availability::BerthAvailability, eval::evaluator::ObjectiveEvaluator, state::SearchState,
+};
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
@@ -29,25 +54,40 @@ use num_traits::{PrimInt, Signed};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-/// Internal job representation for the workload simulation.
+/// Internal job used by the workload‑relaxation simulation. It condenses an
+/// unassigned vessel into the duration chosen for the relaxation and its
+/// objective weight. The duration is typically the shortest feasible processing
+/// time across berths so the bound remains optimistic, and it is consumed by a
+/// discrete‑event simulation that enforces berth capacity while relaxing
+/// arrivals and maintenance. The weight multiplies the simulated completion time
+/// when accumulating weighted completion cost. Feasibility checks and arithmetic
+/// are handled by the evaluator; this type only stores the inputs to the
+/// simulation.
 #[derive(Clone, Copy, Debug)]
 struct SimulationJob<T> {
+    /// Processing time used by the relaxation (usually the vessel’s shortest
+    /// feasible duration across all berths).
     processing_time: T,
+    /// Objective weight applied to the simulated completion time.
     weight: T,
 }
 
-/// A "Workload Relaxation" evaluator.
+/// A workload‑relaxation lower bound that simulates the remaining work on
+/// parallel machines equal to the number of berths. It performs a discrete‑event
+/// simulation using a min‑heap where each berth starts at its current free time,
+/// enforcing capacity while deliberately relaxing time‑related constraints.
+/// Unassigned vessels are treated as immediately available, each vessel uses its
+/// fastest feasible processing time across berths, and deadlines as well as
+/// maintenance windows are ignored in the simulation to keep the estimate
+/// optimistic. If any vessel has no feasible berth at all, the bound returns
+/// `None` to indicate that the branch cannot produce a valid schedule.
 ///
-/// It calculates a Lower Bound by simulating the future schedule on the actual
-/// number of berths using a Min-Heap (Discrete Event Simulation).
-///
-/// **Relaxation:**
-/// 1. **Time:** Assumes all unassigned vessels are available immediately.
-/// 2. **Space:** Assumes ALL berths are free at the time of the *earliest* available berth.
-///
-/// This guarantees the bound is strictly optimistic (Lower Bound <= True Cost),
-/// preventing the pruning of optimal solutions while still accounting for
-/// the physical inability to process infinite vessels in parallel.
+/// Jobs are ordered with a Smith’s‑rule/WSPT priority so heavier work tends to
+/// complete earlier in the simulated schedule, tightening the bound without
+/// sacrificing optimism. Weighted completion costs are accumulated using
+/// saturating arithmetic to avoid overflow while preserving monotonicity. Scratch
+/// buffers hold per‑job data and the berth heap to minimize allocation overhead;
+/// `preallocated` can be used when constructing evaluators for large instances.
 #[derive(Debug)]
 pub struct WorkloadEvaluator<T>
 where
@@ -99,63 +139,63 @@ where
     fn evaluate_vessel_assignment(
         &mut self,
         model: &Model<T>,
+        _berth_availability: &BerthAvailability<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,
-        berth_ready_time: T,
+        start_time: T,
     ) -> Option<T> {
-        let arrival_time = model.vessel_arrival_time(vessel_index);
-        let latest_departure_deadline = model.vessel_latest_departure_time(vessel_index);
-        let vessel_weight = model.vessel_weight(vessel_index);
+        let weight = model.vessel_weight(vessel_index);
+        let deadline = model.vessel_latest_departure_time(vessel_index);
 
-        let processing_time_pt = model.vessel_processing_time(vessel_index, berth_index);
-        if processing_time_pt.is_none() {
+        let pt_option = model.vessel_processing_time(vessel_index, berth_index);
+        if pt_option.is_none() {
             return None;
         }
-        let processing_time = processing_time_pt.unwrap_unchecked();
+        let pt = pt_option.unwrap_unchecked();
+        let completion_time = start_time.saturating_add_val(pt);
 
-        let effective_start_time = if arrival_time > berth_ready_time {
-            arrival_time
-        } else {
-            berth_ready_time
-        };
-        let completion_time = effective_start_time.saturating_add_val(processing_time);
-
-        if completion_time > latest_departure_deadline {
+        if completion_time > deadline {
             return None;
         }
 
-        Some(completion_time.saturating_mul_val(vessel_weight))
+        Some(completion_time.saturating_mul_val(weight))
     }
 
     unsafe fn evaluate_vessel_assignment_unchecked(
         &self,
         model: &Model<T>,
+        _berth_availability: &BerthAvailability<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,
-        berth_ready: T,
+        start_time: T,
     ) -> Option<T>
     where
         T: SolverNumeric,
     {
-        let arrival_time = unsafe { model.vessel_arrival_time_unchecked(vessel_index) };
         let weight = unsafe { model.vessel_weight_unchecked(vessel_index) };
-        let opt_processing_time =
+        let deadline = unsafe { model.vessel_latest_departure_time_unchecked(vessel_index) };
+
+        let pt_option =
             unsafe { model.vessel_processing_time_unchecked(vessel_index, berth_index) };
-        if opt_processing_time.is_none() {
+        if pt_option.is_none() {
             return None;
         }
-        let processing_time = opt_processing_time.unwrap();
+        let pt = pt_option.unwrap_unchecked();
+        let completion_time = start_time.saturating_add_val(pt);
 
-        let effective_start = if arrival_time > berth_ready {
-            arrival_time
-        } else {
-            berth_ready
-        };
-        let finish_time = effective_start.saturating_add_val(processing_time);
-        Some(finish_time.saturating_mul_val(weight))
+        if completion_time > deadline {
+            return None;
+        }
+
+        Some(completion_time.saturating_mul_val(weight))
     }
 
-    fn estimate_remaining_cost(&mut self, model: &Model<T>, state: &SearchState<T>) -> Option<T> {
+    fn estimate_remaining_cost(
+        &mut self,
+        model: &Model<T>,
+        _berth_availability: &BerthAvailability<T>, // Unused in this relaxation
+        state: &SearchState<T>,
+    ) -> Option<T> {
         let num_berths = model.num_berths();
         let num_vessels = model.num_vessels();
 
@@ -167,21 +207,20 @@ where
 
         self.scratch_jobs.clear();
 
-        for i in 0..num_vessels {
-            let vessel_index = VesselIndex::new(i);
+        for vessel_index in 0..num_vessels {
+            let vessel = VesselIndex::new(vessel_index);
 
-            if unsafe { state.is_vessel_assigned_unchecked(vessel_index) } {
+            if unsafe { state.is_vessel_assigned_unchecked(vessel) } {
                 continue;
             }
 
-            let weight = unsafe { model.vessel_weight_unchecked(vessel_index) };
+            let weight = unsafe { model.vessel_weight_unchecked(vessel) };
             let mut min_duration = T::max_value();
             let mut feasible = false;
 
-            for b in 0..num_berths {
-                let berth_index = BerthIndex::new(b);
-                let pt =
-                    unsafe { model.vessel_processing_time_unchecked(vessel_index, berth_index) };
+            for berth_index in 0..num_berths {
+                let berth = BerthIndex::new(berth_index);
+                let pt = unsafe { model.vessel_processing_time_unchecked(vessel, berth) };
 
                 if pt.is_none() {
                     continue;

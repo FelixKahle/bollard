@@ -19,6 +19,28 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Portfolio integration for branch‑and‑bound
+//!
+//! Exposes `BnbPortfolioSolver<T, B, E>`, an adapter that implements
+//! `bollard_search::portfolio::PortofolioSolver<T>` by combining the core
+//! `BnbSolver<T>` with a `DecisionBuilder` and `ObjectiveEvaluator`.
+//! The portfolio `SearchMonitor` is bridged via `monitor::wrapper::WrapperMonitor`.
+//!
+//! Behavior
+//! - `invoke(context)`: runs BnB with the given `model`, `incumbent`, and
+//!   portfolio monitor; returns a `PortfolioSolverResult<T>`.
+//! - `name()`: includes concrete type names for `T`, `B`, and `E`.
+//!
+//! Constructors
+//! - `new(builder, evaluator)`
+//! - `preallocated(num_berths, num_vessels, builder, evaluator)` (shifts
+//!   allocation time; does not change asymptotic performance).
+//!
+//! Notes
+//! - Trait bounds for portfolio use: `B: DecisionBuilder<T, E> + Send + Sync`,
+//!   `E: ObjectiveEvaluator<T> + Send + Sync`.
+//! - Accessors expose the inner solver, builder, and evaluator for inspection.
+
 use crate::{
     bnb::BnbSolver, branching::decision::DecisionBuilder, eval::evaluator::ObjectiveEvaluator,
     monitor::wrapper::WrapperMonitor,
@@ -41,6 +63,7 @@ where
     inner: BnbSolver<T>,
     decision_builder: B,
     evaluator: E,
+    name: String,
 }
 
 impl<T, B, E> BnbPortfolioSolver<T, B, E>
@@ -53,10 +76,18 @@ where
     /// `DecisionBuilder` and `ObjectiveEvaluator`.
     #[inline]
     pub fn new(decision_builder: B, evaluator: E) -> Self {
+        let name = format!(
+            "BnbPortfolioSolver<{}, {}, {}>",
+            std::any::type_name::<T>(),
+            std::any::type_name::<B>(),
+            std::any::type_name::<E>()
+        );
+
         Self {
             inner: BnbSolver::<T>::new(),
             decision_builder,
             evaluator,
+            name,
         }
     }
 
@@ -77,10 +108,18 @@ where
         decision_builder: B,
         evaluator: E,
     ) -> Self {
+        let name = format!(
+            "BnbPortfolioSolver<{}, {}, {}>",
+            std::any::type_name::<T>(),
+            std::any::type_name::<B>(),
+            std::any::type_name::<E>()
+        );
+
         Self {
             inner: BnbSolver::<T>::preallocated(num_berths, num_vessels),
             decision_builder,
             evaluator,
+            name,
         }
     }
 
@@ -106,8 +145,8 @@ where
 impl<T, B, E> PortofolioSolver<T> for BnbPortfolioSolver<T, B, E>
 where
     T: SolverNumeric,
-    B: DecisionBuilder<T, E>,
-    E: ObjectiveEvaluator<T>,
+    B: DecisionBuilder<T, E> + Send + Sync,
+    E: ObjectiveEvaluator<T> + Send + Sync,
 {
     fn invoke<'a>(&mut self, context: PortfolioSolverContext<'a, T>) -> PortfolioSolverResult<T> {
         let monitor = WrapperMonitor::new(context.monitor);
@@ -123,7 +162,7 @@ where
     }
 
     fn name(&self) -> &str {
-        "BnbPortfolioSolver"
+        &self.name
     }
 }
 
@@ -176,7 +215,7 @@ mod tests {
         let model = build_model(2, 10);
 
         // Construct inner solver, builder, and evaluator
-        let builder = ChronologicalExhaustiveBuilder;
+        let builder = ChronologicalExhaustiveBuilder::new();
         let evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),

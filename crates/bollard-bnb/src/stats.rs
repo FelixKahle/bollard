@@ -19,6 +19,20 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Solver statistics for branch‑and‑bound
+//!
+//! `BnbSolverStatistics` tracks lightweight counters and timing used by
+//! monitors and logs. It exposes event methods (`on_*`) to record node
+//! visits, pruning, solutions, depth changes, and loop iterations, plus
+//! `set_total_time` to finalize runtime.
+//!
+//! - O(1) saturating increments (no panics on overflow).
+//! - Designed for in‑place mutation; pass `&mut` through the solver.
+//! - `Display` renders a compact summary suitable for console output.
+//!
+//! Keep updates in hot paths minimal; expensive formatting should be done
+//! outside the tight loop (e.g., via a logging monitor).
+
 use bollard_core::num::ops::saturating_arithmetic::SaturatingAddVal;
 use std::time::Duration;
 

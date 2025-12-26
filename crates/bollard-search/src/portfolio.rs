@@ -168,9 +168,9 @@ where
 /// A trait representing a portfolio solver.
 /// Such solvers can be runned in parallel as part
 /// of a portfolio approach to solving the Berth Allocation Problem.
-pub trait PortofolioSolver<T>
+pub trait PortofolioSolver<T>: Send + Sync
 where
-    T: PrimInt + Signed,
+    T: PrimInt + Signed + Send + Sync,
 {
     /// Solves the given model within the provided context.
     fn invoke<'a>(&mut self, context: PortfolioSolverContext<'a, T>) -> PortfolioSolverResult<T>;

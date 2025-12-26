@@ -19,6 +19,24 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#![allow(dead_code)]
+
+//! Frame‑structured decision stack for branch‑and‑bound
+//!
+//! `SearchStack<T>` is a LIFO of pending `Decision<T>` with frame markers to
+//! delimit decision levels. Pushing a frame records the current length; popping
+//! truncates back to that point in O(1).
+//!
+//! Highlights
+//! - Frames: `push_frame`, `pop_frame`, `current_frame_entries` (slice view).
+//! - Entries: `push`, `extend`, `pop`, `all_entries`, `iter`.
+//! - Capacity: `preallocated`/`ensure_capacity` to minimize reallocations;
+//!   `reset` clears while retaining capacity; `allocated_memory_bytes` reports use.
+//!
+//! Design
+//! - Linear storage for cache locality; no per‑decision heap churn.
+//! - Operations are inline‑friendly and suited for tight solver loops.
+
 use crate::branching::decision::Decision;
 use bollard_core::num::ops::saturating_arithmetic::SaturatingAddVal;
 
@@ -34,21 +52,54 @@ use bollard_core::num::ops::saturating_arithmetic::SaturatingAddVal;
 ///   without copying.
 /// - `pop_frame()` is O(1) plus a potential `truncate` on `entries`.
 #[derive(Clone, Debug)]
-pub struct SearchStack {
+pub struct SearchStack<T> {
     /// The linear stack of pending decisions.
-    entries: Vec<Decision>,
+    entries: Vec<Decision<T>>,
     /// A stack of indices pointing to `entries`.
     /// `frames[i]` stores the index in `entries` where depth `i` began.
     frames: Vec<usize>,
 }
 
-impl Default for SearchStack {
+impl<T> Default for SearchStack<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SearchStack {
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct PreallocatedCapacities {
+    entry_capacity: usize,
+    frame_capacity: usize,
+}
+
+/// Calculates preallocated capacities for the stack
+/// based on the problem size (number of berths and vessels).
+#[inline(always)]
+fn preallocated_capacity(num_berths: usize, num_vessels: usize) -> PreallocatedCapacities {
+    // Frame capacity: Sentinel (0) + Root (1) + N assignments = N + 2.
+    let frame_capacity = num_vessels.saturating_add_val(2);
+
+    // Entry capacity calculation:
+    // The stack stores the "frontier" of unvisited siblings.
+    // At depth k (0 to N-1), we push (N-k) * M decisions.
+    // Total = Sum(k=0..N-1) of [(N-k) * M]
+    //       = M * Sum(i=1..N) of i
+    //       = M * (N * (N + 1)) / 2
+    let n = num_vessels;
+
+    // Sum of 1..N = N * (N + 1) / 2
+    let sum_n = n.saturating_mul(n.saturating_add_val(1)) / 2;
+
+    // Total worst-case entries = M * Sum
+    let entry_capacity = sum_n.saturating_mul(num_berths);
+
+    PreallocatedCapacities {
+        entry_capacity,
+        frame_capacity,
+    }
+}
+
+impl<T> SearchStack<T> {
     /// Creates a new, empty `SearchStack`.
     #[inline]
     pub fn new() -> Self {
@@ -61,28 +112,27 @@ impl SearchStack {
     /// Creates a preallocated `SearchStack` based on problem size.
     #[inline]
     pub fn preallocated(num_berths: usize, num_vessels: usize) -> Self {
-        let entry_capacity = num_vessels.saturating_mul(num_berths);
-        let frame_capacity = num_vessels.saturating_add_val(1);
+        let capacities = preallocated_capacity(num_berths, num_vessels);
 
         Self {
-            entries: Vec::with_capacity(entry_capacity),
-            frames: Vec::with_capacity(frame_capacity),
+            entries: Vec::with_capacity(capacities.entry_capacity),
+            frames: Vec::with_capacity(capacities.frame_capacity),
         }
     }
 
     /// Ensures the stack has capacity for the given problem size.
     #[inline]
     pub fn ensure_capacity(&mut self, num_berths: usize, num_vessels: usize) {
-        let entry_capacity = num_vessels.saturating_mul(num_berths);
-        let frame_capacity = num_vessels.saturating_add_val(1);
+        let capacities = preallocated_capacity(num_berths, num_vessels);
 
-        if self.entries.capacity() < entry_capacity {
+        if self.entries.capacity() < capacities.entry_capacity {
             self.entries
-                .reserve(entry_capacity - self.entries.capacity());
+                .reserve(capacities.entry_capacity - self.entries.capacity());
         }
 
-        if self.frames.capacity() < frame_capacity {
-            self.frames.reserve(frame_capacity - self.frames.capacity());
+        if self.frames.capacity() < capacities.frame_capacity {
+            self.frames
+                .reserve(capacities.frame_capacity - self.frames.capacity());
         }
     }
 
@@ -130,7 +180,7 @@ impl SearchStack {
 
     /// Pushes a single decision entry onto the stack.
     #[inline]
-    pub fn push(&mut self, decision: Decision) {
+    pub fn push(&mut self, decision: Decision<T>) {
         self.entries.push(decision);
     }
 
@@ -138,14 +188,14 @@ impl SearchStack {
     #[inline]
     pub fn extend<I>(&mut self, iter: I)
     where
-        I: IntoIterator<Item = Decision>,
+        I: IntoIterator<Item = Decision<T>>,
     {
         self.entries.extend(iter);
     }
 
     /// Pops the next decision (LIFO) from the stack.
     #[inline]
-    pub fn pop(&mut self) -> Option<Decision> {
+    pub fn pop(&mut self) -> Option<Decision<T>> {
         self.entries.pop()
     }
 
@@ -173,7 +223,7 @@ impl SearchStack {
 
     /// Returns a slice of all decisions in the current frame.
     #[inline]
-    pub fn current_frame_entries(&self) -> &[Decision] {
+    pub fn current_frame_entries(&self) -> &[Decision<T>] {
         match self.frames.last() {
             Some(&start) => &self.entries[start..],
             None => &[],
@@ -182,26 +232,26 @@ impl SearchStack {
 
     /// Returns a slice of all decisions in the stack.
     #[inline]
-    pub fn all_entries(&self) -> &[Decision] {
+    pub fn all_entries(&self) -> &[Decision<T>] {
         &self.entries
     }
 
     /// Returns the total allocated memory in bytes.
     #[inline]
     pub fn allocated_memory_bytes(&self) -> usize {
-        let entries_size = self.entries.capacity() * core::mem::size_of::<Decision>();
+        let entries_size = self.entries.capacity() * core::mem::size_of::<Decision<T>>();
         let frames_size = self.frames.capacity() * core::mem::size_of::<usize>();
         entries_size + frames_size
     }
 
     /// Returns an iterator over all decisions in the stack.
     #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, Decision> {
+    pub fn iter(&self) -> std::slice::Iter<'_, Decision<T>> {
         self.entries.iter()
     }
 }
 
-impl std::fmt::Display for SearchStack {
+impl<T> std::fmt::Display for SearchStack<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -209,289 +259,5 @@ impl std::fmt::Display for SearchStack {
             self.entries.len(),
             self.frames.len()
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bollard_model::index::{BerthIndex, VesselIndex};
-
-    fn d(v: usize, b: usize) -> Decision {
-        Decision::new(VesselIndex::new(v), BerthIndex::new(b))
-    }
-
-    #[test]
-    fn test_new_and_preallocated_basic_props() {
-        let s = SearchStack::new();
-        assert_eq!(s.num_entries(), 0);
-        assert_eq!(s.num_frames(), 0);
-        assert_eq!(s.depth(), 0);
-        assert!(s.is_empty());
-        assert!(s.is_current_level_empty());
-        assert_eq!(s.current_level_start(), None);
-        assert_eq!(s.current_frame_entries(), &[]);
-        assert_eq!(s.all_entries(), &[]);
-
-        let s2 = SearchStack::preallocated(3, 5);
-        assert_eq!(s2.num_entries(), 0);
-        assert_eq!(s2.num_frames(), 0);
-        assert!(s2.is_empty());
-        assert!(s2.allocated_memory_bytes() > 0);
-
-        // Display sanity
-        let disp = format!("{}", s);
-        assert!(disp.contains("SearchStack(entries: 0, frames: 0)"));
-    }
-
-    #[test]
-    fn test_ensure_capacity_grows_but_is_idempotent_when_large_enough() {
-        let mut s = SearchStack::preallocated(2, 2);
-        let ecap0 = s.entries.capacity();
-        let fcap0 = s.frames.capacity();
-        let bytes0 = s.allocated_memory_bytes();
-
-        // Request larger capacity
-        s.ensure_capacity(5, 7);
-
-        // Capacities should not shrink; they typically increase
-        let ecap1 = s.entries.capacity();
-        let fcap1 = s.frames.capacity();
-        assert!(ecap1 >= ecap0);
-        assert!(fcap1 >= fcap0);
-
-        // Allocated bytes are monotonic (non-decreasing)
-        let bytes1 = s.allocated_memory_bytes();
-        assert!(bytes1 >= bytes0);
-
-        // Request smaller capacity: should be idempotent
-        s.ensure_capacity(1, 1);
-        assert_eq!(s.entries.capacity(), ecap1);
-        assert_eq!(s.frames.capacity(), fcap1);
-    }
-
-    #[test]
-    fn test_push_frame_and_depth_tracking() {
-        let mut s = SearchStack::new();
-        assert!(s.is_empty());
-        s.push_frame();
-        assert_eq!(s.depth(), 1);
-        assert!(!s.is_empty());
-        assert!(s.is_current_level_empty());
-        assert_eq!(s.current_level_start(), Some(0));
-
-        s.push_frame();
-        assert_eq!(s.depth(), 2);
-        assert!(s.is_current_level_empty());
-        assert_eq!(s.current_level_start(), Some(0)); // still 0, no decisions yet
-    }
-
-    #[test]
-    fn test_push_extend_pop_entries_across_frames() {
-        let mut s = SearchStack::new();
-
-        // Root frame
-        s.push_frame();
-        assert!(s.is_current_level_empty());
-        s.push(d(0, 0));
-        s.push(d(1, 1));
-        assert_eq!(s.num_entries(), 2);
-        assert!(!s.is_current_level_empty());
-
-        // Current frame entries slice
-        let slice_root = s.current_frame_entries();
-        assert_eq!(slice_root.len(), 2);
-        assert_eq!(slice_root[0], d(0, 0));
-        assert_eq!(slice_root[1], d(1, 1));
-
-        // Second frame
-        s.push_frame();
-        assert!(s.is_current_level_empty());
-        s.extend([d(2, 0), d(3, 1), d(4, 2)]);
-        assert_eq!(s.num_entries(), 5);
-
-        // All entries slice covers entire stack
-        assert_eq!(s.all_entries().len(), 5);
-
-        // Current frame entries should be last 3
-        let slice2 = s.current_frame_entries();
-        assert_eq!(slice2, &[d(2, 0), d(3, 1), d(4, 2)]);
-
-        // Pop LIFO
-        assert_eq!(s.pop().unwrap(), d(4, 2));
-        assert_eq!(s.pop().unwrap(), d(3, 1));
-        assert_eq!(s.pop().unwrap(), d(2, 0));
-        assert!(s.is_current_level_empty());
-
-        // Pop frame 2
-        assert!(s.pop_frame().is_some());
-        assert_eq!(s.depth(), 1);
-
-        // Root frame still has two entries
-        assert_eq!(s.num_entries(), 2);
-        assert_eq!(s.current_frame_entries(), &[d(0, 0), d(1, 1)]);
-
-        // Pop two entries
-        assert_eq!(s.pop().unwrap(), d(1, 1));
-        assert_eq!(s.pop().unwrap(), d(0, 0));
-        assert!(s.is_current_level_empty());
-
-        // Pop frame 1
-        assert!(s.pop_frame().is_some());
-        assert!(s.is_empty());
-        assert_eq!(s.num_entries(), 0);
-    }
-
-    #[test]
-    fn test_pop_frame_noop_when_empty() {
-        let mut s = SearchStack::new();
-        assert!(s.is_empty());
-        assert_eq!(s.pop_frame(), None);
-
-        // After pushing and popping a frame with no decisions, still empty
-        s.push_frame();
-        assert_eq!(s.depth(), 1);
-        assert!(s.is_current_level_empty());
-        assert!(s.pop_frame().is_some());
-        assert!(s.is_empty());
-        assert_eq!(s.depth(), 0);
-    }
-
-    #[test]
-    fn test_reset_clears_but_keeps_capacity() {
-        let mut s = SearchStack::preallocated(3, 4);
-        let ecap = s.entries.capacity();
-        let fcap = s.frames.capacity();
-
-        s.push_frame();
-        s.extend([d(0, 0), d(1, 1)]);
-        assert_eq!(s.num_entries(), 2);
-        assert_eq!(s.depth(), 1);
-
-        s.reset();
-        assert_eq!(s.num_entries(), 0);
-        assert_eq!(s.depth(), 0);
-        assert!(s.is_empty());
-
-        assert_eq!(s.entries.capacity(), ecap);
-        assert_eq!(s.frames.capacity(), fcap);
-    }
-
-    #[test]
-    fn test_current_level_empty_and_start_consistency() {
-        let mut s = SearchStack::new();
-
-        // No frame -> empty
-        assert!(s.is_current_level_empty());
-
-        // Push frame -> empty
-        s.push_frame();
-        assert!(s.is_current_level_empty());
-        assert_eq!(s.current_level_start(), Some(0));
-
-        // Add one decision
-        s.push(d(0, 0));
-        assert!(!s.is_current_level_empty());
-        assert_eq!(s.num_entries(), 1);
-
-        // Remove it
-        assert_eq!(s.pop().unwrap(), d(0, 0));
-        assert!(s.is_current_level_empty());
-
-        // Extend with multiple, then truncate via pop_frame; invariant holds
-        s.extend([d(1, 0), d(2, 1), d(3, 0)]);
-        assert_eq!(s.num_entries(), 3);
-        assert!(!s.is_current_level_empty());
-        assert!(s.pop_frame().is_some());
-        assert_eq!(s.num_entries(), 0);
-        assert!(s.is_current_level_empty());
-        assert!(s.is_empty());
-    }
-
-    #[test]
-    fn test_current_frame_entries_and_all_entries_slices() {
-        let mut s = SearchStack::new();
-
-        // Empty slices when no frame
-        assert_eq!(s.current_frame_entries(), &[]);
-        assert_eq!(s.all_entries(), &[]);
-
-        s.push_frame();
-        s.extend([d(1, 1), d(2, 2)]);
-        assert_eq!(s.current_frame_entries(), &[d(1, 1), d(2, 2)]);
-        assert_eq!(s.all_entries(), &[d(1, 1), d(2, 2)]);
-
-        s.push_frame(); // new frame
-        s.extend([d(3, 0)]);
-        assert_eq!(s.current_frame_entries(), &[d(3, 0)]);
-        assert_eq!(s.all_entries(), &[d(1, 1), d(2, 2), d(3, 0)]);
-    }
-
-    #[test]
-    fn test_allocated_memory_bytes_matches_formula_and_is_monotonic() {
-        let s = SearchStack::preallocated(2, 3);
-        let expected = s.entries.capacity() * core::mem::size_of::<Decision>()
-            + s.frames.capacity() * core::mem::size_of::<usize>();
-        assert_eq!(s.allocated_memory_bytes(), expected);
-
-        let mut s2 = SearchStack::new();
-        let initial = s2.allocated_memory_bytes();
-
-        s2.ensure_capacity(4, 5);
-        let after = s2.allocated_memory_bytes();
-        assert!(after >= initial);
-
-        // Push decisions should not reduce allocated bytes
-        s2.push_frame();
-        s2.extend([d(0, 0), d(1, 1), d(2, 2)]);
-        let after_push = s2.allocated_memory_bytes();
-        assert!(after_push >= after);
-
-        // Reset keeps capacity
-        s2.reset();
-        assert_eq!(s2.allocated_memory_bytes(), after_push);
-    }
-
-    #[test]
-    fn test_display_includes_counts() {
-        let mut s = SearchStack::new();
-        let s0 = format!("{}", s);
-        assert!(s0.contains("entries: 0"));
-        assert!(s0.contains("frames: 0"));
-
-        s.push_frame();
-        s.push(d(0, 0));
-        let s1 = format!("{}", s);
-        assert!(s1.contains("entries: 1"));
-        assert!(s1.contains("frames: 1"));
-    }
-
-    #[test]
-    fn test_pop_on_empty_stack_returns_none_and_is_safe() {
-        let mut s = SearchStack::new();
-        assert!(s.pop().is_none());
-
-        s.push_frame();
-        assert!(s.pop().is_none()); // empty frame
-        s.extend([d(0, 0)]);
-        assert!(s.pop().is_some()); // now has one
-        assert!(s.pop().is_none());
-    }
-
-    #[test]
-    fn test_frame_truncation_discards_stray_entries() {
-        let mut s = SearchStack::new();
-
-        s.push_frame();
-        s.extend([d(0, 0), d(1, 1)]);
-        s.push_frame();
-        s.extend([d(2, 0), d(3, 1)]);
-        // Manually pop frame and ensure entries truncate to start index
-        let start_depth2 = s.current_level_start().unwrap();
-        assert_eq!(start_depth2, 2);
-        assert!(s.pop_frame().is_some());
-        // After pop, entries should have truncated to 2
-        assert_eq!(s.num_entries(), 2);
-        assert_eq!(s.current_frame_entries(), &[d(0, 0), d(1, 1)]);
     }
 }

@@ -19,6 +19,25 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Tree search monitoring interface
+//!
+//! Declares the `TreeSearchMonitor` trait and `PruneReason` for observing and
+//! controlling branch‑and‑bound. Callbacks track the solver lifecycle, and a
+//! monitor can influence execution via `SearchCommand` (default: Continue).
+//!
+//! Lifecycle highlights
+//! - enter → step → {lower‑bound/prune | decisions/descend/backtrack} → solution → exit
+//! - `BnbSolverStatistics` is provided to every callback for telemetry.
+//!
+//! Design notes
+//! - Methods take `&mut self`; monitors are assumed single‑threaded.
+//! - Keep callbacks lightweight; avoid blocking I/O in hot paths.
+//! - Generic over `T: PrimInt + Signed` (objective type).
+//!
+//! Integrates with `composite`, `log`, and `no_op` monitors to mix and match
+//! logging, metrics, visualization, and early stopping without touching core
+//! solver logic.
+
 use crate::{branching::decision::Decision, state::SearchState, stats::BnbSolverStatistics};
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::monitor::search_monitor::SearchCommand;
@@ -92,7 +111,7 @@ where
     fn on_descend(
         &mut self,
         state: &SearchState<T>,
-        decision: Decision,
+        decision: Decision<T>,
         statistics: &BnbSolverStatistics,
     );
     /// Called when backtracking to a parent state.

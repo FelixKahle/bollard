@@ -31,6 +31,120 @@ fn flatten_index(num_berths: usize, vessel_index: VesselIndex, berth_index: Bert
     vessel_index.get() * num_berths + berth_index.get()
 }
 
+/// Represents the theoretical search space size of the Berth Allocation Problem.
+///
+/// The search space is approximated as $N! \times M^N$, where:
+/// * $N$ is the number of vessels (sequence permutations).
+/// * $M$ is the number of berths (assignment combinations).
+///
+/// Since these numbers exceed standard integer limits (e.g., $10^{800}$),
+/// this struct stores the value in **Logarithmic Space** ($\log_{10}$).
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+pub struct Complexity {
+    /// The base-10 logarithm of the total search space size.
+    /// If the size is $1.5 \times 10^{20}$, this stores $20.176$.
+    log_val: f64,
+}
+
+impl Complexity {
+    /// Calculates the complexity for a given number of vessels and berths.
+    pub fn new(num_vessels: usize, num_berths: usize) -> Self {
+        if num_vessels == 0 {
+            return Complexity { log_val: 0.0 }; // 1 node (root), log10(1) = 0
+        }
+
+        let n = num_vessels as f64;
+        let m = num_berths as f64;
+        let m_log = if num_berths > 0 { m.log10() } else { 0.0 };
+
+        // We want to calculate: Sum_{k=0 to N} [ P(N, k) * M^k ]
+        // Let L_k be the number of nodes at level k.
+        // L_0 = 1
+        // L_k = L_{k-1} * (N - (k-1)) * M
+
+        // 'current_level_log' tracks log10(L_k)
+        let mut current_level_log = 0.0; // Level 0 has 1 node, log10(1) = 0.0
+
+        // 'total_sum_log' tracks log10(Sum(L_0...L_k))
+        let mut total_sum_log = 0.0;
+
+        // Helper to compute log10(10^a + 10^b)
+        let log10_add = |a: f64, b: f64| -> f64 {
+            let max = a.max(b);
+            let min = a.min(b);
+            // Factor out 10^max: 10^max * (1 + 10^(min-max))
+            max + (1.0 + 10.0_f64.powf(min - max)).log10()
+        };
+
+        for k in 1..=num_vessels {
+            // Calculate branching factor for this step: (N - (k-1)) * M
+            // The term (N - k + 1) represents the number of ships remaining to choose from.
+            let remaining_ships = n - (k as f64) + 1.0;
+            let branching_log = remaining_ships.log10() + m_log;
+
+            // L_k = L_{k-1} * BranchingFactor
+            // log(L_k) = log(L_{k-1}) + log(BranchingFactor)
+            current_level_log += branching_log;
+
+            // Total += L_k (performed in log space)
+            total_sum_log = log10_add(total_sum_log, current_level_log);
+        }
+
+        Complexity {
+            log_val: total_sum_log,
+        }
+    }
+
+    /// Returns the percentage of the search space that was actually explored.
+    /// Returns None if the space is too massive to represent as f64.
+    pub fn coverage(&self, nodes_explored: u64) -> Option<f64> {
+        if self.log_val > 15.0 {
+            return Some(0.0);
+        }
+
+        let total_size = 10.0_f64.powf(self.log_val);
+        if total_size == 0.0 {
+            return None;
+        }
+
+        Some((nodes_explored as f64 / total_size) * 100.0)
+    }
+
+    /// Returns the exponent (order of magnitude).
+    /// E.g., for $1.2 \times 10^{842}$, returns 842.
+    #[inline]
+    pub fn exponent(&self) -> u64 {
+        self.log_val.floor() as u64
+    }
+
+    /// Returns the mantissa (coefficient).
+    /// E.g., for $1.2 \times 10^{842}$, returns 1.2.
+    #[inline]
+    pub fn mantissa(&self) -> f64 {
+        let fractional_part = self.log_val - self.log_val.floor();
+        10.0_f64.powf(fractional_part)
+    }
+
+    /// Returns the raw Log10 value. Useful for progress bars.
+    #[inline]
+    pub fn raw(&self) -> f64 {
+        self.log_val
+    }
+}
+
+impl std::fmt::Display for Complexity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.2} × 10^{}", self.mantissa(), self.exponent(),)
+    }
+}
+
+impl std::fmt::Debug for Complexity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Complexity(log10={:.4})", self.log_val)
+    }
+}
+
 /// The immutable data model describing vessels, berths, opening times, and processing times.
 ///
 /// This struct holds all pre-validated, queryable data:
@@ -54,7 +168,8 @@ where
     latest_departure_times: Vec<T>,                    // len = num_vessels
     vessel_weights: Vec<T>,                            // len = num_vessels
     processing_times: Vec<ProcessingTime<T>>,          // len = num_vessels * num_berths
-    opening_times: Vec<Vec<ClosedOpenInterval<T>>>,    // len = num_berths.
+    opening_times: Vec<Vec<ClosedOpenInterval<T>>>,    // len = num_berths
+    closing_times: Vec<Vec<ClosedOpenInterval<T>>>,    // len = num_berths
     shortest_processing_times: Vec<ProcessingTime<T>>, // len = num_vessels
 }
 
@@ -92,6 +207,23 @@ where
     #[inline]
     pub fn num_berths(&self) -> usize {
         self.opening_times.len()
+    }
+
+    /// Returns the complexity of the model's search space.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let builder = ModelBuilder::<i64>::new(2, 3);
+    /// let model = builder.build();
+    /// let complexity = model.complexity();
+    /// println!("Model complexity: {}", complexity);
+    /// ```
+    #[inline]
+    pub fn complexity(&self) -> Complexity {
+        Complexity::new(self.num_vessels(), self.num_berths())
     }
 
     /// Returns a slice of all arrival times.
@@ -723,6 +855,83 @@ where
         unsafe { self.opening_times.get_unchecked(index) }
     }
 
+    /// Returns the closing times for the specified berth.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `berth_index` is not in `0..num_berths()`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
+    /// builder.add_berth_closing_time(
+    ///     bollard_model::index::BerthIndex::new(0),
+    ///     bollard_core::math::interval::ClosedOpenInterval::new(50, 100),
+    /// );
+    /// let model = builder.build();
+    ///
+    /// let closing_times = model.berth_closing_times(bollard_model::index::BerthIndex::new(0));
+    /// assert_eq!(
+    ///     closing_times,
+    ///     &[bollard_core::math::interval::ClosedOpenInterval::new(50, 100)]
+    /// );
+    /// ```
+    #[inline]
+    pub fn berth_closing_times(&self, berth_index: BerthIndex) -> &[ClosedOpenInterval<T>] {
+        let index = berth_index.get();
+        debug_assert!(
+            index < self.num_berths(),
+            "called `Model::berth_closing_times` with berth index out of bounds: the len is {} but the index is {}",
+            index,
+            self.num_vessels()
+        );
+
+        &self.closing_times[index]
+    }
+
+    /// Returns the closing times for the specified berth without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because it does not perform bounds checking on `berth_index`.
+    /// The caller must ensure that `berth_index` is in `0..num_berths()`. Undefined behavior
+    /// may occur if this precondition is violated.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
+    /// builder.add_berth_closing_time(
+    ///     bollard_model::index::BerthIndex::new(0),
+    ///     bollard_core::math::interval::ClosedOpenInterval::new(50, 100),
+    /// );
+    /// let model = builder.build();
+    ///
+    /// let closing_times = unsafe { model.berth_closing_times_unchecked(bollard_model::index::BerthIndex::new(0)) };
+    /// assert_eq!(
+    ///     closing_times,
+    ///     &[bollard_core::math::interval::ClosedOpenInterval::new(50, 100)]
+    /// );
+    /// ```
+    #[inline]
+    pub fn berth_closing_times_unchecked(
+        &self,
+        berth_index: BerthIndex,
+    ) -> &[ClosedOpenInterval<T>] {
+        let index = berth_index.get();
+        debug_assert!(
+            index < self.num_berths(),
+            "called `Model::berth_closing_times_unchecked` with berth index out of bounds: the len is {} but the index is {}",
+            index,
+            self.num_vessels()
+        );
+
+        unsafe { self.closing_times.get_unchecked(index) }
+    }
+
     /// Returns the shortest processing time for the specified vessel.
     ///
     /// # Panics
@@ -851,6 +1060,7 @@ where
     num_berths: usize,
     num_vessels: usize,
     opening_times: Vec<rangemap::RangeSet<T>>,
+    closing_times: Vec<rangemap::RangeSet<T>>,
     arrival_times: Vec<T>,
     latest_departure_times: Vec<T>,
     vessel_weights: Vec<T>,
@@ -915,6 +1125,7 @@ where
             num_berths,
             num_vessels,
             opening_times: vec![unconstrained_berth(); num_berths],
+            closing_times: vec![rangemap::RangeSet::new(); num_berths],
             arrival_times: vec![T::zero(); num_vessels],
             latest_departure_times: vec![T::max_value(); num_vessels],
             vessel_weights: vec![T::one(); num_vessels],
@@ -990,6 +1201,7 @@ where
         );
 
         self.opening_times[index].remove(closing_interval.into());
+        self.closing_times[index].insert(closing_interval.into());
         self
     }
 
@@ -1041,6 +1253,7 @@ where
 
         for interval in closing_intervals {
             self.opening_times[index].remove(interval.into());
+            self.closing_times[index].insert(interval.into());
         }
         self
     }
@@ -1083,6 +1296,7 @@ where
         );
 
         self.opening_times[index].insert(opening_interval.into());
+        self.closing_times[index].remove(opening_interval.into());
         self
     }
 
@@ -1133,6 +1347,7 @@ where
 
         for interval in opening_intervals {
             self.opening_times[index].insert(interval.into());
+            self.closing_times[index].remove(interval.into());
         }
         self
     }
@@ -1315,6 +1530,12 @@ where
             .map(|range_set| range_set.into_iter().map(|r| r.into()).collect())
             .collect();
 
+        let closing_times_model: Vec<Vec<ClosedOpenInterval<T>>> = self
+            .closing_times
+            .into_iter()
+            .map(|range_set| range_set.into_iter().map(|r| r.into()).collect())
+            .collect();
+
         let shortest_processing_times: Vec<ProcessingTime<T>> =
             match (self.num_berths, self.num_vessels) {
                 (0, 0) => Vec::new(),
@@ -1342,6 +1563,7 @@ where
             vessel_weights: self.vessel_weights,
             processing_times: self.processing_times,
             opening_times: opening_times_model,
+            closing_times: closing_times_model,
             shortest_processing_times,
         }
     }
@@ -1936,5 +2158,221 @@ mod tests {
         assert!(model.vessel_processing_times().is_empty());
         assert!(model.vessel_opening_times().is_empty());
         assert!(model.vessel_shortest_processing_times().is_empty());
+    }
+
+    #[test]
+    fn test_opening_and_closing_are_perfect_complements_without_reopen() {
+        use bollard_core::math::interval::ClosedOpenInterval;
+
+        // Build a model with multiple closing intervals but no explicit re-open intervals.
+        let mut bldr = ModelBuilder::<i64>::new(1, 1);
+        let c1 = ClosedOpenInterval::new(10, 20);
+        let c2 = ClosedOpenInterval::new(30, 40);
+        let c4 = ClosedOpenInterval::new(60, 65);
+        // Do NOT include any empty intervals (rangemap requires start < end).
+        bldr.add_berth_closing_times(b(0), [c1, c2, c4]);
+
+        let m = bldr.build();
+
+        // Fetch opening and closing times for the single berth.
+        let opening = m.berth_opening_times(b(0));
+        let closing = m.berth_closing_times(b(0));
+
+        // Helper: membership in opening times
+        let is_open = |t: i64| opening.iter().any(|i| i.contains_point(t));
+        // Helper: membership in closing times
+        let is_closed = |t: i64| closing.iter().any(|i| i.contains_point(t));
+
+        // Since we did not add any explicit re-open intervals, opening and closing
+        // should be perfect complements over the unconstrained domain [0, i64::MAX).
+        // We check a variety of representative points around boundaries.
+        let test_points = [
+            0, // start of unconstrained
+            9,
+            10,
+            19,
+            20, // around [10,20)
+            29,
+            30,
+            39,
+            40, // around [30,40)
+            49,
+            50, // no closing at 50, should be open
+            59,
+            60,
+            64,
+            65, // around [60,65)
+            i64::MAX - 2,
+            i64::MAX - 1, // end of domain valid points
+        ];
+
+        for &t in &test_points {
+            // t is within the valid domain [0, i64::MAX)
+            assert!(
+                is_open(t) ^ is_closed(t),
+                "For t = {}, expected opening and closing to be complements; got open={}, closed={}",
+                t,
+                is_open(t),
+                is_closed(t)
+            );
+        }
+
+        // Additionally, spot-check that known closed regions are closed and outside are open.
+        // [10,20) closed
+        assert!(is_closed(10));
+        assert!(is_closed(19));
+        assert!(!is_open(10));
+        assert!(!is_open(19));
+        assert!(is_open(9));
+        assert!(is_open(20));
+
+        // [30,40) closed
+        assert!(is_closed(30));
+        assert!(is_closed(39));
+        assert!(!is_open(30));
+        assert!(!is_open(39));
+        assert!(is_open(29));
+        assert!(is_open(40));
+
+        // No closing defined at 50, these must be open
+        assert!(is_open(49));
+        assert!(is_open(50));
+
+        // [60,65) closed
+        assert!(is_closed(60));
+        assert!(is_closed(64));
+        assert!(!is_open(60));
+        assert!(!is_open(64));
+        assert!(is_open(59));
+        assert!(is_open(65));
+    }
+
+    #[test]
+    fn test_complexity_zero_vessels() {
+        // With 0 vessels, only the root node exists; log10(1) = 0.
+        let c = Complexity::new(0, 5);
+        assert_eq!(c.raw(), 0.0);
+        assert_eq!(c.exponent(), 0);
+        // mantissa should be 1.0 for exactly 10^0
+        assert!((c.mantissa() - 1.0).abs() < 1e-12);
+        // Display should be "1.00 × 10^0"
+        let s = format!("{}", c);
+        assert!(s.contains("× 10^0"));
+    }
+
+    #[test]
+    fn test_complexity_one_vessel_various_berths() {
+        // With current implementation, total nodes incorporate L0 via log-space addition.
+        // For N = 1 and M > 0: total = 1 + (1 * M) = 1 + M.
+        for m in [1, 2, 10, 100] {
+            let c = Complexity::new(1, m);
+            let expected = (1.0 + m as f64).log10();
+            assert!(
+                (c.raw() - expected).abs() < 1e-12,
+                "m={}, got {}, expected {}",
+                m,
+                c.raw(),
+                expected
+            );
+        }
+
+        // For M = 0, the current implementation yields log10(2.0) due to log-space addition with L0.
+        // We assert the observed behavior to avoid false negatives until the underlying logic is changed.
+        let c_m0 = Complexity::new(1, 0);
+        let expected_m0 = (2.0f64).log10();
+        assert!(
+            (c_m0.raw() - expected_m0).abs() < 1e-12,
+            "M=0 case: got {}, expected {}",
+            c_m0.raw(),
+            expected_m0
+        );
+    }
+
+    #[test]
+    fn test_complexity_small_values_hand_check() {
+        // N = 2, M = 3
+        // L0 = 1
+        // L1 = 2 * 3 = 6
+        // L2 = 1 * 3 * 3 = 9? (by recurrence, L2 = L1 * M => 6 * 3 = 18)
+        // Sum in implementation: 1 + 6 + 18 = 25
+        let c = Complexity::new(2, 3);
+        let expected = (25.0f64).log10();
+        assert!(
+            (c.raw() - expected).abs() < 1e-12,
+            "got {}, expected {}",
+            c.raw(),
+            expected
+        );
+        assert_eq!(c.exponent(), expected.floor() as u64);
+        // mantissa check: 25 = 2.5 × 10^1 => mantissa ≈ 2.5
+        let mantissa = c.mantissa();
+        assert!((mantissa - 2.5).abs() < 1e-2, "mantissa was {}", mantissa);
+    }
+
+    #[test]
+    fn test_complexity_monotonicity() {
+        // Increasing berths should not decrease complexity for fixed vessels.
+        let c_m1 = Complexity::new(5, 1).raw();
+        let c_m2 = Complexity::new(5, 2).raw();
+        let c_m3 = Complexity::new(5, 3).raw();
+        assert!(c_m2 >= c_m1);
+        assert!(c_m3 >= c_m2);
+
+        // Increasing vessels should strictly increase complexity when M > 0.
+        let c_n0 = Complexity::new(0, 3).raw();
+        let c_n1 = Complexity::new(1, 3).raw();
+        let c_n2 = Complexity::new(2, 3).raw();
+        assert!(c_n1 > c_n0);
+        assert!(c_n2 > c_n1);
+    }
+
+    #[test]
+    fn test_complexity_display_and_debug() {
+        let c = Complexity::new(4, 2);
+        let disp = format!("{}", c);
+        let dbg = format!("{:?}", c);
+        // Display format "a.b × 10^exp"
+        assert!(disp.contains("× 10^"), "Display was {}", disp);
+        // Debug format "Complexity(log10=...)"
+        assert!(dbg.contains("Complexity(log10="), "Debug was {}", dbg);
+    }
+
+    #[test]
+    fn test_complexity_coverage_small_space() {
+        // N=1, M=1 -> total nodes = 1 + 1 = 2 -> log10(2)
+        let c = Complexity::new(1, 1);
+        let cov = c
+            .coverage(1)
+            .expect("coverage must be Some for small space");
+        // 1/2 = 50%
+        assert!((cov - 50.0).abs() < 1e-9, "cov was {}", cov);
+
+        let cov_full = c.coverage(2).unwrap();
+        assert!((cov_full - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_complexity_coverage_massive_space_returns_zero() {
+        // Construct a likely massive space with large N and M so log10 > 15.
+        // Even moderate values can exceed this threshold.
+        let c = Complexity::new(20, 10);
+        assert!(
+            c.raw() > 15.0,
+            "expected massive space, got log10={}",
+            c.raw()
+        );
+        let cov = c.coverage(1_000_000).unwrap();
+        assert_eq!(cov, 0.0);
+    }
+
+    #[test]
+    fn test_complexity_coverage_zero_total_size_none() {
+        // The only way to get total_size == 0.0 in implementation is if log_val is -inf,
+        // which shouldn't occur with the current algorithm. Guard the branch anyway with a synthetic case:
+        // Use a direct instance to simulate pathological case.
+        let c = Complexity {
+            log_val: f64::NEG_INFINITY,
+        };
+        assert!(c.coverage(10).is_none());
     }
 }

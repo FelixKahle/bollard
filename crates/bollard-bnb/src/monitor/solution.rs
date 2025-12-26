@@ -19,97 +19,52 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-//! No‑op monitor for tree search
+//! Solution limit monitor for tree search
 //!
-//! `NoOperationMonitor` implements `TreeSearchMonitor` and deliberately does
-//! nothing. Use it to disable monitoring with minimal overhead or as a
-//! placeholder where a monitor is required by type.
+//! `SolutionLimitMonitor` implements `TreeSearchMonitor` and stops the search
+//! once a configured number of solutions has been found. It observes the solver
+//! statistics and returns a termination command when the global count reaches
+//! the limit, remaining otherwise unobtrusive during the search.
 //!
-//! Behavior
-//! - Always returns `SearchCommand::Continue`.
-//! - Ignores all callbacks (`on_*` methods are no‑ops).
-//! - Stateless; only carries `PhantomData<T>`.
-//!
-//! Suitable for baselines, tests, and as a neutral element in composite monitors.
-
 use crate::{
-    branching::decision::Decision,
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
     state::SearchState,
     stats::BnbSolverStatistics,
 };
-use bollard_model::{model::Model, solution::Solution};
+use bollard_model::model::Model;
 use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
 
-/// A no-operation monitor that implements the `TreeSearchMonitor` trait
-/// but does nothing on any of the events, always returning `Continue` for the
-/// search command.
-#[repr(transparent)]
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
-pub struct NoOperationMonitor<T>
-where
-    T: PrimInt + Signed,
-{
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SolutionLimitMonitor<T> {
+    solution_limit: u64,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T> NoOperationMonitor<T>
-where
-    T: PrimInt + Signed,
-{
-    /// Creates a new `NoOperationMonitor`.
-    #[inline(always)]
-    pub fn new() -> Self {
+impl<T> SolutionLimitMonitor<T> {
+    /// Creates a new `SolutionLimitMonitor` with the specified solution limit.
+    pub fn new(solution_limit: u64) -> Self {
         Self {
+            solution_limit,
             _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl<T> TreeSearchMonitor<T> for NoOperationMonitor<T>
+impl<T> TreeSearchMonitor<T> for SolutionLimitMonitor<T>
 where
     T: PrimInt + Signed,
 {
-    #[inline(always)]
     fn name(&self) -> &str {
-        "NoOperationMonitor"
+        "TimeLimitMonitor"
     }
 
-    #[inline(always)]
     fn on_enter_search(&mut self, _model: &Model<T>, _statistics: &BnbSolverStatistics) {}
 
-    #[inline(always)]
-    fn on_solution_found(&mut self, _solution: &Solution<T>, _statistics: &BnbSolverStatistics) {}
-
-    #[inline(always)]
-    fn on_backtrack(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics) {}
-
-    #[inline(always)]
-    fn on_descend(
-        &mut self,
-        _state: &SearchState<T>,
-        _decision: Decision<T>,
-        _statistics: &BnbSolverStatistics,
-    ) {
-    }
-
-    #[inline(always)]
     fn on_exit_search(&mut self, _statistics: &BnbSolverStatistics) {}
 
-    #[inline(always)]
-    fn search_command(
-        &mut self,
-        _state: &SearchState<T>,
-        _statistics: &BnbSolverStatistics,
-    ) -> SearchCommand {
-        SearchCommand::Continue
-    }
-
-    #[inline(always)]
     fn on_step(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics) {}
 
-    #[inline(always)]
     fn on_lower_bound_computed(
         &mut self,
         _state: &SearchState<T>,
@@ -119,7 +74,6 @@ where
     ) {
     }
 
-    #[inline(always)]
     fn on_prune(
         &mut self,
         _state: &SearchState<T>,
@@ -128,12 +82,40 @@ where
     ) {
     }
 
-    #[inline(always)]
     fn on_decisions_enqueued(
         &mut self,
         _state: &SearchState<T>,
         _count: usize,
         _statistics: &BnbSolverStatistics,
     ) {
+    }
+
+    fn on_descend(
+        &mut self,
+        _state: &SearchState<T>,
+        _decision: crate::branching::decision::Decision<T>,
+        _statistics: &BnbSolverStatistics,
+    ) {
+    }
+
+    fn on_backtrack(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics) {}
+
+    fn on_solution_found(
+        &mut self,
+        _solution: &bollard_model::solution::Solution<T>,
+        _statistics: &BnbSolverStatistics,
+    ) {
+    }
+
+    fn search_command(
+        &mut self,
+        _state: &SearchState<T>,
+        statistics: &BnbSolverStatistics,
+    ) -> SearchCommand {
+        if statistics.solutions_found >= self.solution_limit {
+            SearchCommand::Terminate("Solution limit reached".to_string())
+        } else {
+            SearchCommand::Continue
+        }
     }
 }

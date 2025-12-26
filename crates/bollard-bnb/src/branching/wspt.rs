@@ -19,7 +19,23 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Cost‑guided (WSPT‑style) branching
+//!
+//! Implements a decision builder that orders feasible `(vessel, berth)`
+//! assignments by increasing immediate objective cost (weighted finish time),
+//! similar in spirit to the Weighted Shortest Processing Time principle.
+//!
+//! Feasible options are collected as rich decisions that respect model topology,
+//! berth availability, and evaluator constraints. Global ordering is cost
+//! ascending, with deterministic tie‑breaking by decision indices.
+//!
+//! This best‑first strategy helps find strong incumbents early and improves
+//! pruning in branch‑and‑bound compared to arbitrary enumeration.
+//!
+//! Produces a fused iterator of decisions; once exhausted, `next()` returns `None`.
+
 use crate::{
+    berth_availability::BerthAvailability,
     branching::decision::{Decision, DecisionBuilder},
     eval::evaluator::ObjectiveEvaluator,
     state::SearchState,
@@ -31,31 +47,39 @@ use bollard_model::{
 use bollard_search::num::SolverNumeric;
 use std::iter::FusedIterator;
 
+/// Internal candidate structure for WSPT sorting.
+///
+/// Wraps a `Decision` to enforce sorting by **Cost** (ascending)
+/// rather than the default index-based sorting of `Decision`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Candidate<T> {
-    cost: T,
-    decision: Decision,
+struct WsptCandidate<T> {
+    decision: Decision<T>,
 }
 
-impl<T> Candidate<T> {
+impl<T> WsptCandidate<T> {
     #[inline(always)]
-    fn new(cost: T, decision: Decision) -> Self {
-        Self { cost, decision }
+    fn new(decision: Decision<T>) -> Self {
+        Self { decision }
     }
 }
 
-impl<T> std::fmt::Display for Candidate<T>
+impl<T> std::fmt::Display for WsptCandidate<T>
 where
-    T: std::fmt::Display,
+    T: SolverNumeric,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Cost: {}, Decision: {}", self.cost, self.decision)
+        write!(
+            f,
+            "Cost: {}, Decision: {}",
+            self.decision.cost_delta(),
+            self.decision
+        )
     }
 }
 
-impl<T> PartialOrd for Candidate<T>
+impl<T> PartialOrd for WsptCandidate<T>
 where
-    T: PartialOrd + Ord,
+    T: SolverNumeric,
 {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -63,30 +87,32 @@ where
     }
 }
 
-impl<T> Ord for Candidate<T>
+impl<T> Ord for WsptCandidate<T>
 where
-    T: Ord,
+    T: SolverNumeric,
 {
     #[inline(always)]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.cost
-            .cmp(&other.cost)
-            .then_with(|| self.decision.cmp(&other.decision)) // tie break by decision (vessel index first then berth index)
+        // Sort by Cost Ascending (Cheapest first)
+        self.decision
+            .cost_delta()
+            .cmp(&other.decision.cost_delta())
+            // Tie-break deterministically by indices
+            .then_with(|| self.decision.cmp(&other.decision))
     }
 }
 
 /// A decision builder that implements a **Dynamic Weighted Shortest Processing Time (WSPT)** heuristic.
 ///
 /// Instead of exploring branches in arbitrary order, this builder:
-/// 1. Generates all feasible assignments for the current state.
-/// 2. Calculates the immediate objective increase (weighted completion time) for each.
-/// 3. Sorts branches so that the "cheapest" moves are explored first.
+/// 1. Generates all feasible assignments as fully computed Rich Decisions.
+/// 2. Sorts branches so that the "cheapest" moves (lowest cost delta) are explored first.
 ///
 /// This "Best-First" strategy helps the solver find high-quality incumbents early,
 /// maximizing the effectiveness of bound-based pruning.
 #[derive(Debug, Clone, Default)]
 pub struct WsptHeuristicBuilder<T> {
-    candidates: Vec<Candidate<T>>,
+    candidates: Vec<WsptCandidate<T>>,
 }
 
 impl<T> WsptHeuristicBuilder<T> {
@@ -106,9 +132,7 @@ impl<T> WsptHeuristicBuilder<T> {
         }
     }
 
-    /// Creates a new `WsptHeuristicBuilder` with a candidate buffer of the specified capacity.
-    /// You may use `WsptHeuristicBuilder::preallocated` for a more specific preallocation based
-    /// on the number of berths and vessels.
+    /// Creates a new `WsptHeuristicBuilder` with specific capacity.
     #[inline]
     pub fn with_capacity(size: usize) -> Self {
         Self {
@@ -137,6 +161,7 @@ where
         &'a mut self,
         evaluator: &'a mut E,
         model: &'a Model<T>,
+        berth_availability: &'a BerthAvailability<T>,
         state: &'a SearchState<T>,
     ) -> Self::DecisionIterator<'a> {
         self.candidates.clear();
@@ -154,26 +179,25 @@ where
             for b in 0..num_berths {
                 let berth_index = BerthIndex::new(b);
 
-                if let Some(decision) =
-                    unsafe { Decision::try_new_unchecked(vessel_index, berth_index, model, state) }
-                {
-                    let berth_free_time = unsafe { state.berth_free_time_unchecked(berth_index) };
-
-                    if let Some(cost) = unsafe {
-                        evaluator.evaluate_vessel_assignment_unchecked(
-                            model,
-                            vessel_index,
-                            berth_index,
-                            berth_free_time,
-                        )
-                    } {
-                        self.candidates.push(Candidate::new(cost, decision));
-                    }
+                // Use the Rich Decision pipeline.
+                // This calculates availability and cost in one go.
+                if let Some(decision) = unsafe {
+                    Decision::try_new_unchecked(
+                        vessel_index,
+                        berth_index,
+                        model,
+                        berth_availability,
+                        state,
+                        evaluator,
+                    )
+                } {
+                    self.candidates.push(WsptCandidate::new(decision));
                 }
             }
         }
 
         self.candidates.sort_unstable();
+
         WsptHeuristicIter {
             iter: self.candidates.iter(),
         }
@@ -181,16 +205,15 @@ where
 }
 
 /// A lightweight iterator wrapper that yields decisions from the slice.
-/// It holds a reference to the builder's scratch buffer.
 pub struct WsptHeuristicIter<'a, T> {
-    iter: std::slice::Iter<'a, Candidate<T>>,
+    iter: std::slice::Iter<'a, WsptCandidate<T>>,
 }
 
 impl<'a, T> Iterator for WsptHeuristicIter<'a, T>
 where
     T: Copy,
 {
-    type Item = Decision;
+    type Item = Decision<T>;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -203,7 +226,6 @@ impl<'a, T> FusedIterator for WsptHeuristicIter<'a, T> where T: Copy {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::evaluator::ObjectiveEvaluator;
     use crate::eval::wtft::WeightedFlowTimeEvaluator;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
@@ -271,30 +293,23 @@ mod tests {
     #[test]
     fn test_wspt_orders_by_increasing_cost() {
         let model = build_small_model();
+        let mut berth_availability = BerthAvailability::new();
+        berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
         let mut builder = WsptHeuristicBuilder::<IntegerType>::new();
 
         // Generate decisions
-        let mut iter = builder.next_decision(&mut evaluator, &model, &state);
-        let decisions: Vec<Decision> = iter.by_ref().collect();
+        let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
+        let decisions: Vec<Decision<IntegerType>> = iter.by_ref().collect();
         assert!(
             !decisions.is_empty(),
             "Expected at least one feasible decision"
         );
 
         // Compute costs for the yielded decisions using the evaluator and the current berth free time
-        let observed_costs: Vec<IntegerType> = decisions
-            .iter()
-            .map(|d| {
-                let v = d.vessel_index();
-                let b = d.berth_index();
-                let ready = unsafe { state.berth_free_time_unchecked(b) };
-                evaluator
-                    .evaluate_vessel_assignment(&model, v, b, ready)
-                    .expect("decision should be feasible and evaluable")
-            })
-            .collect();
+        // Note: We can now trust decision.cost_delta() directly!
+        let observed_costs: Vec<IntegerType> = decisions.iter().map(|d| d.cost_delta()).collect();
 
         // Ensure non-decreasing costs (sorted ascending)
         let mut sorted = observed_costs.clone();
@@ -330,12 +345,14 @@ mod tests {
                 ProcessingTime::none(), // no feasible processing time
             );
         let model = b.build();
+        let mut berth_availability = BerthAvailability::new();
+        berth_availability.initialize(&model, &[]);
 
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
         let mut builder = WsptHeuristicBuilder::<IntegerType>::new();
 
-        let mut iter = builder.next_decision(&mut evaluator, &model, &state);
+        let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
         assert_eq!(
             iter.next(),
             None,
