@@ -1,6 +1,6 @@
 # Bollard Solver
 
-Portfolio-based orchestration for exact search in the Bollard ecosystem. This crate runs multiple solver strategies in parallel, manages a shared incumbent solution, and enforces termination via pluggable monitors (time limit, solution count, external interrupt).
+Portfolio-based orchestration for search in the Bollard ecosystem. This crate runs multiple solver strategies in parallel, manages a shared incumbent solution, and enforces termination via pluggable monitors (time limit, solution count, external interrupt).
 
 ## What This Crate Provides
 
@@ -89,9 +89,3 @@ fn main() {
 - Global signals: When a thread proves optimality, the orchestrator sets an interrupt flag to stop others early.
 - Minimal overhead: Monitors are designed to be efficient; atomic counters and relaxed ordering are used where safe.
 - Deterministic outcome assembly: The best solution across threads and the shared incumbent is selected, with termination reasons consolidated.
-
-## Related Crates
-
-- `bollard-model`: Core domain model and solution representation.
-- `bollard-search`: Monitors, incumbents, portfolio interfaces, results, and statistics.
-- `bollard-bnb`: Branch-and-Bound strategies compatible with the portfolio orchestrator.
