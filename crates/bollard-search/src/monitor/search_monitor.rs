@@ -36,7 +36,7 @@
 //!
 //! ## Core Concepts
 //!
-////! - `SearchMonitor<T>`: Trait defining lifecycle hooks:
+//! - `SearchMonitor<T>`: Trait defining lifecycle hooks:
 //!   - `on_enter_search(&mut self, model)` — initialization before search starts.
 //!   - `on_exit_search(&mut self)` — cleanup after search finishes.
 //!   - `on_solution_found(&mut self, solution)` — react to new solutions.
