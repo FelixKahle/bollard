@@ -19,76 +19,35 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-//! # Foreign Function Interface (FFI) for Bollard Models
+//! # Model Definition API
 //!
-//! This module provides a C-compatible API for defining and inspecting the scheduling
-//! problems (models) used by the Bollard solver. It acts as a bridge between
-//! external environments (C, C++, Python, etc.) and the Rust core.
+//! This module provides the interface for defining scheduling problems. It implements the
+//! **Builder Pattern** to ensure that solvers receive only fully validated, immutable data structures.
 //!
-//! ## Overview
+//! ## The Two-Phase Construction
 //!
-//! The API follows the **Builder Pattern**:
+//! To ensure thread safety and solver optimization, models are created in two distinct phases:
 //!
-//! 1.  **Mutable Construction**: Users allocate a `ModelBuilder` to define the problem parameters
-//!     (vessels, berths, timings, weights).
-//! 2.  **Immutable Finalization**: The builder is transformed into a `Model`. This `Model` is
-//!     highly optimized, immutable, and thread-safe, ready to be passed to the solver.
+//! 1.  **Configuration Phase (`ModelBuilder`)**:
+//!     * **Mutability**: Mutable.
+//!     * **Purpose**: Accumulate data (vessels, berths, constraints, weights).
+//!     * **API**: Functions beginning with `bollard_model_builder_*`.
 //!
-//! ## Usage Lifecycle
+//! 2.  **Solving Phase (`Model`)**:
+//!     * **Mutability**: Immutable.
+//!     * **Purpose**: High-speed read access during the Branch-and-Bound search.
+//!     * **API**: Functions beginning with `bollard_model_*` (excluding builder functions).
 //!
-//! A typical integration flow involves the following steps:
+//! ## Data Structures
 //!
-//! 1.  **Instantiation**: Create a builder using `bollard_model_builder_new`.
-//! 2.  **Configuration**: Populate the builder with data:
-//!     * **Vessels**: Set arrival, departure, and weights.
-//!     * **Processing**: Define processing times for valid Vessel-Berth pairs.
-//!     * **Availability**: Define opening/closing intervals for berths (using the `FfiOpenClosedInterval` struct).
-//! 3.  **Finalization**: Call `bollard_model_builder_build`.
-//!     * **Important**: This step consumes the builder. The builder pointer becomes invalid immediately after this call.
-//! 4.  **Solving**: Pass the resulting `Model` pointer to the solver FFI.
-//! 5.  **Cleanup**: Explicitly free the `Model` using `bollard_model_free` when it is no longer needed.
+//! * **`FfiOpenClosedInterval`**: A C-compatible struct `[start, end)` used to define berth availability windows.
 //!
-//! ## Safety
+//! ## Important: Ownership Transfer
 //!
-//! This module uses `unsafe` code to interact with raw pointers. Callers **must** ensure:
-//!
-//! * **Pointer Validity**: Pointers must be allocated by this library.
-//! * **Ownership Transfer**: After calling `bollard_model_builder_build`, the builder pointer must **not** be used or freed; ownership of the underlying data is transferred to the new `Model`.
-//! * **Bounds**: Indices for vessels and berths must be within the ranges defined during instantiation.
-//! * **Null Pointers**: Passing `NULL` will result in a panic.
-//!
-//! ## Exported API
-//!
-//! ### Lifecycle & Finalization
-//! * `bollard_model_builder_new`
-//! * `bollard_model_builder_free`
-//! * `bollard_model_builder_build`
-//! * `bollard_model_free`
-//!
-//! ### Configuration (Builder)
-//! * `bollard_model_builder_set_arrival_time`
-//! * `bollard_model_builder_set_latest_departure_time`
-//! * `bollard_model_builder_set_vessel_weight`
-//! * `bollard_model_builder_set_processing_time`
-//! * `bollard_model_builder_forbid_vessel_berth_assignment`
-//! * `bollard_model_builder_add_opening_time`
-//! * `bollard_model_builder_add_closing_time`
-//!
-//! ### Inspection (Model)
-//! * `bollard_model_num_vessels`
-//! * `bollard_model_num_berths`
-//! * `bollard_model_get_vessel_weight`
-//! * `bollard_model_get_vessel_arrival_time`
-//! * `bollard_model_get_vessel_latest_departure_time`
-//! * `bollard_model_get_processing_time`
-//! * `bollard_model_get_num_berth_opening_times`
-//! * `bollard_model_get_berth_opening_time`
-//! * `bollard_model_get_num_berth_closing_times`
-//! * `bollard_model_get_berth_closing_time`
-//! * `bollard_model_get_model_log_complexity`
-//!
-//! ### Data Structures
-//! * `FfiOpenClosedInterval`
+//! The function `bollard_model_builder_build` is a **consuming** operation.
+//! * It invalidates the `ModelBuilder` pointer.
+//! * It returns a new `Model` pointer.
+//! * **Do not** attempt to free the builder after calling build.
 
 use bollard_core::math::interval::ClosedOpenInterval;
 use bollard_model::{
@@ -201,7 +160,7 @@ pub unsafe extern "C" fn bollard_model_builder_add_closing_time(
 
     assert!(
         berth_index < builder.num_berths(),
-        "called `bollard_outcome_get_berth` with berth index out of bounds: the len is {} but the index is {}",
+        "called `bollard_outcome_berth` with berth index out of bounds: the len is {} but the index is {}",
         berth_index,
         builder.num_berths()
     );
@@ -229,7 +188,7 @@ pub unsafe extern "C" fn bollard_model_builder_add_opening_time(
     let builder = &mut *ptr;
 
     assert!(berth_index < builder.num_berths(),
-        "called `bollard_outcome_get_berth` with berth index out of bounds: the len is {} but the index is {}",
+        "called `bollard_outcome_berth` with berth index out of bounds: the len is {} but the index is {}",
         berth_index,
         builder.num_berths()
     );
@@ -502,19 +461,19 @@ pub unsafe extern "C" fn bollard_model_num_berths(ptr: *const Model<i64>) -> usi
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_build`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_model_get_vessel_weight(
+pub unsafe extern "C" fn bollard_model_vessel_weight(
     ptr: *const Model<i64>,
     vessel_index: usize,
 ) -> i64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_model_get_vessel_weight` with null pointer"
+        "called `bollard_model_vessel_weight` with null pointer"
     );
 
     let model = &*ptr;
 
     assert!(vessel_index < model.num_vessels(),
-        "called `bollard_model_get_vessel_weight` with vessel index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_vessel_weight` with vessel index out of bounds: the len is {} but the index is {}",
         model.num_vessels(),
         vessel_index
     );
@@ -536,26 +495,26 @@ pub unsafe extern "C" fn bollard_model_get_vessel_weight(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_build`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_model_get_processing_time(
+pub unsafe extern "C" fn bollard_model_processing_time(
     ptr: *const Model<i64>,
     vessel_index: usize,
     berth_index: usize,
 ) -> i64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_model_get_processing_time` with null pointer"
+        "called `bollard_model_processing_time` with null pointer"
     );
 
     let model = &*ptr;
 
     assert!(vessel_index < model.num_vessels(),
-        "called `bollard_model_get_processing_time` with vessel index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_processing_time` with vessel index out of bounds: the len is {} but the index is {}",
         model.num_vessels(),
         vessel_index
     );
 
     assert!(berth_index < model.num_berths(),
-        "called `bollard_model_get_processing_time` with berth index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_processing_time` with berth index out of bounds: the len is {} but the index is {}",
         model.num_berths(),
         berth_index
     );
@@ -583,19 +542,19 @@ pub unsafe extern "C" fn bollard_model_get_processing_time(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_build`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_model_get_vessel_arrival_time(
+pub unsafe extern "C" fn bollard_model_vessel_arrival_time(
     ptr: *const Model<i64>,
     vessel_index: usize,
 ) -> i64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_model_get_vessel_arrival_time` with null pointer"
+        "called `bollard_model_vessel_arrival_time` with null pointer"
     );
 
     let model = &*ptr;
 
     assert!(vessel_index < model.num_vessels(),
-        "called `bollard_model_get_vessel_arrival_time` with vessel index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_vessel_arrival_time` with vessel index out of bounds: the len is {} but the index is {}",
         model.num_vessels(),
         vessel_index
     );
@@ -616,19 +575,19 @@ pub unsafe extern "C" fn bollard_model_get_vessel_arrival_time(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_build`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_model_get_vessel_latest_departure_time(
+pub unsafe extern "C" fn bollard_model_vessel_latest_departure_time(
     ptr: *const Model<i64>,
     vessel_index: usize,
 ) -> i64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_model_get_vessel_latest_departure_time` with null pointer"
+        "called `bollard_model_vessel_latest_departure_time` with null pointer"
     );
 
     let model = &*ptr;
 
     assert!(vessel_index < model.num_vessels(),
-        "called `bollard_model_get_vessel_latest_departure_time` with vessel index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_vessel_latest_departure_time` with vessel index out of bounds: the len is {} but the index is {}",
         model.num_vessels(),
         vessel_index
     );
@@ -649,19 +608,19 @@ pub unsafe extern "C" fn bollard_model_get_vessel_latest_departure_time(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_build`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_model_get_num_berth_closing_times(
+pub unsafe extern "C" fn bollard_model_num_berth_closing_times(
     ptr: *const Model<i64>,
     berth_index: usize,
 ) -> usize {
     assert!(
         !ptr.is_null(),
-        "called `bollard_model_get_num_berth_closing_times` with null pointer"
+        "called `bollard_model_num_berth_closing_times` with null pointer"
     );
 
     let model = &*ptr;
 
     assert!(berth_index < model.num_berths(),
-        "called `bollard_model_get_num_berth_closing_times` with berth index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_num_berth_closing_times` with berth index out of bounds: the len is {} but the index is {}",
         model.num_berths(),
         berth_index
     );
@@ -684,19 +643,19 @@ pub unsafe extern "C" fn bollard_model_get_num_berth_closing_times(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_build`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_model_get_num_berth_opening_times(
+pub unsafe extern "C" fn bollard_model_num_berth_opening_times(
     ptr: *const Model<i64>,
     berth_index: usize,
 ) -> usize {
     assert!(
         !ptr.is_null(),
-        "called `bollard_model_get_num_berth_opening_times` with null pointer"
+        "called `bollard_model_num_berth_opening_times` with null pointer"
     );
 
     let model = &*ptr;
 
     assert!(berth_index < model.num_berths(),
-        "called `bollard_model_get_num_berth_opening_times` with berth index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_num_berth_opening_times` with berth index out of bounds: the len is {} but the index is {}",
         model.num_berths(),
         berth_index
     );
@@ -719,20 +678,20 @@ pub unsafe extern "C" fn bollard_model_get_num_berth_opening_times(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_build`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_model_get_berth_closing_time(
+pub unsafe extern "C" fn bollard_model_berth_closing_time(
     ptr: *const Model<i64>,
     berth_index: usize,
     interval_index: usize,
 ) -> FfiOpenClosedInterval {
     assert!(
         !ptr.is_null(),
-        "called `bollard_model_get_berth_closing_time` with null pointer"
+        "called `bollard_model_berth_closing_time` with null pointer"
     );
 
     let model = &*ptr;
 
     assert!(berth_index < model.num_berths(),
-        "called `bollard_model_get_berth_closing_time` with berth index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_berth_closing_time` with berth index out of bounds: the len is {} but the index is {}",
         model.num_berths(),
         berth_index
     );
@@ -740,7 +699,7 @@ pub unsafe extern "C" fn bollard_model_get_berth_closing_time(
     let intervals = model.berth_closing_times(BerthIndex::new(berth_index));
 
     assert!(interval_index < intervals.len(),
-        "called `bollard_model_get_berth_closing_time` with interval index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_berth_closing_time` with interval index out of bounds: the len is {} but the index is {}",
         intervals.len(),
         interval_index
     );
@@ -762,20 +721,20 @@ pub unsafe extern "C" fn bollard_model_get_berth_closing_time(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_build`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_model_get_berth_opening_time(
+pub unsafe extern "C" fn bollard_model_berth_opening_time(
     ptr: *const Model<i64>,
     berth_index: usize,
     interval_index: usize,
 ) -> FfiOpenClosedInterval {
     assert!(
         !ptr.is_null(),
-        "called `bollard_model_get_berth_opening_time` with null pointer"
+        "called `bollard_model_berth_opening_time` with null pointer"
     );
 
     let model = &*ptr;
 
     assert!(berth_index < model.num_berths(),
-        "called `bollard_model_get_berth_opening_time` with berth index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_berth_opening_time` with berth index out of bounds: the len is {} but the index is {}",
         model.num_berths(),
         berth_index
     );
@@ -783,7 +742,7 @@ pub unsafe extern "C" fn bollard_model_get_berth_opening_time(
     let intervals = model.berth_opening_times(BerthIndex::new(berth_index));
 
     assert!(interval_index < intervals.len(),
-        "called `bollard_model_get_berth_opening_time` with interval index out of bounds: the len is {} but the index is {}",
+        "called `bollard_model_berth_opening_time` with interval index out of bounds: the len is {} but the index is {}",
         intervals.len(),
         interval_index
     );
@@ -804,10 +763,10 @@ pub unsafe extern "C" fn bollard_model_get_berth_opening_time(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by `bollard_model_builder_build`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_model_get_model_log_complexity(ptr: *const Model<i64>) -> f64 {
+pub unsafe extern "C" fn bollard_model_model_log_complexity(ptr: *const Model<i64>) -> f64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_model_get_model_log_complexity` with null pointer"
+        "called `bollard_model_model_log_complexity` with null pointer"
     );
 
     let model = &*ptr;
@@ -894,8 +853,8 @@ mod tests {
     fn test_vessel_weights() {
         unsafe {
             let model = build_fixture();
-            assert_eq!(bollard_model_get_vessel_weight(model, 0), 3);
-            assert_eq!(bollard_model_get_vessel_weight(model, 1), 5);
+            assert_eq!(bollard_model_vessel_weight(model, 0), 3);
+            assert_eq!(bollard_model_vessel_weight(model, 1), 5);
             bollard_model_free(model);
         }
     }
@@ -904,8 +863,8 @@ mod tests {
     fn test_vessel_arrival_times() {
         unsafe {
             let model = build_fixture();
-            assert_eq!(bollard_model_get_vessel_arrival_time(model, 0), 5);
-            assert_eq!(bollard_model_get_vessel_arrival_time(model, 1), 15);
+            assert_eq!(bollard_model_vessel_arrival_time(model, 0), 5);
+            assert_eq!(bollard_model_vessel_arrival_time(model, 1), 15);
             bollard_model_free(model);
         }
     }
@@ -914,8 +873,8 @@ mod tests {
     fn test_vessel_latest_departure_times() {
         unsafe {
             let model = build_fixture();
-            assert_eq!(bollard_model_get_vessel_latest_departure_time(model, 0), 40);
-            assert_eq!(bollard_model_get_vessel_latest_departure_time(model, 1), 60);
+            assert_eq!(bollard_model_vessel_latest_departure_time(model, 0), 40);
+            assert_eq!(bollard_model_vessel_latest_departure_time(model, 1), 60);
             bollard_model_free(model);
         }
     }
@@ -925,9 +884,9 @@ mod tests {
     fn test_processing_times_allowed_pairs() {
         unsafe {
             let model = build_fixture();
-            assert_eq!(bollard_model_get_processing_time(model, 0, 0), 10);
-            assert_eq!(bollard_model_get_processing_time(model, 0, 1), 12);
-            assert_eq!(bollard_model_get_processing_time(model, 1, 1), 18);
+            assert_eq!(bollard_model_processing_time(model, 0, 0), 10);
+            assert_eq!(bollard_model_processing_time(model, 0, 1), 12);
+            assert_eq!(bollard_model_processing_time(model, 1, 1), 18);
             bollard_model_free(model);
         }
     }
@@ -937,7 +896,7 @@ mod tests {
         unsafe {
             let model = build_fixture();
             // Vessel 1 on berth 0 is forbidden in the fixture.
-            assert_eq!(bollard_model_get_processing_time(model, 1, 0), -1);
+            assert_eq!(bollard_model_processing_time(model, 1, 0), -1);
             bollard_model_free(model);
         }
     }
@@ -947,8 +906,8 @@ mod tests {
     fn test_opening_intervals_counts_are_nonzero() {
         unsafe {
             let model = build_fixture();
-            let num_open_b0 = bollard_model_get_num_berth_opening_times(model, 0);
-            let num_open_b1 = bollard_model_get_num_berth_opening_times(model, 1);
+            let num_open_b0 = bollard_model_num_berth_opening_times(model, 0);
+            let num_open_b1 = bollard_model_num_berth_opening_times(model, 1);
             assert!(num_open_b0 >= 1);
             assert!(num_open_b1 >= 1);
             bollard_model_free(model);
@@ -960,13 +919,13 @@ mod tests {
         unsafe {
             let model = build_fixture();
 
-            if bollard_model_get_num_berth_opening_times(model, 0) > 0 {
-                let iv = bollard_model_get_berth_opening_time(model, 0, 0);
+            if bollard_model_num_berth_opening_times(model, 0) > 0 {
+                let iv = bollard_model_berth_opening_time(model, 0, 0);
                 assert!(iv.start() >= 0 && iv.end() > iv.start());
             }
 
-            if bollard_model_get_num_berth_opening_times(model, 1) > 0 {
-                let iv = bollard_model_get_berth_opening_time(model, 1, 0);
+            if bollard_model_num_berth_opening_times(model, 1) > 0 {
+                let iv = bollard_model_berth_opening_time(model, 1, 0);
                 assert!(iv.start() >= 0 && iv.end() > iv.start());
             }
 
@@ -979,7 +938,7 @@ mod tests {
     fn test_closing_intervals_counts() {
         unsafe {
             let model = build_fixture();
-            let num_close_b1 = bollard_model_get_num_berth_closing_times(model, 1);
+            let num_close_b1 = bollard_model_num_berth_closing_times(model, 1);
             assert_eq!(num_close_b1, 0);
             bollard_model_free(model);
         }
@@ -989,9 +948,9 @@ mod tests {
     fn test_closing_intervals_first_interval_is_valid_when_present() {
         unsafe {
             let model = build_fixture();
-            let num_close_b0 = bollard_model_get_num_berth_closing_times(model, 0);
+            let num_close_b0 = bollard_model_num_berth_closing_times(model, 0);
             if num_close_b0 > 0 {
-                let iv = bollard_model_get_berth_closing_time(model, 0, 0);
+                let iv = bollard_model_berth_closing_time(model, 0, 0);
                 assert!(iv.start() >= 0 && iv.end() > iv.start());
             }
             bollard_model_free(model);

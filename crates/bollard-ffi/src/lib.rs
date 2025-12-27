@@ -21,44 +21,23 @@
 
 //! # Bollard FFI
 //!
-//! **Foreign Function Interface (FFI) bindings for the Bollard scheduling ecosystem.**
+//! **High-Performance C-Compatible Bindings for the Bollard Scheduling Solver.**
 //!
-//! This crate provides a stable, C-compatible Application Binary Interface (ABI) for
-//! interacting with the Bollard project. It acts as a high-performance bridge, allowing
-//! external environments—such as C, C++, Python, Julia, C#, or Java—to leverage Bollard's
-//! scheduling solvers while maintaining strict safety guarantees and managing memory manually.
+//! This crate serves as the bridge between the high-performance Rust core of Bollard and
+//! external environments such as C, C++, Python, C#, and Java. It exposes a stable,
+//! ABI-compliant interface designed around **Opaque Pointers** (Handles) and strict
+//! **resource management**.
 //!
-//! ## Architecture
+//! ## Core Design Principles
 //!
-//! The library is designed around **Opaque Pointers** (the Handle pattern) and **Explicit
-//! Resource Management**. It is structured into modular components to separate problem
-//! definition from solution strategy:
-//!
-//! 1.  **Problem Definition (`model`)**:
-//!     A generic, solver-agnostic interface to define scheduling problems. Users construct
-//!     an immutable `Model` containing vessels, berths, processing times, and constraints.
-//!     This model is the common input format for all solvers.
-//!
-//! 2.  **Solvers**:
-//!     Implementations of specific algorithms to solve the defined `Model`.
-//!     * **`bnb`**: An exact **Branch-and-Bound** solver capable of finding optimal schedules
-//!       using configurable objective evaluators and search heuristics.
-//!
-//! ## Usage Pattern
-//!
-//! A typical integration follows this linear workflow:
-//!
-//! 1.  **Define**: Use the `model` module to build a `Model`.
-//! 2.  **Solve**: Pass that `Model` to a specific solver in the `bnb` module.
-//! 3.  **Inspect**: Analyze the returned `Outcome` structure.
-//! 4.  **Free**: Explicitly release memory for all objects created.
-//!
-//! ## Safety Strategy
-//!
-//! This crate prioritizes safety at the boundary. It is designed to **abort** (terminate the process)
-//! immediately upon misuse (such as passing `NULL` pointers) rather than unwinding. This
-//! prevents undefined behavior or memory corruption from crossing the FFI boundary into the
-//! host application.
+//! 1.  **Opaque Handles**: All complex Rust structures (`Model`, `ModelBuilder`, `BnbSolver`, `Outcome`)
+//!     are hidden behind raw pointers. The host application never accesses struct fields directly;
+//!     it uses the provided accessor functions.
+//! 2.  **Explicit Lifecycle**: Memory is manually managed. Every `_new` call must have a corresponding
+//!     `_free` call. Failing to do so will result in memory leaks.
+//! 3.  **Fail-Fast Safety**: To protect the integrity of the host application, this FFI layer
+//!     adopts a "Fail-Fast" strategy. Passing `NULL` pointers or invalid indices results in an
+//!     immediate process abort (panic) rather than undefined behavior or stack unwinding.
 
 pub mod bnb;
 pub mod model;

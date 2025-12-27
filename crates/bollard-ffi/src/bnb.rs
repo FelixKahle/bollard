@@ -19,118 +19,32 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-//! # Foreign Function Interface (FFI) for the Bollard Branch-and-Bound Solver
+//! # Branch-and-Bound Solver API
 //!
-//! This module provides a stable, C-compatible ABI for interacting with the
-//! **Bollard Branch-and-Bound (BnB)** solver. It handles the solver instantiation,
-//! execution strategies, and the inspection of results.
+//! This module exposes the Branch-and-Bound solving engine. It allows users to execute exact
+//! searches using a variety of **Objective Evaluators** and **Search Heuristics**.
 //!
-//! ## Overview
+//! ## Solver Architecture
 //!
-//! This module exposes two main components:
+//! The solver is stateless regarding the problem definition but stateful regarding memory reuse.
+//! You can reuse a `BnbSolver` instance across multiple `solve` calls to minimize allocation overhead.
 //!
-//! 1.  **Solver API**: Functions to instantiate `BnbSolver` and execute searches using
-//!     combinatoric strategies (Objective Evaluators + Search Heuristics).
-//! 2.  **Outcome API**: A set of accessors for `BnbSolverFfiOutcome` to inspect optimization
-//!     results, extraction solutions, and analyze search statistics (e.g., nodes explored).
+//! ## Strategy Combinations
 //!
-//! ## Usage Lifecycle
+//! The API exposes specific functions for every valid combination of:
 //!
-//! 1.  **Solver Instantiation**:
-//!     * Create a `BnbSolver` instance using `bollard_bnb_solver_new` or `bollard_bnb_solver_preallocated`.
-//! 2.  **Execution**:
-//!     * Call a specific solve function (e.g., `bollard_bnb_solver_solve_with_hybrid_evaluator_and_regret_heuristic_builder`).
-//!     * Requires a valid `Model` pointer (created via the separate Model API).
-//!     * Accepts constraints (time limits, solution limits) and optional fixed assignments.
-//! 3.  **Inspection**:
-//!     * The solve function returns a `BnbSolverFfiOutcome` pointer.
-//!     * Use `bollard_bnb_outcome_*` functions to check status and read data.
-//! 4.  **Cleanup**:
-//!     * Free the solver via `bollard_bnb_solver_free`.
-//!     * Free the outcome via `bollard_bnb_outcome_free`.
+//! 1.  **Objective Evaluator**: Determines *what* is being optimized (e.g., `Hybrid`, `Workload`, `WeightedFlowTime`).
+//! 2.  **Search Heuristic**: Determines *how* the tree is explored (e.g., `Regret`, `FCFS`, `Slack`, `Chronological`).
 //!
-//! ## Safety
+//! *Example*: `bollard_bnb_solver_solve_with_hybrid_evaluator_and_regret_heuristic_builder` combines
+//! the Hybrid cost function with the Regret-based branching heuristic.
 //!
-//! This module uses `unsafe` code to handle raw pointers. Callers **must** ensure:
+//! ## Outcomes
 //!
-//! * **Pointer Validity**: Pointers must be valid and allocated by this library.
-//! * **Ownership**: `_free` functions invalidate the passed pointer immediately.
-//! * **Null Pointers**: Passing `NULL` will strictly **panic** (abort the process).
-//!
-//! ## Exported Functions
-//!
-//! ### 1. Solver Lifecycle
-//! * `bollard_bnb_solver_new`
-//! * `bollard_bnb_solver_preallocated`
-//! * `bollard_bnb_solver_free`
-//!
-//! ### 2. Solve Functions (Hybrid Evaluator)
-//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_chronological_exhaustive_builder`
-//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_chronological_exhaustive_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_fcfs_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_fcfs_heuristic_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_regret_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_regret_heuristic_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_slack_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_slack_heuristic_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_wspt_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_wspt_heuristic_builder_with_fixed`
-//!
-//! ### 3. Solve Functions (Workload Evaluator)
-//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_chronological_exhaustive_builder`
-//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_chronological_exhaustive_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_fcfs_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_fcfs_heuristic_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_regret_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_regret_heuristic_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_slack_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_slack_heuristic_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_wspt_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_workload_evaluator_and_wspt_heuristic_builder_with_fixed`
-//!
-//! ### 4. Solve Functions (Weighted Flow Time Evaluator)
-//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_chronological_exhaustive_builder`
-//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_chronological_exhaustive_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_fcfs_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_fcfs_heuristic_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_regret_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_regret_heuristic_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_slack_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_slack_heuristic_builder_with_fixed`
-//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_wspt_heuristic_builder`
-//! * `bollard_bnb_solver_solve_with_wtft_evaluator_and_wspt_heuristic_builder_with_fixed`
-//!
-//! ### 5. Outcome API
-//!
-//! **Lifecycle**
-//! * `bollard_bnb_outcome_free`
-//!
-//! **Status & Metadata**
-//! * `bollard_bnb_outcome_has_solution`
-//! * `bollard_bnb_outcome_get_status`
-//! * `bollard_bnb_outcome_get_status_str`
-//! * `bollard_bnb_outcome_get_termination_reason_enum`
-//! * `bollard_bnb_outcome_get_termination_reason`
-//!
-//! **Solution Data**
-//! * `bollard_bnb_outcome_get_objective`
-//! * `bollard_bnb_outcome_get_num_vessels`
-//! * `bollard_bnb_outcome_get_berth`
-//! * `bollard_bnb_outcome_get_start_time`
-//! * `bollard_bnb_outcome_get_berths` (Direct pointer access)
-//! * `bollard_bnb_outcome_get_start_times` (Direct pointer access)
-//! * `bollard_bnb_outcome_copy_solution` (Batch copy to user buffers)
-//!
-//! **Statistics**
-//! * `bollard_bnb_outcome_get_nodes_explored`
-//! * `bollard_bnb_outcome_get_backtracks`
-//! * `bollard_bnb_outcome_get_decisions_generated`
-//! * `bollard_bnb_outcome_get_max_depth`
-//! * `bollard_bnb_outcome_get_prunings_infeasible`
-//! * `bollard_bnb_outcome_get_prunings_bound`
-//! * `bollard_bnb_outcome_get_solutions_found`
-//! * `bollard_bnb_outcome_get_steps`
-//! * `bollard_bnb_outcome_get_time_total_ms`
+//! Solving returns a `BnbSolverFfiOutcome`. This opaque object contains:
+//! * **Solution Status**: Optimal, Feasible, or Infeasible.
+//! * **Assignments**: Which vessel goes to which berth at what time.
+//! * **Statistics**: Nodes explored, max depth, and runtime.
 
 use bollard_bnb::result::BnbSolverOutcome;
 use bollard_bnb::{
@@ -150,7 +64,7 @@ use bollard_bnb::{
         solution::SolutionLimitMonitor, time::TimeLimitMonitor,
     },
 };
-use bollard_model::index::VesselIndex;
+use bollard_model::index::{BerthIndex, VesselIndex};
 use bollard_model::model::Model;
 use bollard_search::result::{SolverResult, TerminationReason};
 use libc::c_char;
@@ -332,12 +246,12 @@ pub unsafe extern "C" fn bollard_bnb_outcome_free(ptr: *mut BnbSolverFfiOutcome)
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_termination_reason(
+pub unsafe extern "C" fn bollard_bnb_outcome_termination_reason(
     ptr: *const BnbSolverFfiOutcome,
 ) -> *const c_char {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_termination_reason` with null pointer"
+        "called `bollard_bnb_outcome_termination_reason` with null pointer"
     );
 
     (*ptr).termination_reason_cstr.as_ptr()
@@ -356,12 +270,12 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_termination_reason(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_status_str(
+pub unsafe extern "C" fn bollard_bnb_outcome_status_str(
     ptr: *const BnbSolverFfiOutcome,
 ) -> *const c_char {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_status_str` with null pointer"
+        "called `bollard_bnb_outcome_status_str` with null pointer"
     );
     (*ptr).status_cstr.as_ptr()
 }
@@ -378,12 +292,12 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_status_str(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_status(
+pub unsafe extern "C" fn bollard_bnb_outcome_status(
     ptr: *const BnbSolverFfiOutcome,
 ) -> BnbSolverFfiStatus {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_status` with null pointer"
+        "called `bollard_bnb_outcome_status` with null pointer"
     );
 
     let outcome = &(*ptr).inner;
@@ -402,12 +316,12 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_status(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_termination_reason_enum(
+pub unsafe extern "C" fn bollard_bnb_outcome_termination_reason_enum(
     ptr: *const BnbSolverFfiOutcome,
 ) -> BnbSolverFfiTerminationReason {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_termination_reason_enum` with null pointer"
+        "called `bollard_bnb_outcome_termination_reason_enum` with null pointer"
     );
 
     let outcome = &(*ptr).inner;
@@ -452,16 +366,16 @@ pub unsafe extern "C" fn bollard_bnb_outcome_has_solution(ptr: *const BnbSolverF
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_objective(ptr: *const BnbSolverFfiOutcome) -> i64 {
+pub unsafe extern "C" fn bollard_bnb_outcome_objective(ptr: *const BnbSolverFfiOutcome) -> i64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_objective` with null pointer"
+        "called `bollard_bnb_outcome_objective` with null pointer"
     );
 
     let outcome = &(*ptr).inner;
     match outcome.result() {
         SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.objective_value(),
-        _ => panic!("called `bollard_bnb_outcome_get_objective` on an outcome with no solution"),
+        _ => panic!("called `bollard_bnb_outcome_objective` on an outcome with no solution"),
     }
 }
 
@@ -478,18 +392,16 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_objective(ptr: *const BnbSolver
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_num_vessels(
-    ptr: *const BnbSolverFfiOutcome,
-) -> usize {
+pub unsafe extern "C" fn bollard_bnb_outcome_num_vessels(ptr: *const BnbSolverFfiOutcome) -> usize {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_num_vessels` with null pointer"
+        "called `bollard_bnb_outcome_num_vessels` with null pointer"
     );
 
     let outcome = &(*ptr).inner;
     match outcome.result() {
         SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.num_vessels(),
-        _ => panic!("called `bollard_bnb_outcome_get_num_vessels` on an outcome with no solution"),
+        _ => panic!("called `bollard_bnb_outcome_num_vessels` on an outcome with no solution"),
     }
 }
 
@@ -507,24 +419,24 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_num_vessels(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_berth(
+pub unsafe extern "C" fn bollard_bnb_outcome_berth(
     ptr: *const BnbSolverFfiOutcome,
     vessel_idx: usize,
 ) -> usize {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_berth` with null pointer"
+        "called `bollard_bnb_outcome_berth` with null pointer"
     );
 
     let outcome = &(*ptr).inner;
     let solution = match outcome.result() {
         SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
-        _ => panic!("called `bollard_bnb_outcome_get_berth` on an outcome with no solution"),
+        _ => panic!("called `bollard_bnb_outcome_berth` on an outcome with no solution"),
     };
 
     assert!(
         vessel_idx < solution.num_vessels(),
-        "called `bollard_bnb_outcome_get_berth` with vessel index out of bounds: the len is {} but the index is {}",
+        "called `bollard_bnb_outcome_berth` with vessel index out of bounds: the len is {} but the index is {}",
         solution.num_vessels(),
         vessel_idx
     );
@@ -548,23 +460,23 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_berth(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_start_time(
+pub unsafe extern "C" fn bollard_bnb_outcome_start_time(
     ptr: *const BnbSolverFfiOutcome,
     vessel_idx: usize,
 ) -> i64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_start_time` with null pointer"
+        "called `bollard_bnb_outcome_start_time` with null pointer"
     );
     let outcome = &(*ptr).inner;
 
     let solution = match outcome.result() {
         SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
-        _ => panic!("called `bollard_bnb_outcome_get_start_time` on an outcome with no solution"),
+        _ => panic!("called `bollard_bnb_outcome_start_time` on an outcome with no solution"),
     };
 
     assert!(vessel_idx < solution.num_vessels(),
-        "called `bollard_bnb_outcome_get_start_time` with vessel index out of bounds: the len is {} but the index is {}",
+        "called `bollard_bnb_outcome_start_time` with vessel index out of bounds: the len is {} but the index is {}",
         solution.num_vessels(),
         vessel_idx
     );
@@ -585,18 +497,18 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_start_time(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_start_times(
+pub unsafe extern "C" fn bollard_bnb_outcome_start_times(
     ptr: *const BnbSolverFfiOutcome,
 ) -> *const i64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_start_times` with null pointer"
+        "called `bollard_bnb_outcome_start_times` with null pointer"
     );
     let outcome = &(*ptr).inner;
 
     let solution = match outcome.result() {
         SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
-        _ => panic!("called `bollard_bnb_outcome_get_start_times` on an outcome with no solution"),
+        _ => panic!("called `bollard_bnb_outcome_start_times` on an outcome with no solution"),
     };
 
     solution.start_times().as_ptr()
@@ -615,17 +527,17 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_start_times(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_berths(
+pub unsafe extern "C" fn bollard_bnb_outcome_berths(
     ptr: *const BnbSolverFfiOutcome,
 ) -> *const usize {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_berths` with null pointer"
+        "called `bollard_bnb_outcome_berths` with null pointer"
     );
     let outcome = &(*ptr).inner;
     let solution = match outcome.result() {
         SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
-        _ => panic!("called `bollard_bnb_outcome_get_berths` on an outcome with no solution"),
+        _ => panic!("called `bollard_bnb_outcome_berths` on an outcome with no solution"),
     };
 
     debug_assert_eq!(
@@ -701,12 +613,12 @@ pub unsafe extern "C" fn bollard_bnb_outcome_copy_solution(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_nodes_explored(
+pub unsafe extern "C" fn bollard_bnb_outcome_nodes_explored(
     ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_nodes_explored` with null pointer"
+        "called `bollard_bnb_outcome_nodes_explored` with null pointer"
     );
     let outcome = &(*ptr).inner;
     outcome.statistics().nodes_explored
@@ -724,12 +636,10 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_nodes_explored(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_backtracks(
-    ptr: *const BnbSolverFfiOutcome,
-) -> u64 {
+pub unsafe extern "C" fn bollard_bnb_outcome_backtracks(ptr: *const BnbSolverFfiOutcome) -> u64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_backtracks` with null pointer"
+        "called `bollard_bnb_outcome_backtracks` with null pointer"
     );
     let outcome = &(*ptr).inner;
     outcome.statistics().backtracks
@@ -747,12 +657,12 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_backtracks(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_decisions_generated(
+pub unsafe extern "C" fn bollard_bnb_outcome_decisions_generated(
     ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_decisions_generated` with null pointer"
+        "called `bollard_bnb_outcome_decisions_generated` with null pointer"
     );
     let outcome = &(*ptr).inner;
     outcome.statistics().decisions_generated
@@ -770,10 +680,10 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_decisions_generated(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_max_depth(ptr: *const BnbSolverFfiOutcome) -> u64 {
+pub unsafe extern "C" fn bollard_bnb_outcome_max_depth(ptr: *const BnbSolverFfiOutcome) -> u64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_max_depth` with null pointer"
+        "called `bollard_bnb_outcome_max_depth` with null pointer"
     );
     let outcome = &(*ptr).inner;
     outcome.statistics().max_depth
@@ -791,12 +701,12 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_max_depth(ptr: *const BnbSolver
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_prunings_infeasible(
+pub unsafe extern "C" fn bollard_bnb_outcome_prunings_infeasible(
     ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_prunings_infeasible` with null pointer"
+        "called `bollard_bnb_outcome_prunings_infeasible` with null pointer"
     );
     let outcome = &(*ptr).inner;
     outcome.statistics().prunings_infeasible
@@ -814,12 +724,12 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_prunings_infeasible(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_prunings_bound(
+pub unsafe extern "C" fn bollard_bnb_outcome_prunings_bound(
     ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_prunings_bound` with null pointer"
+        "called `bollard_bnb_outcome_prunings_bound` with null pointer"
     );
     let outcome = &(*ptr).inner;
     outcome.statistics().prunings_bound
@@ -837,12 +747,12 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_prunings_bound(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_solutions_found(
+pub unsafe extern "C" fn bollard_bnb_outcome_solutions_found(
     ptr: *const BnbSolverFfiOutcome,
 ) -> u64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_solutions_found` with null pointer"
+        "called `bollard_bnb_outcome_solutions_found` with null pointer"
     );
     let outcome = &(*ptr).inner;
     outcome.statistics().solutions_found
@@ -860,10 +770,10 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_solutions_found(
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_steps(ptr: *const BnbSolverFfiOutcome) -> u64 {
+pub unsafe extern "C" fn bollard_bnb_outcome_steps(ptr: *const BnbSolverFfiOutcome) -> u64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_steps` with null pointer"
+        "called `bollard_bnb_outcome_steps` with null pointer"
     );
     let outcome = &(*ptr).inner;
     outcome.statistics().steps
@@ -881,16 +791,55 @@ pub unsafe extern "C" fn bollard_bnb_outcome_get_steps(ptr: *const BnbSolverFfiO
 /// The caller must ensure that the pointer is valid and was
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_bnb_outcome_get_time_total_ms(
-    ptr: *const BnbSolverFfiOutcome,
-) -> u64 {
+pub unsafe extern "C" fn bollard_bnb_outcome_time_total_ms(ptr: *const BnbSolverFfiOutcome) -> u64 {
     assert!(
         !ptr.is_null(),
-        "called `bollard_bnb_outcome_get_time_total_ms` with null pointer"
+        "called `bollard_bnb_outcome_time_total_ms` with null pointer"
     );
     let outcome = &(*ptr).inner;
     let dur = outcome.statistics().time_total;
     dur.as_millis().try_into().unwrap_or(u64::MAX)
+}
+
+/// FFI-compatible representation of a fixed assignment.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FfiFixedAssignment {
+    pub start_time: i64,
+    pub berth_index: usize,
+    pub vessel_index: usize,
+}
+
+impl std::fmt::Display for FfiFixedAssignment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FfiFixedAssignment {{ vessel_index: {}, berth_index: {}, start_time: {} }}",
+            self.vessel_index, self.berth_index, self.start_time
+        )
+    }
+}
+
+impl From<FixedAssignment<i64>> for FfiFixedAssignment {
+    #[inline]
+    fn from(fixed: FixedAssignment<i64>) -> Self {
+        Self {
+            start_time: fixed.start_time,
+            berth_index: fixed.berth_index.get(),
+            vessel_index: fixed.vessel_index.get(),
+        }
+    }
+}
+
+impl From<FfiFixedAssignment> for FixedAssignment<i64> {
+    #[inline]
+    fn from(val: FfiFixedAssignment) -> Self {
+        FixedAssignment::new(
+            val.start_time,
+            BerthIndex::new(val.berth_index),
+            VesselIndex::new(val.vessel_index),
+        )
+    }
 }
 
 /// Creates a new Branch-and-Bound solver instance.
@@ -934,7 +883,7 @@ fn solve<B, E>(
     solution_limit: usize,
     time_limit_ms: i64,
     enable_log: bool,
-    fixed_assignments: &[FixedAssignment<i64>], // Added argument
+    fixed_assignments: &[FixedAssignment<i64>],
 ) -> BnbSolverOutcome<i64>
 where
     E: ObjectiveEvaluator<i64>,
@@ -976,7 +925,6 @@ macro_rules! generate_solve {
         $eval_init:expr,
         $builder_init:expr
     ) => {
-        // Use the paste! macro to generate the new function name dynamically
         paste::paste! {
             /// Solves the given model.
             ///
@@ -1002,7 +950,6 @@ macro_rules! generate_solve {
                 let evaluator: $eval_ty = ($eval_init)(model);
                 let builder: $builder_ty = ($builder_init)(model);
 
-                // Pass empty slice for standard solve
                 let outcome = solve(
                     solver,
                     model,
@@ -1019,7 +966,7 @@ macro_rules! generate_solve {
             }
 
             /// Solves the given model using fixed assignments.
-            /// Expects `fixed_ptr` to point to an array of `FixedAssignment` of length `fixed_len`.
+            /// Expects `fixed_ptr` to point to an array of `FfiFixedAssignment` of length `fixed_len`.
             ///
             /// # Safety
             ///
@@ -1031,8 +978,8 @@ macro_rules! generate_solve {
             pub unsafe extern "C" fn [<$fn_name _with_fixed>](
                 solver_ptr: *mut BnbSolver<i64>,
                 model_ptr: *const Model<i64>,
-                fixed_ptr: *const FixedAssignment<i64>, // Pointer to array
-                fixed_len: usize,                       // Length of array
+                fixed_ptr: *const FfiFixedAssignment, // Pointer to FFI array
+                fixed_len: usize,                     // Length of array
                 solution_limit: usize,
                 time_limit_ms: i64,
                 enable_log: bool,
@@ -1040,7 +987,6 @@ macro_rules! generate_solve {
                 assert!(!solver_ptr.is_null(), "called `{}` with null solver pointer", stringify!([<$fn_name _with_fixed>]));
                 assert!(!model_ptr.is_null(), "called `{}` with null model pointer", stringify!([<$fn_name _with_fixed>]));
 
-                // Safety check for fixed array if len > 0
                 if fixed_len > 0 {
                     assert!(!fixed_ptr.is_null(),
                     "called `{}` with null fixed_ptr but non-zero length",
@@ -1050,18 +996,21 @@ macro_rules! generate_solve {
                 let solver: &mut BnbSolver<i64> = &mut *solver_ptr;
                 let model: &Model<i64> = &*model_ptr;
 
-                // fixed len can not be longer than number of vessels in the model
                 assert!(fixed_len <= model.num_vessels(),
                     "called `{}` with fixed_len greater than number of vessels in model",
                     stringify!([<$fn_name _with_fixed>])
                 );
 
-                // Create slice from raw pointer
-                let fixed_slice = if fixed_len > 0 {
+                let ffi_slice = if fixed_len > 0 {
                     std::slice::from_raw_parts(fixed_ptr, fixed_len)
                 } else {
                     &[]
                 };
+
+                let fixed_assignments: Vec<FixedAssignment<i64>> = ffi_slice
+                    .iter()
+                    .map(|&ffi| ffi.into())
+                    .collect();
 
                 let evaluator: $eval_ty = ($eval_init)(model);
                 let builder: $builder_ty = ($builder_init)(model);
@@ -1074,7 +1023,7 @@ macro_rules! generate_solve {
                     solution_limit,
                     time_limit_ms,
                     enable_log,
-                    fixed_slice,
+                    &fixed_assignments,
                 );
 
                 let ffi_outcome = BnbSolverFfiOutcome::from(outcome);
@@ -1212,7 +1161,7 @@ generate_solve!(
 mod tests {
     use crate::{
         bnb::{
-            bollard_bnb_outcome_free, bollard_bnb_outcome_get_status_str, bollard_bnb_solver_free,
+            bollard_bnb_outcome_free, bollard_bnb_outcome_status_str, bollard_bnb_solver_free,
             bollard_bnb_solver_preallocated,
             bollard_bnb_solver_solve_with_hybrid_evaluator_and_regret_heuristic_builder,
         },
@@ -1273,7 +1222,7 @@ mod tests {
                 );
 
             assert_eq!(
-                std::ffi::CStr::from_ptr(bollard_bnb_outcome_get_status_str(outcome))
+                std::ffi::CStr::from_ptr(bollard_bnb_outcome_status_str(outcome))
                     .to_str()
                     .unwrap(),
                 "Optimal"
