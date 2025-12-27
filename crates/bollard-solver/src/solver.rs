@@ -63,7 +63,7 @@
 //!     // .with_solution_limit(10)
 //!     // .with_time_limit(std::time::Duration::from_secs(30))
 //!     // .add_solver(s1)
-////!     // .add_solver(s2)
+//!     // .add_solver(s2)
 //!     .build();
 //!
 //! // Run the solver
