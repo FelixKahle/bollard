@@ -19,6 +19,38 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Nominal Typing via Brand
+//!
+//! A zero-sized marker type for creating nominal (name-based) distinctions
+//! between otherwise identical representations. `Brand<'x>` associates a
+//! lifetime with the type, enabling patterns that prevent accidental mixing
+//! of logically distinct values that share the same underlying form.
+//!
+//! ## Motivation
+//!
+//! In systems programming and optimization code, it’s common to encode
+//! domain-specific identities as newtypes. `Brand` provides a minimalist
+//! building block for nominal typing and type separation without runtime cost,
+//! helping you enforce invariants at compile time.
+//!
+//! ## Highlights
+//!
+//! - `#[repr(transparent)]` zero-sized marker over a phantom lifetime.
+//! - `Brand::new()` and `From<()>` for easy construction.
+//! - Implements `Copy`, `Clone`, `Default`, `Eq`, `Ord`, `Hash`.
+//! - Human-friendly `Display`/`Debug` output.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_core::utils::marker::Brand;
+//!
+//! // Tag a type with a brand to separate otherwise identical representations
+//! let _a: Brand<'static> = Brand::new();
+//! let _b: Brand<'static> = Brand::from(());
+//! assert_eq!(format!("{}", _a), "Brand");
+//! ```
+
 /// A brand type to create nominal types.
 ///
 /// This type is used to create nominal types by associating a lifetime `'x` with the type.

@@ -19,6 +19,34 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Strongly Typed Indices
+//!
+//! This module provides zero-cost wrappers around `usize` to strictly distinguish between
+//! different dimensions of the scheduling problem.
+//!
+//! ## Motivation
+//!
+//! In complex scheduling algorithms, multiple dimensions (Vessels, Berths, Time Slots) are often
+//! iterated simultaneously. Using raw `usize` for all of them invites "swapped index" bugs,
+//! where a vessel index is accidentally used to look up a berth property.
+//!
+//! ## Usage
+//!
+//! These types implement the **Newtype Pattern**. They compile down to a simple `usize`
+//! (zero runtime overhead) but enforce type correctness at compile time.
+//!
+//! ```rust
+//! use bollard_model::index::{VesselIndex, BerthIndex};
+//!
+//! let v = VesselIndex::new(5);
+//! let b = BerthIndex::new(2);
+//!
+//! // process(v, v); // Compile Error: Expected BerthIndex, found VesselIndex
+//! // process(v, b); // OK
+//!
+//! fn process(v: VesselIndex, b: BerthIndex) {}
+//! ```
+
 use bollard_core::utils::index::{TypedIndex, TypedIndexTag};
 
 /// A tag type for vessel indices.

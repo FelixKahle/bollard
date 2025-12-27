@@ -19,6 +19,59 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Portfolio-Orchestrated Solver
+//!
+//! A high-level orchestrator that runs multiple solver strategies in parallel,
+//! manages a shared incumbent, and enforces global termination criteria via
+//! pluggable monitors (time limit, solution count, external interrupt).
+//!
+//! ## Motivation
+//!
+//! Different strategies perform better on different instances. This solver
+//! coordinates a portfolio of strategies, letting them compete to install the
+//! best solution while respecting global limits and early-stop signals when
+//! optimality is proven elsewhere.
+//!
+//! ## Highlights
+//!
+//! - Portfolio execution:
+//!   - Spawn each `PortofolioSolver<T>` in a thread using `std::thread::scope`.
+//!   - Build a `CompositeMonitor<T>` per thread with interrupt, solution-limit,
+//!     and optional time-limit monitors.
+//! - Shared state:
+//!   - `SharedIncumbent<T>` stores the best solution (atomic upper bound + mutex snapshot).
+//!   - Global counters (`AtomicU64`) for solutions found; `AtomicBool` stop signal.
+//! - Outcome construction:
+//!   - Aggregates thread results, determines best global solution,
+//!     and returns `SolverOutcome<T>` with statistics and termination reason.
+//! - Builder pattern:
+//!   - `SolverBuilder` to configure solution/time limits and add portfolio solvers.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_search::result::SolverOutcome;
+//! use bollard_solver::solver::{SolverBuilder};
+//! use bollard_search::result::SolverResult;
+//! use bollard_model::model::Model;
+//!
+//! // Build a model and portfolio solvers elsewhere...
+//! // let model: Model<i64> = ...;
+//! // let s1 = ...; let s2 = ...; // implementors of PortofolioSolver<i64>
+//!
+//! let mut solver = SolverBuilder::<i64>::new()
+//!     // .with_solution_limit(10)
+//!     // .with_time_limit(std::time::Duration::from_secs(30))
+//!     // .add_solver(s1)
+////!     // .add_solver(s2)
+//!     .build();
+//!
+//! // Run the solver
+//! // let outcome = solver.solve(&model);
+//! // println!("{}", outcome);
+//! // assert!(matches!(outcome.result(), SolverResult::Optimal(_)));
+//! ```
+
 use bollard_model::model::Model;
 use bollard_search::{
     incumbent::SharedIncumbent,

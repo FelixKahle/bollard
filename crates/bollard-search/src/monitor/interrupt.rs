@@ -19,6 +19,43 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Interrupt Monitor
+//!
+//! A lightweight search monitor that watches an `AtomicBool` and requests
+//! termination when the flag becomes `true`. Useful for integrating external
+//! stop signals (e.g., UI cancel, OS signals, cross-thread control) into
+//! long-running search loops.
+//!
+//! ## Motivation
+//!
+//! Exact search algorithms can run for extended periods. Providing a simple,
+//! thread-safe interrupt mechanism lets applications remain responsive and
+//! enforce user-driven aborts or budget-based cutoffs.
+//!
+//! ## Highlights
+//!
+//! - `InterruptMonitor<'a, T>` holds a shared reference to an `AtomicBool`.
+//! - `search_command()` returns `Terminate("Interrupt signal received")` when
+//!   the flag is set; otherwise `Continue`.
+//! - Zero overhead on lifecycle hooks; does not require model or solution access.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_search::monitor::interrupt::InterruptMonitor;
+//! use bollard_search::monitor::search_monitor::SearchMonitor;
+//! use std::sync::atomic::{AtomicBool, Ordering};
+//!
+//! let stop = AtomicBool::new(false);
+//! let monitor = InterruptMonitor::<i64>::new(&stop);
+//!
+//! // From another thread:
+//! stop.store(true, Ordering::Relaxed);
+//!
+//! // In the search loop:
+//! let cmd = monitor.search_command(); // -> Terminate(...)
+//! ```
+
 use crate::monitor::search_monitor::{SearchCommand, SearchMonitor};
 use bollard_model::{model::Model, solution::Solution};
 use num_traits::{PrimInt, Signed};

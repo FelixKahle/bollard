@@ -19,6 +19,22 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Low-Level Time Primitives
+//!
+//! This module provides optimized time representations for high-performance solving.
+//!
+//! ## `ProcessingTime` vs `Option<T>`
+//!
+//! In standard Rust, `Option<i64>` typically requires extra memory for the discriminant tag,
+//! and unwrapping it involves branching logic. In the tight inner loops of a Branch-and-Bound
+//! solver, this overhead accumulates.
+//!
+//! `ProcessingTime` uses **Sentinel Encoding**:
+//! * Non-negative values ($t \ge 0$) represent valid time.
+//! * Negative values ($t = -1$) represent `None` (impossible assignment).
+//!
+//! This ensures the struct fits in a single machine word (register), improving cache efficiency.
+
 use bollard_core::num::constants;
 use num_traits::Signed;
 

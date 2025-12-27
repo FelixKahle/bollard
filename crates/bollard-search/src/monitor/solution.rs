@@ -19,6 +19,52 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Solution Count Monitor
+//!
+//! A search monitor that tracks the number of solutions discovered using a
+//! shared `AtomicU64` counter, and optionally terminates the search when a
+//! configured global limit is reached. Multiple monitors can share the same
+//! counter to enforce cross-component limits.
+//!
+//! ## Motivation
+//!
+//! In exact search (e.g., branch-and-bound), you may want to:
+//! - Stop after N solutions for sampling or portfolio strategies.
+//! - Collect only a bounded set of feasible solutions.
+//! - Coordinate termination across threads or monitor instances.
+//!
+//! This monitor provides a lightweight, thread-friendly mechanism to do so.
+//!
+//! ## Highlights
+//!
+//! - `SolutionMonitor<'a, T>` accepts a shared `&AtomicU64` and an optional
+//!   `solution_limit`.
+//! - Increments the counter on `on_solution_found`.
+//! - `search_command()` returns `Terminate("global solution limit reached")`
+//!   once the shared counter meets or exceeds the limit; otherwise `Continue`.
+//! - Convenience constructors: `new`, `with_limit`, and `without_limit`.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_search::monitor::solution::SolutionMonitor;
+//! use bollard_search::monitor::search_monitor::{SearchMonitor, SearchCommand};
+//! use std::sync::atomic::{AtomicU64, Ordering};
+//!
+//! let global_count = AtomicU64::new(0);
+//! let limit = 3;
+//! let mut monitor = SolutionMonitor::<i64>::with_limit(&global_count, limit);
+//!
+//! // After each discovered solution:
+//! global_count.fetch_add(1, Ordering::Relaxed);
+//! // or, equivalently: monitor.on_solution_found(&solution);
+//!
+//! match monitor.search_command() {
+//!     SearchCommand::Continue => { /* keep searching */ }
+//!     SearchCommand::Terminate(reason) => { /* stop: reason */ }
+//! }
+//! ```
+
 use crate::{
     monitor::search_monitor::{SearchCommand, SearchMonitor},
     num::SolverNumeric,

@@ -19,6 +19,48 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Portfolio Solvers
+//!
+//! Interfaces and types for running multiple solver strategies in a portfolio.
+//! A portfolio solver receives a shared context (model, incumbent, monitor),
+//! executes its strategy, and returns a `PortfolioSolverResult` indicating
+//! status, any found solution, and a termination reason.
+//!
+//! ## Motivation
+//!
+//! Different strategies excel on different instances. A portfolio approach
+//! launches several solvers—possibly in parallel—and lets them compete to
+//! install the best incumbent. This module standardizes how strategies are
+//! invoked and report outcomes.
+//!
+//! ## Core Types
+//!
+//! - `PortfolioSolverContext<'a, T>`: Shared references to the `Model<T>`,
+//!   `SharedIncumbent<T>`, and a `SearchMonitor<T>` used during solving.
+//! - `PortfolioSolverResult<T>`: Wraps a `SolverResult<T>` (Optimal/Feasible/Infeasible)
+//!   with a `TerminationReason` (OptimalityProven/InfeasibilityProven/Aborted).
+//! - `PortofolioSolver<T>`: Trait for portfolio-capable solvers with `invoke(...)`
+//!   and `name()`.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_search::portfolio::{PortfolioSolverContext, PortfolioSolverResult, PortofolioSolver};
+//! use bollard_search::incumbent::SharedIncumbent;
+//! use bollard_search::monitor::search_monitor::SearchMonitor;
+//! use bollard_model::model::Model;
+//! use num_traits::{PrimInt, Signed};
+//!
+//! struct MyStrategy;
+//! impl<T: PrimInt + Signed + Send + Sync> PortofolioSolver<T> for MyStrategy {
+//!     fn invoke<'a>(&mut self, ctx: PortfolioSolverContext<'a, T>) -> PortfolioSolverResult<T> {
+//!         // ... run strategy, possibly update ctx.incumbent, call ctx.monitor hooks ...
+//!         PortfolioSolverResult::infeasible()
+//!     }
+//!     fn name(&self) -> &str { "MyStrategy" }
+//! }
+//! ```
+
 use crate::{
     incumbent::SharedIncumbent,
     monitor::search_monitor::SearchMonitor,

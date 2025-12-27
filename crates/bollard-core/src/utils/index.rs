@@ -19,6 +19,44 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Strongly Typed Indices (Zero-Cost)
+//!
+//! Phantom-typed wrappers around `usize` to prevent mixing indices from
+//! different domains (e.g., vessels vs. berths). `TypedIndex<T>` carries a
+//! tag type `T: TypedIndexTag` that encodes intent at the type level, while
+//! compiling down to a transparent `usize` (no runtime overhead).
+//!
+//! ## Motivation
+//!
+//! In large scheduling and optimization pipelines, multiple index spaces are
+//! used concurrently. Raw `usize` invites accidental swaps and hard-to-trace
+//! bugs. Phantom-tagged indices provide compile-time guarantees with minimal
+//! ceremony and excellent ergonomics.
+//!
+//! ## Highlights
+//!
+//! - `TypedIndexTag` defines a human-readable `NAME` used for `Display`/`Debug`.
+//! - `TypedIndex<T>` offers `new`, `get`, and helpers like `is_zero`.
+//! - Arithmetic operators and assignment variants (`+`, `-`, `*`, `/`, `%`)
+//!   with `usize` are implemented for convenience.
+//! - Conversions: `From<usize>` and `From<TypedIndex<T>> for usize`.
+//! - Zero-cost: `#[repr(transparent)]` over `usize`.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_core::utils::index::{TypedIndex, TypedIndexTag};
+//!
+//! #[derive(Clone)]
+//! struct VesselTag;
+//! impl TypedIndexTag for VesselTag { const NAME: &'static str = "VesselIndex"; }
+//!
+//! type VesselIndex = TypedIndex<VesselTag>;
+//! let v = VesselIndex::new(3);
+//! assert_eq!(v.get(), 3);
+//! assert_eq!(format!("{}", v), "VesselIndex(3)");
+//! ```
+
 /// A trait to tag typed indices with a name for debugging and display purposes.
 ///
 /// # Examples

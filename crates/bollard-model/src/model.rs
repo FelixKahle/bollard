@@ -19,6 +19,30 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Problem Definition and Complexity Analysis
+//!
+//! This module implements the core data structures for defining a scheduling problem.
+//!
+//! ## The Model Lifecycle
+//!
+//! The construction of a problem follows a strict two-phase lifecycle:
+//!
+//! 1.  **Configuration Phase (`ModelBuilder`)**: A mutable, permissive structure.
+//!     * **Defaults**: Berths are open 24/7, processing times are `None` (disconnected).
+//!     * **Goal**: The user iteratively restricts the domain (adding closing times) and
+//!       adds capabilities (setting processing times).
+//!
+//! 2.  **Solving Phase (`Model`)**: An immutable, compact structure.
+//!     * **Layout**: Uses flattened vectors for $O(1)$ access.
+//!     * **Validation**: Guaranteed to be consistent once built.
+//!     * **Usage**: Read-only access by the solver's branching logic.
+//!
+//! ## Complexity Calculation
+//!
+//! This module also includes a `Complexity` struct which estimates the magnitude of the
+//! search space using logarithmic arithmetic ($N! \times M^N$), allowing the solver to
+//! predict difficulty before starting.
+
 use crate::{
     index::{BerthIndex, VesselIndex},
     time::ProcessingTime,

@@ -19,6 +19,68 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Search Monitoring Interface
+//!
+//! An extensible callback interface for observing and controlling the lifecycle
+//! of search algorithms (e.g., branch-and-bound) in the Bollard ecosystem.
+//! Implementations can collect metrics, log progress, react to solutions,
+//! and issue termination commands based on external criteria.
+//!
+//! ## Motivation
+//!
+//! Long-running combinatorial searches benefit from pluggable monitoring:
+//! - Capture telemetry (nodes explored, depth, time).
+//! - Emit logs or UI updates.
+//! - Enforce budget limits (time, steps, solutions).
+//! - Integrate with external controllers or dashboards.
+//!
+//! ## Core Concepts
+//!
+////! - `SearchMonitor<T>`: Trait defining lifecycle hooks:
+//!   - `on_enter_search(&mut self, model)` — initialization before search starts.
+//!   - `on_exit_search(&mut self)` — cleanup after search finishes.
+//!   - `on_solution_found(&mut self, solution)` — react to new solutions.
+//!   - `on_step(&mut self)` — periodic heartbeat hook from the search loop.
+//!   - `search_command(&self)` — return `Continue` or `Terminate(reason)`.
+//! - `SearchCommand`: Control signal emitted by monitors to continue or abort.
+//! - `DummyMonitor<T>`: Minimal no-op implementation useful for testing or
+//!   as a template for custom monitors.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_search::monitor::search_monitor::{SearchMonitor, SearchCommand, DummyMonitor};
+//! use bollard_model::{model::Model, solution::Solution};
+//! use num_traits::{PrimInt, Signed};
+//!
+//! struct MyMonitor<T: PrimInt + Signed> {
+//!     steps: u64,
+//!     reason: Option<String>,
+//!     _phantom: std::marker::PhantomData<T>,
+//! }
+//!
+//! impl<T: PrimInt + Signed> SearchMonitor<T> for MyMonitor<T> {
+//!     fn name(&self) -> &str { "MyMonitor" }
+//!     fn on_enter_search(&mut self, _model: &Model<T>) { self.steps = 0; }
+//!     fn on_exit_search(&mut self) {}
+//!     fn on_solution_found(&mut self, _solution: &Solution<T>) {
+//!         self.reason = Some("Found good enough".into());
+//!     }
+//!     fn on_step(&mut self) {
+//!         self.steps += 1;
+//!         if self.steps > 1_000_000 {
+//!             self.reason = Some("Step budget exceeded".into());
+//!         }
+//!     }
+//!     fn search_command(&self) -> SearchCommand {
+//!         self.reason
+//!             .as_ref()
+//!             .map(|r| SearchCommand::Terminate(r.clone()))
+//!             .unwrap_or(SearchCommand::Continue)
+//!     }
+//! }
+//! ```
+
 use bollard_model::{model::Model, solution::Solution};
 use num_traits::{PrimInt, Signed};
 

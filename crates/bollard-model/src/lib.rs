@@ -19,6 +19,29 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Bollard Model
+//!
+//! **The Core Domain Model for the Bollard Berth Allocation Solver.**
+//!
+//! This crate defines the fundamental data structures used to represent the **Berth Allocation Problem (BAP)**.
+//! It serves as the data interchange layer between the problem definition (user input) and the
+//! solving engine (`bollard_bnb`).
+//!
+//! ## Architecture
+//!
+//! The crate is designed around a strict separation of concerns between **construction** and **solving**:
+//!
+//! * **`index`**: Provides strongly-typed wrappers (`VesselIndex`, `BerthIndex`) to prevent logical indexing errors.
+//! * **`model`**: Contains the `Model` (immutable, optimized for solving) and `ModelBuilder` (mutable, optimized for configuration).
+//! * **`solution`**: Defines the output format, including objective values and specific assignments.
+//! * **`time`**: Low-level time primitives, including sentinel-based optimizations for performance-critical loops.
+//!
+//! ## Design Philosophy
+//!
+//! 1.  **Type Safety**: Indices are distinct types. You cannot accidentally use a `VesselIndex` to access a `Berth`.
+//! 2.  **Memory Layout**: Data is stored in **Structure of Arrays (SoA)** format (flattened vectors) rather than Arrays of Structures (AoS) to maximize cache locality during the branch-and-bound search.
+//! 3.  **Fail-Fast**: Builders and constructors validate inputs eagerly to ensure the solver never encounters an invalid state.
+
 pub mod index;
 pub mod model;
 pub mod solution;

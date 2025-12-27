@@ -19,6 +19,37 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Monitor Indices
+//!
+//! Strongly typed index wrapper for addressing monitors within composite or
+//! indexed collections. Built on `bollard_core::utils::index::TypedIndex`,
+//! `MonitorIndex` prevents accidental mixing with other index spaces while
+//! remaining zero-cost at runtime.
+//!
+//! ## Motivation
+//!
+//! Search monitoring can involve multiple monitors managed in arrays or
+//! composite structures. Using raw `usize` invites bugs where a different
+//! domain’s index is passed by mistake. `MonitorIndex` encodes intent at the
+//! type level for safer, clearer code.
+//!
+//! ## Highlights
+//!
+//! - `MonitorIndex` is a type alias over `TypedIndex<MonitorIndexTag>`.
+//! - Human-readable formatting via the tag’s `NAME` ("MonitorIndex").
+//! - Zero runtime overhead (`#[repr(transparent)]` under the hood).
+//! - Works with arithmetic ops against `usize` and conversions to/from `usize`
+//!   provided by `TypedIndex`.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_search::monitor::index::MonitorIndex;
+//!
+//! let m = MonitorIndex::new(0);
+//! assert_eq!(format!("{}", m), "MonitorIndex(0)");
+//! ```
+
 use bollard_core::utils::index::{TypedIndex, TypedIndexTag};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]

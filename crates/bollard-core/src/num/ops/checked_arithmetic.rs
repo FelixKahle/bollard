@@ -19,6 +19,42 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Checked Arithmetic (By Value)
+//!
+//! Trait-based, by-value wrappers around Rust’s primitive checked operations.
+//! These traits mirror intrinsic methods like `checked_add` and `checked_mul`,
+//! but expose a uniform, trait-driven API that does not require references.
+//!
+//! ## Motivation
+//!
+//! Numeric pipelines in optimization and scheduling often need to detect
+//! overflow/underflow without panicking or wrapping. While Rust provides
+//! intrinsic checked ops per type, these traits enable:
+//! - Generic code over integer types without ad hoc `where` bounds.
+//! - Consistent by-value semantics (no references), avoiding ambiguity with
+//!   third-party numeric traits.
+//!
+//! ## Provided Traits
+//!
+//! - `CheckedAddVal`, `CheckedSubVal`, `CheckedMulVal`, `CheckedDivVal`, `CheckedRemVal`
+//!   — Return `Option<T>` (`None` on overflow/underflow/div-by-zero).
+//! - `CheckedNegVal`
+//!   — Return `Option<T>` (`None` on overflow when negating minimum values).
+//! - `CheckedShlVal`, `CheckedShrVal`
+//!   — Return `Option<T>` (`None` when shift exceeds bit width or would overflow).
+//!
+//! All core integer primitives implement these traits.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_core::num::ops::checked_arithmetic::{CheckedAddVal, CheckedMulVal};
+//!
+//! let a: u8 = 200;
+//! let b: u8 = 100;
+//! assert_eq!(a.checked_add_val(b), None);       // overflow
+//! ```
+
 use core::ops::{Add, Div, Mul, Rem, Shl, Shr, Sub};
 
 /// A trait for types that support checked addition by value (no references).
