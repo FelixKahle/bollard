@@ -19,6 +19,51 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Closed-Open Intervals `[start, end)`
+//!
+//! This module provides a generic, type-safe implementation of closed-open
+//! intervals (`ClosedOpenInterval<T>`) with rich set operations and iteration
+//! utilities tailored for scheduling and time-window reasoning.
+//!
+//! ## Motivation
+//!
+//! In combinatorial scheduling and constraint programming, intervals are
+//! ubiquitous: availability windows, maintenance gaps, and processing spans.
+//! Using `[start, end)` avoids off-by-one errors and composes cleanly with
+//! Rust's standard `Range` semantics and iterator patterns.
+//!
+//! ## Highlights
+//!
+//! - Construction and validation: `new`, `try_new`, and `new_unchecked`.
+//! - Predicates: `intersects`, `adjacent`, `disjoint`, `contains_point`,
+//!   `contains_interval`, `intersects_or_adjacent`, `is_empty`.
+//! - Set operations: `intersection`, `union`, `difference`, `gap`, `split_at`.
+//! - Measurements: `len`, `midpoint`.
+//! - Iteration: `iter()` yields a `ClosedOpenIntervalIterator<T>` supporting
+//!   `Iterator`, `DoubleEndedIterator`, `ExactSizeIterator`, and `FusedIterator`.
+//! - Conversions & Traits: `BitAnd`/`BitOr` sugar for intersection/union,
+//!   `RangeBounds`, `IntoIterator` (by value and by reference), and conversions
+//!   to/from `std::ops::Range<T>`.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_core::math::interval::ClosedOpenInterval;
+//!
+//! // Define intervals
+//! let a = ClosedOpenInterval::new(10i64, 20i64);
+//! let b = ClosedOpenInterval::new(15i64, 25i64);
+//!
+//! // Set operations
+//! let i = a.intersection(b); // [15, 20)
+//! let u = a.union(b);        // [10, 25)
+//! let d = a.difference(b);   // Some([10, 15))
+//!
+//! // Iteration over [start, end)
+//! let values: Vec<i64> = a.iter().collect(); // 10..20
+//! assert_eq!(values, (10..20).collect::<Vec<_>>());
+//! ```
+
 use num_traits::PrimInt;
 use smallvec::SmallVec;
 use std::{

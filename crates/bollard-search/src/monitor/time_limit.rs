@@ -19,6 +19,45 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Time Limit Monitor
+//!
+//! A lightweight monitor that enforces a wall-clock time budget on the search.
+//! It periodically checks elapsed time (using a bitmask-based step filter) and
+//! requests termination once the configured `Duration` has been exceeded.
+//!
+//! ## Motivation
+//!
+//! Exact search can be compute-intensive. Many applications need predictable
+//! time-bounded behavior for responsiveness or SLA compliance. This monitor
+//! provides a low-overhead way to cap runtime without checking the clock at
+//! every step.
+//!
+//! ## Highlights
+//!
+//! - `TimeLimitMonitor<T>` stores a `time_limit`, `start_time`, and `steps` counter.
+//! - Bitmask-driven clock checks: `(steps & clock_check_mask) == 0` triggers a check.
+//!   The default mask (`0x3FFF`) checks approximately every 16,384 steps.
+//! - `on_step()` uses `wrapping_add` to increment steps at minimal cost.
+//! - `search_command()` returns `Terminate("time limit reached")` once elapsed time
+//!   exceeds the limit at a check point; otherwise `Continue`.
+//! - Constructors: `new(time_limit)` and `with_clock_check_mask(time_limit, mask)`.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_search::monitor::time_limit::TimeLimitMonitor;
+//! use bollard_search::monitor::search_monitor::{SearchMonitor, SearchCommand};
+//! use std::time::Duration;
+//!
+//! let mut mon = TimeLimitMonitor::<i64>::new(Duration::from_secs(5));
+//! // In the search loop:
+//! mon.on_step(); // periodically
+//! match mon.search_command() {
+//!     SearchCommand::Continue => { /* keep searching */ }
+//!     SearchCommand::Terminate(reason) => { /* stop: reason */ }
+//! }
+//! ```
+
 use crate::monitor::search_monitor::{SearchCommand, SearchMonitor};
 use bollard_model::model::Model;
 use num_traits::{PrimInt, Signed};

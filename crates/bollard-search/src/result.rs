@@ -19,6 +19,28 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Solver Results and Outcomes
+//!
+//! Unified types for representing the status of a search/solver run, including
+//! whether a solution was found (and its quality), why the run terminated, and
+//! summary statistics. These types standardize reporting across solvers and
+//! facilitate downstream consumption (FFI, logging, UI).
+//!
+//! ## Core Types
+//!
+//! - `SolverResult<T>`: High-level status and any discovered solution.
+//!   - `Infeasible`: The problem is proven infeasible.
+//!   - `Optimal(Solution<T>)`: A solution was found and optimality was proven.
+//!   - `Feasible(Solution<T>)`: A solution was found but optimality is unknown.
+//!   - `Unknown`: No solution and infeasibility not proven.
+//!
+//! - `TerminationReason`:
+//!   - `OptimalityProven`, `InfeasibilityProven`,
+//!   - `Aborted(String)` explaining the limit or external reason.
+//!
+//! - `SolverOutcome<T>`: Complete outcome with `result`, `reason`, and `SolverStatistics`.
+//!   Helper queries like `is_optimal`, `is_feasible`, `has_solution` are provided.
+
 use crate::stats::SolverStatistics;
 use bollard_model::solution::Solution;
 use num_traits::{PrimInt, Signed};

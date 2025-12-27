@@ -19,6 +19,49 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Shared Incumbent (Best Solution Holder)
+//!
+//! A concurrent container for the best solution discovered so far during search.
+//! It exposes a fast, lock-free upper bound via an atomic and stores the actual
+//! `Solution<T>` behind a `Mutex` as the source of truth. Designed for exact
+//! search pipelines where multiple threads propose improvements.
+//!
+//! ## Motivation
+//!
+//! - Fast heuristic checks: a cheap atomic upper bound short-circuits attempts
+//!   to install obviously worse candidates without locking.
+//! - Correctness by locking: the authoritative incumbent is protected by a
+//!   `Mutex`, ensuring consistent updates even under contention.
+//! - Simple sentinel: `upper_bound` starts at `i64::MAX` meaning "no incumbent yet."
+//!
+//! ## Highlights
+//!
+//! - `try_install(&Solution<T>) -> bool` installs strictly better candidates,
+//!   updating both the snapshot and the atomic upper bound.
+//! - `snapshot() -> Option<Solution<T>>` returns a cloned snapshot of the current
+//!   incumbent (if any).
+//! - `upper_bound() -> i64` and `upper_bound_as::<T>() -> Result<T, _>` for
+//!   quick reads and typed conversions.
+//! - Concurrency: atomic reads/writes use `Ordering::Relaxed` for performance,
+//!   while the mutex ensures correctness of the stored solution.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_search::incumbent::SharedIncumbent;
+//! use bollard_model::solution::Solution;
+//!
+//! let inc: SharedIncumbent<i64> = SharedIncumbent::new();
+//! let candidate = Solution::new(100, Vec::new(), Vec::new());
+//!
+//! if inc.try_install(&candidate) {
+//!     // Installed as new best
+//! }
+//!
+//! let ub = inc.upper_bound();           // fast atomic read
+//! let snap = inc.snapshot();            // optional cloned solution
+//! ```
+
 use bollard_model::solution::Solution;
 use num_traits::{PrimInt, Signed};
 use std::sync::{Mutex, atomic::AtomicI64};

@@ -19,4 +19,27 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Math Primitives
+//!
+//! Foundational mathematical structures for scheduling and time-window logic.
+//! This module currently focuses on closed-open interval math, designed to
+//! integrate cleanly with Rust’s range and iterator ecosystem.
+//!
+//! ## Submodules
+//!
+//! - `interval`: A generic `[start, end)` interval type with validation,
+//!   predicates (intersection, adjacency, containment), set operations
+//!   (intersection/union/difference/gap/split), measurements, and
+//!   iteration support (`Iterator`, `DoubleEndedIterator`,
+//!   `ExactSizeIterator`, `FusedIterator`). Includes conversions to/from
+//!   `std::ops::Range` and `RangeBounds`.
+//!
+//! ## Motivation
+//!
+//! Scheduling and constraint-solving routinely manipulate windows of time and
+//! resource availability. Closed-open intervals are robust against off-by-one
+//! errors and compose well with standard ranges and iterators.
+//!
+//! Refer to the `interval` module for detailed APIs and examples.
+
 pub mod interval;

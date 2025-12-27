@@ -19,5 +19,28 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Numeric Foundations
+//!
+//! Traits and utilities for integer-centric numeric programming. This module
+//! consolidates compile-time constants and by-value arithmetic traits that
+//! mirror Rust’s intrinsic behaviors while providing uniform, generic APIs.
+//!
+//! ## Submodules
+//!
+//! - `constants`: Associated-constant traits (`MinusOne`, `Zero`, `PlusOne`)
+//!   implemented for all core integer types to access sentinel values in
+//!   a type-safe, self-describing way.
+//! - `ops`: Checked and saturating arithmetic traits (by value) for addition,
+//!   subtraction, multiplication, division, remainder, negation, and shifts,
+//!   enabling predictable error handling (`Option<T>`) or clamped outcomes.
+//!
+//! ## Motivation
+//!
+//! Optimization and scheduling pipelines demand robust numeric semantics.
+//! These modules provide concise, generic building blocks that reduce ad hoc
+//! per-type code, improve readability, and help avoid overflow/underflow bugs.
+//!
+//! Refer to each submodule for detailed APIs and examples.
+
 pub mod constants;
 pub mod ops;

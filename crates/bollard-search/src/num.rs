@@ -19,6 +19,32 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Solver Numeric Trait
+//!
+//! Unified numeric bounds for search and solver components. `SolverNumeric`
+//! specifies the integer capabilities required by the solver, including
+//! intrinsic traits (`PrimInt`, `Signed`), conversions to/from `i64`, and
+//! by-value checked/saturating arithmetic traits from `bollard_core`.
+//!
+//! ## Motivation
+//!
+//! Exact search pipelines should remain generic over integer types while
+//! retaining predictable arithmetic semantics. This trait collects the
+//! necessary bounds into a single alias, simplifying generic signatures and
+//! ensuring consistent overflow handling and conversions.
+//!
+//! ## Highlights
+//!
+//! - Requires `PrimInt + Signed + FromPrimitive` for numeric fundamentals.
+//! - Enforces `From<i64> + Into<i64>` for interop with shared components.
+//! - Includes `MinusOne`, `Zero`, `PlusOne` constant traits.
+//! - Adds by-value arithmetic traits:
+//!   - Checked: add/sub/mul/div/rem/neg/shl/shr returning `Option<T>`.
+//!   - Saturating: add/sub/mul/neg clamping to type bounds.
+//! - Send + Sync for concurrent solver execution.
+//!
+//! Note: `i128` is intentionally excluded for performance reasons.
+
 use bollard_core::num::{
     constants::{MinusOne, PlusOne, Zero},
     ops::{checked_arithmetic, saturating_arithmetic},

@@ -19,6 +19,30 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Search Monitors
+//!
+//! Pluggable observers and controllers for search lifecycle events. Monitors
+//! can log progress, collect metrics, enforce budgets (time, solutions), and
+//! issue termination commands to guide or stop the search.
+//!
+//! ## Submodules
+//!
+//! - `search_monitor`: Core trait (`SearchMonitor<T>`) and `SearchCommand` enum,
+//!   defining lifecycle hooks and control flow.
+//! - `composite`: Aggregate multiple monitors into a single composite.
+//! - `index`: Strongly typed monitor indices for safe addressing.
+//! - `interrupt`: Atomically-driven interrupt monitor for cross-thread stops.
+//! - `solution`: Solution-count monitor with global limit via `AtomicU64`.
+//! - `time_limit`: Wall-clock time budget monitor with step-filtered checks.
+//!
+//! ## Motivation
+//!
+//! Exact search algorithms benefit from modular instrumentation and control.
+//! These monitors enable orthogonal concerns (telemetry, UI, limits) without
+//! entangling them in the core search loop.
+//!
+//! Refer to each submodule for detailed APIs and examples.
+
 pub mod composite;
 pub mod index;
 pub mod interrupt;

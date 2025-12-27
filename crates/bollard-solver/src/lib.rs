@@ -19,4 +19,23 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Bollard Solver
+//!
+//! High-level orchestration for portfolio-based exact search. This crate
+//! coordinates multiple solver strategies, manages shared state such as the
+//! incumbent solution, and enforces termination via pluggable monitors.
+//!
+//! ## Modules
+//!
+//! - `solver`: Portfolio orchestrator with a builder, per-thread monitor stacks,
+//!   shared incumbent, global counters, and unified outcome construction.
+//!
+//! ## Motivation
+//!
+//! Different strategies shine on different instances. A portfolio approach
+//! improves robustness and time-to-best by running several strategies in
+//! parallel and short-circuiting when global optimality is proven.
+//!
+//! See `solver` for detailed APIs and examples.
+
 pub mod solver;

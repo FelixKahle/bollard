@@ -19,6 +19,43 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Solver Statistics
+//!
+//! Lightweight runtime metrics captured during a solver run. `SolverStatistics`
+//! records core aggregates such as solutions found, threads used, and total
+//! wall-clock duration. A fluent `SolverStatisticsBuilder` is provided to
+//! construct instances ergonomically.
+//!
+//! ## Motivation
+//!
+//! Search pipelines benefit from standardized telemetry for logging, dashboards,
+//! and FFI reporting. Keeping statistics minimal and serializable makes it easy
+//! to consume across components while avoiding heavy instrumentation overhead.
+//!
+//! ## Highlights
+//!
+//! - `SolverStatistics`: Plain struct with `solutions_found`, `used_threads`,
+//!   and `solve_duration`.
+//! - `Display` implementation renders a human-friendly multi-line report with
+//!   fixed three-decimal seconds formatting.
+//! - `SolverStatisticsBuilder`: Fluent builder with `solutions_found(...)`,
+//!   `used_threads(...)`, `solve_duration(...)`, and `build()`.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_search::stats::{SolverStatistics, SolverStatisticsBuilder};
+//! use std::time::Duration;
+//!
+//! let stats = SolverStatisticsBuilder::new()
+//!     .solutions_found(3)
+//!     .used_threads(8)
+//!     .solve_duration(Duration::from_millis(1234))
+//!     .build();
+//!
+//! println!("{}", stats);
+//! ```
+
 /// Statistics collected during the solving process.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SolverStatistics {

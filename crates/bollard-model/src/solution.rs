@@ -19,6 +19,18 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Solution Representation
+//!
+//! This module defines the output of the optimization process.
+//!
+//! The `Solution` struct acts as a Data Transfer Object (DTO) containing:
+//! * The final **Objective Value** (cost).
+//! * **Assignments**: Which berth serves which vessel.
+//! * **Schedule**: The exact start time for every vessel.
+//!
+//! Like the `Model`, the `Solution` uses a Structure of Arrays (SoA) layout where data
+//! is indexed directly by `VesselIndex`.
+
 use crate::index::{BerthIndex, VesselIndex};
 use num_traits::{PrimInt, Signed};
 

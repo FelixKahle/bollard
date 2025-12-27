@@ -19,6 +19,41 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Saturating Arithmetic (By Value)
+//!
+//! Trait-based, by-value wrappers around Rust’s intrinsic saturating operations.
+//! These traits mirror methods like `saturating_add` and `saturating_mul`,
+//! exposing a uniform, generic API without references.
+//!
+//! ## Motivation
+//!
+//! In optimization and scheduling code paths, overflow must never crash or wrap.
+//! Saturating arithmetic clamps results to type bounds (`MIN`/`MAX`) and provides
+//! predictable behavior. While primitives have built-in saturating methods,
+//! these traits let you write generic code over integer types with clear, by-value
+//! semantics that compose cleanly across modules.
+//!
+//! ## Provided Traits
+//!
+//! - `SaturatingAddVal`, `SaturatingSubVal`, `SaturatingMulVal`
+//!   — Return clamped `T` instead of overflowing.
+//! - `SaturatingNegVal`
+//!   — For signed integers, clamps `-MIN` to `MAX` to avoid overflow.
+//!
+//! All core integer primitives implement these traits.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_core::num::ops::saturating_arithmetic::{SaturatingAddVal, SaturatingNegVal};
+//!
+//! let a: u8 = 250;
+//! assert_eq!(a.saturating_add_val(10), 255); // clamps at u8::MAX
+//!
+//! let m: i8 = -128;
+//! assert_eq!(m.saturating_neg_val(), 127);   // clamps at i8::MAX
+//! ```
+
 use core::ops::{Add, Mul, Neg, Sub};
 
 macro_rules! saturating_impl_binary_val {

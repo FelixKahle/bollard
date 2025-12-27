@@ -19,6 +19,38 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Optional Iterator Wrapper
+//!
+//! Utilities for composing iterators that may or may not exist. `MaybeIter<I>`
+//! wraps an `Option<I>` and exposes a standard iterator interface, avoiding the
+//! need to sprinkle `Option<Iterator>` branching throughout your code.
+//!
+//! ## Motivation
+//!
+//! In scheduling and data-processing pipelines, sources and views can be
+//! conditionally present. `MaybeIter` lets you unify iteration logic:
+//! when the inner iterator is `None`, it behaves as an empty iterator;
+//! when it is `Some(I)`, it forwards all iterator behavior transparently.
+//!
+//! ## Highlights
+//!
+//! - Implements `Iterator` with correct `size_hint` for `None` (`(0, Some(0))`).
+//! - Supports `DoubleEndedIterator`, `ExactSizeIterator`, and `FusedIterator`
+//!   when the wrapped iterator implements them.
+//! - Clone-friendly when the inner iterator is `Clone`.
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use bollard_core::utils::iter::MaybeIter;
+//!
+//! let present = MaybeIter::new(Some(vec![1, 2, 3].into_iter()));
+//! let absent: MaybeIter<std::vec::IntoIter<i32>> = MaybeIter::new(None);
+//!
+//! assert_eq!(present.collect::<Vec<_>>(), vec![1, 2, 3]);
+//! assert_eq!(absent.collect::<Vec<_>>(), Vec::<i32>::new());
+//! ```
+
 use std::iter::FusedIterator;
 
 /// An iterator that may or may not be present.

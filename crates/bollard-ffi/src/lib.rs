@@ -19,6 +19,25 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Bollard FFI
+//!
+//! **High-Performance C-Compatible Bindings for the Bollard Scheduling Solver.**
+//!
+//! This crate serves as the bridge between the high-performance Rust core of Bollard and
+//! external environments such as C, C++, Python, C#, and Java. It exposes a stable,
+//! ABI-compliant interface designed around **Opaque Pointers** (Handles) and strict
+//! **resource management**.
+//!
+//! ## Core Design Principles
+//!
+//! 1.  **Opaque Handles**: All complex Rust structures (`Model`, `ModelBuilder`, `BnbSolver`, `Outcome`)
+//!     are hidden behind raw pointers. The host application never accesses struct fields directly;
+//!     it uses the provided accessor functions.
+//! 2.  **Explicit Lifecycle**: Memory is manually managed. Every `_new` call must have a corresponding
+//!     `_free` call. Failing to do so will result in memory leaks.
+//! 3.  **Fail-Fast Safety**: To protect the integrity of the host application, this FFI layer
+//!     adopts a "Fail-Fast" strategy. Passing `NULL` pointers or invalid indices results in an
+//!     immediate process abort (panic) rather than undefined behavior or stack unwinding.
+
 pub mod bnb;
 pub mod model;
-pub mod result;

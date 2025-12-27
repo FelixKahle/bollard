@@ -1,80 +1,153 @@
 # Bollard FFI
 
-**Foreign Function Interface (FFI) bindings for the Bollard scheduling suite.**
+**Foreign Function Interface for the Bollard Scheduling Ecosystem.**
 
-This crate provides a stable, C-compatible ABI (Application Binary Interface) for the Bollard scheduling ecosystem. It acts as a bridge, allowing external environments—such as C, C++, Python, C#, or Java—to leverage Bollard's high-performance solvers and safety guarantees while managing memory manually.
-
-## Architecture
-
-The FFI is designed efficiently around opaque pointers and explicit resource management. The API is modular, separating the **Problem Definition** from the **Solution Strategy**:
-
-### 1. Common Core (Shared)
-
-Modules shared across all solver strategies.
-
-* **Model API**: A Builder-pattern interface to construct, configure, and finalize immutable scheduling problems.
-* **Outcome API**: A unified interface to inspect results, read solution schedules, and analyze statistics.
-
-### 2. Solvers
-
-Specific algorithms to solve the Model.
-
-* **Branch-and-Bound (BnB)**: An exact solver providing optimal solutions. It supports various combinations of **Objective Evaluators** and **Search Heuristics**.
-* *(Future Extensions)*: The FFI is designed to accommodate additional metaheuristic solvers in the future.
+This library provides stable, C-compatible bindings for the Bollard Branch-and-Bound solver. It allows host applications written in C, C++, Python, C#, Java, or other languages to define scheduling models and solve them using Bollard's high-performance Rust core.
 
 ---
 
-## API Reference
+## 1. Introduction
 
-Below is the complete list of all exported functions available in the library.
+### Usage Overview
 
-### 1. Model API (`bollard_model`)
+The API is designed around **Opaque Pointers** (Handles). You cannot access struct fields directly; you must use the exported API functions.
 
-These functions manage the creation and inspection of the problem definition.
+**Safety Warning:** This library uses a "Fail-Fast" approach. Passing `NULL` pointers or invalid array indices will cause the process to **abort** (panic) immediately. Always ensure pointers are valid before passing them to the API.
 
-**Lifecycle**
+### Shared Data Types
 
-* `bollard_model_builder_new`
-* `bollard_model_builder_free`
-* `bollard_model_builder_build` (Consumes builder, returns `Model`)
-* `bollard_model_free`
+These basic structures are used across both the Model and BnB APIs.
 
-**Builder Configuration**
+#### `FfiOpenClosedInterval`
+A struct representing a time interval `[start, end)`.
 
-* `bollard_model_builder_set_arrival_time`
-* `bollard_model_builder_set_latest_departure_time`
-* `bollard_model_builder_set_vessel_weight`
-* `bollard_model_builder_set_processing_time`
-* `bollard_model_builder_forbid_vessel_berth_assignment`
-* `bollard_model_builder_add_opening_time`
-* `bollard_model_builder_add_closing_time`
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `start_inclusive` | `int64_t` | The start time (inclusive). |
+| `end_exclusive` | `int64_t` | The end time (exclusive). |
 
-**Model Inspection**
+#### `FfiFixedAssignment`
+A struct used to force a specific vessel to a specific berth at a specific time during solving.
 
-* `bollard_model_num_vessels`
-* `bollard_model_num_berths`
-* `bollard_model_get_vessel_weight`
-* `bollard_model_get_vessel_arrival_time`
-* `bollard_model_get_vessel_latest_departure_time`
-* `bollard_model_get_processing_time`
-* `bollard_model_get_num_berth_opening_times`
-* `bollard_model_get_berth_opening_time`
-* `bollard_model_get_num_berth_closing_times`
-* `bollard_model_get_berth_closing_time`
-* `bollard_model_get_model_log_complexity`
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `start_time` | `int64_t` | The assigned time. |
+| `berth_index` | `size_t` | The assigned berth index. |
+| `vessel_index` | `size_t` | The vessel index. |
 
-### 2. Branch-and-Bound Solver API (`bollard_bnb_solver`)
+---
 
-These functions instantiate the solver and execute search runs.
+## 2. Model API
 
-**Lifecycle**
+This section details the functions used to define the scheduling problem.
 
-* `bollard_bnb_solver_new`
-* `bollard_bnb_solver_preallocated`
-* `bollard_bnb_solver_free`
+### Builder Lifecycle & Configuration
+These functions are used to construct the problem definition.
 
-**Solve Functions (Hybrid Evaluator)**
+* **`bollard_model_builder_new(size_t num_berths, size_t num_vessels)`**
+    * Allocates a new mutable builder.
+    * **Returns:** `*mut ModelBuilder`
 
+* **`bollard_model_builder_free(*mut ModelBuilder ptr)`**
+    * Frees the builder memory. **Do not call** if you have already called `_build`.
+
+* **`bollard_model_builder_build(*mut ModelBuilder ptr)`**
+    * Consumes the builder and returns an immutable Model.
+    * **Invalidates** the passed `ptr`.
+    * **Returns:** `*mut Model`
+
+* **`bollard_model_builder_set_arrival_time(*mut ModelBuilder ptr, size_t vessel_index, int64_t time)`**
+    * Sets the arrival time for a vessel.
+
+* **`bollard_model_builder_set_latest_departure_time(*mut ModelBuilder ptr, size_t vessel_index, int64_t time)`**
+    * Sets the deadline for a vessel.
+
+* **`bollard_model_builder_set_vessel_weight(*mut ModelBuilder ptr, size_t vessel_index, int64_t weight)`**
+    * Sets the priority weight for a vessel.
+
+* **`bollard_model_builder_set_processing_time(*mut ModelBuilder ptr, size_t vessel_index, size_t berth_index, int64_t duration)`**
+    * Sets how long a vessel takes to process at a specific berth.
+
+* **`bollard_model_builder_forbid_vessel_berth_assignment(*mut ModelBuilder ptr, size_t vessel_index, size_t berth_index)`**
+    * Explicitly forbids a specific vessel from using a specific berth.
+
+* **`bollard_model_builder_add_opening_time(*mut ModelBuilder ptr, size_t berth_index, FfiOpenClosedInterval interval)`**
+    * Adds an availability window to a berth.
+
+* **`bollard_model_builder_add_closing_time(*mut ModelBuilder ptr, size_t berth_index, FfiOpenClosedInterval interval)`**
+    * Adds a maintenance/unavailable window to a berth.
+
+### Model Inspection & Lifecycle
+These functions are used to query the immutable problem definition after it has been built.
+
+* **`bollard_model_free(*mut Model ptr)`**
+    * Frees the immutable Model.
+
+* **`bollard_model_num_vessels(*const Model ptr)`**
+    * **Returns:** Total number of vessels.
+
+* **`bollard_model_num_berths(*const Model ptr)`**
+    * **Returns:** Total number of berths.
+
+* **`bollard_model_vessel_weight(*const Model ptr, size_t vessel_index)`**
+    * **Returns:** Weight of the vessel.
+
+* **`bollard_model_vessel_arrival_time(*const Model ptr, size_t vessel_index)`**
+    * **Returns:** Arrival time.
+
+* **`bollard_model_vessel_latest_departure_time(*const Model ptr, size_t vessel_index)`**
+    * **Returns:** Deadline.
+
+* **`bollard_model_processing_time(*const Model ptr, size_t vessel_index, size_t berth_index)`**
+    * **Returns:** Processing time, or `-1` if the assignment is invalid/forbidden.
+
+* **`bollard_model_num_berth_opening_times(*const Model ptr, size_t berth_index)`**
+    * **Returns:** Count of opening intervals.
+
+* **`bollard_model_num_berth_closing_times(*const Model ptr, size_t berth_index)`**
+    * **Returns:** Count of closing intervals.
+
+* **`bollard_model_berth_opening_time(*const Model ptr, size_t berth_index, size_t interval_index)`**
+    * **Returns:** `FfiOpenClosedInterval` struct.
+
+* **`bollard_model_berth_closing_time(*const Model ptr, size_t berth_index, size_t interval_index)`**
+    * **Returns:** `FfiOpenClosedInterval` struct.
+
+* **`bollard_model_model_log_complexity(*const Model ptr)`**
+    * **Returns:** `double` representing the estimated log-complexity of the problem.
+
+---
+
+## 3. BnB API
+
+This section details the functions for the Exact Branch-and-Bound solver.
+
+### Solver Lifecycle
+
+* **`bollard_bnb_solver_new()`**
+    * Creates a new solver with default capacity.
+    * **Returns:** `*mut BnbSolver`
+
+* **`bollard_bnb_solver_preallocated(size_t num_berths, size_t num_vessels)`**
+    * Creates a solver with internal structures pre-allocated for the given size.
+    * **Returns:** `*mut BnbSolver`
+
+* **`bollard_bnb_solver_free(*mut BnbSolver ptr)`**
+    * Frees the solver instance.
+
+### Execution Strategies
+All solve functions return `*mut BnbSolverFfiOutcome` and take the following common parameters:
+1.  `*mut BnbSolver` (The solver instance)
+2.  `*const Model` (The immutable model)
+3.  `size_t solution_limit` (Stop after finding N solutions; 0 for infinite)
+4.  `int64_t time_limit_ms` (Stop after N milliseconds; 0 for infinite)
+5.  `bool enable_log` (Enable stdout logging)
+
+**Note:** Functions ending in `_with_fixed` accept two additional arguments:
+6.  `*const FfiFixedAssignment fixed_ptr` (Pointer to array of fixed assignments)
+7.  `size_t fixed_len` (Length of the array)
+
+#### Hybrid Evaluator Strategies
 * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_chronological_exhaustive_builder`
 * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_chronological_exhaustive_builder_with_fixed`
 * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_fcfs_heuristic_builder`
@@ -86,8 +159,7 @@ These functions instantiate the solver and execute search runs.
 * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_wspt_heuristic_builder`
 * `bollard_bnb_solver_solve_with_hybrid_evaluator_and_wspt_heuristic_builder_with_fixed`
 
-**Solve Functions (Workload Evaluator)**
-
+#### Workload Evaluator Strategies
 * `bollard_bnb_solver_solve_with_workload_evaluator_and_chronological_exhaustive_builder`
 * `bollard_bnb_solver_solve_with_workload_evaluator_and_chronological_exhaustive_builder_with_fixed`
 * `bollard_bnb_solver_solve_with_workload_evaluator_and_fcfs_heuristic_builder`
@@ -99,8 +171,7 @@ These functions instantiate the solver and execute search runs.
 * `bollard_bnb_solver_solve_with_workload_evaluator_and_wspt_heuristic_builder`
 * `bollard_bnb_solver_solve_with_workload_evaluator_and_wspt_heuristic_builder_with_fixed`
 
-**Solve Functions (Weighted Flow Time Evaluator)**
-
+#### Weighted Flow Time (WTFT) Evaluator Strategies
 * `bollard_bnb_solver_solve_with_wtft_evaluator_and_chronological_exhaustive_builder`
 * `bollard_bnb_solver_solve_with_wtft_evaluator_and_chronological_exhaustive_builder_with_fixed`
 * `bollard_bnb_solver_solve_with_wtft_evaluator_and_fcfs_heuristic_builder`
@@ -112,109 +183,60 @@ These functions instantiate the solver and execute search runs.
 * `bollard_bnb_solver_solve_with_wtft_evaluator_and_wspt_heuristic_builder`
 * `bollard_bnb_solver_solve_with_wtft_evaluator_and_wspt_heuristic_builder_with_fixed`
 
-### 3. Outcome/Result API (`bollard_bnb_outcome`)
+### Outcome API
+These functions are used to inspect the result of a solve operation.
 
-These functions handle the results returned by the solver.
+#### Lifecycle
+* **`bollard_bnb_outcome_free(*mut BnbSolverFfiOutcome ptr)`**
+    * Frees the outcome and all contained strings/arrays.
 
-**Lifecycle**
+#### Status & Metadata
+* **`bollard_bnb_outcome_has_solution(*const BnbSolverFfiOutcome ptr)`**
+    * **Returns:** `bool` (true if Optimal or Feasible).
 
-* `bollard_bnb_outcome_free`
+* **`bollard_bnb_outcome_status(*const BnbSolverFfiOutcome ptr)`**
+    * **Returns:** Enum integer (0=Optimal, 1=Feasible, 2=Infeasible, 3=Unknown).
 
-**Status & Metadata**
+* **`bollard_bnb_outcome_status_str(*const BnbSolverFfiOutcome ptr)`**
+    * **Returns:** `const char*` (e.g., "Optimal"). Valid until outcome is freed.
 
-* `bollard_bnb_outcome_has_solution`
-* `bollard_bnb_outcome_get_status`
-* `bollard_bnb_outcome_get_status_str`
-* `bollard_bnb_outcome_get_termination_reason_enum`
-* `bollard_bnb_outcome_get_termination_reason`
+* **`bollard_bnb_outcome_termination_reason(*const BnbSolverFfiOutcome ptr)`**
+    * **Returns:** `const char*` description of why the solver stopped.
 
-**Solution Data**
+* **`bollard_bnb_outcome_termination_reason_enum(*const BnbSolverFfiOutcome ptr)`**
+    * **Returns:** Enum integer (0=OptimalityProven, 1=InfeasibilityProven, 2=Aborted).
 
-* `bollard_bnb_outcome_get_objective`
-* `bollard_bnb_outcome_get_num_vessels`
-* `bollard_bnb_outcome_get_berth`
-* `bollard_bnb_outcome_get_start_time`
-* `bollard_bnb_outcome_get_berths` (Direct pointer access)
-* `bollard_bnb_outcome_get_start_times` (Direct pointer access)
-* `bollard_bnb_outcome_copy_solution` (Batch copy to user buffers)
+#### Solution Data
+* **`bollard_bnb_outcome_objective(*const BnbSolverFfiOutcome ptr)`**
+    * **Returns:** `int64_t` objective value. Panics if no solution.
 
-**Statistics**
+* **`bollard_bnb_outcome_num_vessels(*const BnbSolverFfiOutcome ptr)`**
+    * **Returns:** Number of vessels in the solution.
 
-* `bollard_bnb_outcome_get_nodes_explored`
-* `bollard_bnb_outcome_get_backtracks`
-* `bollard_bnb_outcome_get_decisions_generated`
-* `bollard_bnb_outcome_get_max_depth`
-* `bollard_bnb_outcome_get_prunings_infeasible`
-* `bollard_bnb_outcome_get_prunings_bound`
-* `bollard_bnb_outcome_get_solutions_found`
-* `bollard_bnb_outcome_get_steps`
-* `bollard_bnb_outcome_get_time_total_ms`
+* **`bollard_bnb_outcome_berth(*const BnbSolverFfiOutcome ptr, size_t vessel_idx)`**
+    * **Returns:** Assigned berth index for specific vessel.
 
----
+* **`bollard_bnb_outcome_start_time(*const BnbSolverFfiOutcome ptr, size_t vessel_idx)`**
+    * **Returns:** Assigned start time for specific vessel.
 
-## Usage Lifecycle
+* **`bollard_bnb_outcome_berths(*const BnbSolverFfiOutcome ptr)`**
+    * **Returns:** `const size_t*` pointer to the raw array of berth assignments.
 
-1. **Model Construction**:
-* Allocate a `ModelBuilder`.
-* Define problem parameters.
-* Finalize the builder into an immutable `Model`.
+* **`bollard_bnb_outcome_start_times(*const BnbSolverFfiOutcome ptr)`**
+    * **Returns:** `const int64_t*` pointer to the raw array of start times.
 
+* **`bollard_bnb_outcome_copy_solution(*const BnbSolverFfiOutcome ptr, size_t* out_berths, int64_t* out_start_times)`**
+    * Copies solution data into user-provided buffers. Buffers must be large enough (`num_vessels`).
 
-2. **Solver Instantiation**:
-* Choose your solver strategy (e.g., Branch-and-Bound) and create an instance.
+#### Search Statistics
+All return `uint64_t`.
 
-
-3. **Execution**:
-* Call the specific solve function for your chosen solver.
-* Pass constraints such as time limits or solution limits.
-
-
-4. **Inspection**:
-* Check the returned `Outcome` for status.
-* Extract scalar values or array data.
-
-
-5. **Cleanup**:
-* Explicitly free all allocated resources (`Model`, `Solver`, and `Outcome`) to prevent memory leaks.
-
-## Integration Example
-
-```c
-#include "bollard_ffi.h"
-#include <stdio.h>
-
-int main() {
-    // 1. Create & Configure Model (2 berths, 2 vessels)
-    BnbModelBuilder* builder = bollard_model_builder_new(2, 2);
-    bollard_model_builder_set_arrival_time(builder, 0, 10);
-    bollard_model_builder_set_vessel_weight(builder, 0, 5);
-    // ... configure other parameters ...
-    
-    // Finalize the model (consumes builder)
-    BnbModel* model = bollard_model_builder_build(builder);
-
-    // 2. Create Solver
-    BnbSolver* solver = bollard_bnb_solver_new();
-
-    // 3. Solve 
-    BnbOutcome* outcome = bollard_bnb_solver_solve_with_hybrid_evaluator_and_regret_heuristic_builder(
-        solver, model, 0, 1000, false
-    );
-
-    // 4. Inspect Result
-    if (bollard_bnb_outcome_has_solution(outcome)) {
-        int64_t obj = bollard_bnb_outcome_get_objective(outcome);
-        printf("Found solution with objective: %ld\n", obj);
-    } else {
-        printf("No solution found. Status: %s\n", bollard_bnb_outcome_get_status_str(outcome));
-    }
-
-    // 5. Cleanup
-    bollard_bnb_outcome_free(outcome);
-    bollard_bnb_solver_free(solver);
-    bollard_model_free(model);
-
-    return 0;
-}
-
-```
+* `bollard_bnb_outcome_nodes_explored`
+* `bollard_bnb_outcome_backtracks`
+* `bollard_bnb_outcome_decisions_generated`
+* `bollard_bnb_outcome_max_depth`
+* `bollard_bnb_outcome_prunings_infeasible`
+* `bollard_bnb_outcome_prunings_bound`
+* `bollard_bnb_outcome_solutions_found`
+* `bollard_bnb_outcome_steps`
+* `bollard_bnb_outcome_time_total_ms`

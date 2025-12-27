@@ -19,6 +19,33 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! # Composite Search Monitor
+//!
+//! Aggregates multiple `SearchMonitor` implementations into a single monitor,
+//! forwarding lifecycle events and control queries to all children. This allows
+//! you to combine logging, telemetry, budget enforcement, and custom logic
+//! without coupling concerns into one monolithic monitor.
+//!
+//! ## Motivation
+//!
+//! Search pipelines often require multiple, orthogonal monitoring concerns:
+//! - Emit logs or UI updates.
+//! - Collect metrics and telemetry.
+//! - Enforce termination conditions (time, steps, solution quality).
+//!   A composite keeps each concern modular while providing a single monitor
+//!   interface to the search engine.
+//!
+//! ## Highlights
+//!
+//! - `CompositeMonitor<'a, T>` stores `Box<dyn SearchMonitor<T> + 'a>` children.
+//! - Forwards `on_enter_search`, `on_exit_search`, `on_step`, `on_solution_found`
+//!   to all monitors in order.
+//! - `search_command()` returns the first `Terminate(reason)` encountered,
+//!   otherwise `Continue`.
+//! - Convenience constructors: `new`, `with_capacity`, `from_vec`.
+//! - Accessors: `len`, `is_empty`, `monitor()` (checked), `monitor_unchecked()` (unsafe).
+//! - Implements `FromIterator<Box<dyn SearchMonitor<T>>>` to build from iterators.
+
 use crate::monitor::{
     index::MonitorIndex,
     search_monitor::{SearchCommand, SearchMonitor},
