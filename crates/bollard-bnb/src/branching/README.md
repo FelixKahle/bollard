@@ -37,6 +37,8 @@ All builders:
 - `wspt`: Cost‑guided; orders by increasing immediate evaluator‑injected cost (commonly weighted finish time).
 - `regret`: Best‑first by regret. For per‑vessel feasible costs `{c₁ ≤ c₂ ≤ …}`, regret is `c₂ − c₁`; single‑option vessels get maximal regret.
 - `slack`: Best‑first by tightest time slack. For deadline `D` and best‑case finish `F*`, slack is `S = D − F*` (smaller is more urgent).
+- `spt`: Shortest Processing Time first; orders by increasing processing time `p`.
+- `lpt`: Longest Processing Time first; orders by decreasing processing time `p`.
 
 ## Math at a Glance
 
