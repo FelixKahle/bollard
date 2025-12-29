@@ -183,7 +183,6 @@ where
             for b in 0..num_berths {
                 let berth_index = BerthIndex::new(b);
 
-                #[allow(clippy::collapsible_if)]
                 if let Some(decision) = unsafe {
                     Decision::try_new_unchecked(
                         vessel_index,
@@ -193,21 +192,19 @@ where
                         state,
                         evaluator,
                     )
+                } && let Some(duration) = unsafe {
+                    model
+                        .vessel_processing_time_unchecked(vessel_index, berth_index)
+                        .into()
                 } {
-                    if let Some(duration) = unsafe {
-                        model
-                            .vessel_processing_time_unchecked(vessel_index, berth_index)
-                            .into()
-                    } {
-                        let finish = decision.start_time() + duration;
+                    let finish = decision.start_time() + duration;
 
-                        // Slack-specific constraint: finish must not exceed deadline
-                        if finish <= deadline {
-                            if finish < best_case_finish_time {
-                                best_case_finish_time = finish;
-                            }
-                            self.scratch_options.push(decision);
+                    // Slack-specific constraint: finish must not exceed deadline
+                    if finish <= deadline {
+                        if finish < best_case_finish_time {
+                            best_case_finish_time = finish;
                         }
+                        self.scratch_options.push(decision);
                     }
                 }
             }

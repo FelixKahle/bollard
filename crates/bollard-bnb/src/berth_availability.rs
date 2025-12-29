@@ -274,11 +274,10 @@ where
             }
         }
 
-        #[allow(clippy::collapsible_if)]
-        if let Some(&right_interval) = right_peekable.peek() {
-            if left_interval.intersects(*right_interval) {
-                return true;
-            }
+        if let Some(&right_interval) = right_peekable.peek()
+            && left_interval.intersects(*right_interval)
+        {
+            return true;
         }
     }
     false
