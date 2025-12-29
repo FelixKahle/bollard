@@ -535,6 +535,11 @@ where
             }
         }
 
+        if self.state.num_assigned_vessels() == self.model.num_vessels() {
+            let obj = self.state.current_objective();
+            self.handle_complete_solution(obj);
+        }
+
         // Root frame. Crucial to have this before pushing decisions!
         self.solver.trail.push_frame(&self.state);
         self.solver.stack.push_frame();
@@ -2282,5 +2287,74 @@ mod tests {
             607,
             "Objective should match Gurobi verification"
         );
+    }
+
+    #[test]
+    fn test_fixed_assignment_full_fixed() {
+        // Julia: builder = ModelBuilder(2, 1)
+        // 2 Berths, 1 Vessel
+        let mut builder = ModelBuilder::<IntegerType>::new(2, 1);
+        let v0 = VesselIndex::new(0);
+        let b0 = BerthIndex::new(0);
+        let b1 = BerthIndex::new(1);
+
+        // Julia: builder.set_arrival_time!(1, 0)
+        builder.set_vessel_arrival_time(v0, 0);
+
+        // Julia: builder.set_latest_departure_time!(1, 50)
+        builder.set_vessel_latest_departure_time(v0, 50);
+
+        // Julia: builder.set_weight!(1, 10)
+        builder.set_vessel_weight(v0, 10);
+
+        // Julia: builder.set_processing_time!(1, 1, 10) -> Rust Berth 0
+        builder.set_vessel_processing_time(v0, b0, ProcessingTime::some(10));
+
+        // Julia: builder.set_processing_time!(1, 2, 10) -> Rust Berth 1
+        builder.set_vessel_processing_time(v0, b1, ProcessingTime::some(10));
+
+        let model = builder.build();
+
+        // Julia: fixed = [FixedAssignment(1, 2, 5)]
+        // Logic: Vessel 1 (Rust 0) -> Berth 2 (Rust 1) at Time 5
+        let fixed = vec![FixedAssignment::new(5, b1, v0)];
+
+        let mut solver = BnbSolver::<IntegerType>::new();
+
+        // Julia used Hybrid Evaluator and Regret Heuristic in the failing test
+        let mut evaluator = HybridEvaluator::<IntegerType>::preallocated(2, 1);
+        let mut decision_builder = RegretHeuristicBuilder::preallocated(2, 1);
+
+        let outcome = solver.solve_with_fixed(
+            &model,
+            &mut decision_builder,
+            &mut evaluator,
+            NoOperationMonitor::new(),
+            &fixed,
+        );
+
+        match outcome.result() {
+            SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => {
+                println!("Rust Solver Success! Objective: {}", sol.objective_value());
+
+                // Verify the assignment was respected
+                assert_eq!(
+                    sol.berth_for_vessel(v0),
+                    b1,
+                    "Vessel 0 should be at Berth 1"
+                );
+                assert_eq!(
+                    sol.start_time_for_vessel(v0),
+                    5,
+                    "Vessel 0 should start at 5"
+                );
+            }
+            SolverResult::Infeasible => {
+                panic!("Rust Solver returned Infeasible! The logic error is in Rust.");
+            }
+            SolverResult::Unknown => {
+                panic!("Rust Solver returned Unknown.");
+            }
+        }
     }
 }
