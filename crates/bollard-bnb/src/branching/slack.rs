@@ -183,7 +183,7 @@ where
             for b in 0..num_berths {
                 let berth_index = BerthIndex::new(b);
 
-                // Use Rich Decision pipeline to validate, schedule, and price.
+                #[allow(clippy::collapsible_if)]
                 if let Some(decision) = unsafe {
                     Decision::try_new_unchecked(
                         vessel_index,
@@ -193,19 +193,21 @@ where
                         state,
                         evaluator,
                     )
-                } && let Some(duration) = unsafe {
-                    model
-                        .vessel_processing_time_unchecked(vessel_index, berth_index)
-                        .into()
                 } {
-                    let finish = decision.start_time() + duration;
+                    if let Some(duration) = unsafe {
+                        model
+                            .vessel_processing_time_unchecked(vessel_index, berth_index)
+                            .into()
+                    } {
+                        let finish = decision.start_time() + duration;
 
-                    // Slack-specific constraint: finish must not exceed deadline
-                    if finish <= deadline {
-                        if finish < best_case_finish_time {
-                            best_case_finish_time = finish;
+                        // Slack-specific constraint: finish must not exceed deadline
+                        if finish <= deadline {
+                            if finish < best_case_finish_time {
+                                best_case_finish_time = finish;
+                            }
+                            self.scratch_options.push(decision);
                         }
-                        self.scratch_options.push(decision);
                     }
                 }
             }
