@@ -192,22 +192,21 @@ where
                         state,
                         evaluator,
                     )
-                }
-                    && let Some(duration) = unsafe {
-                        model
-                            .vessel_processing_time_unchecked(vessel_index, berth_index)
-                            .into()
-                    } {
-                        let finish = decision.start_time() + duration;
+                } && let Some(duration) = unsafe {
+                    model
+                        .vessel_processing_time_unchecked(vessel_index, berth_index)
+                        .into()
+                } {
+                    let finish = decision.start_time() + duration;
 
-                        // Slack-specific constraint: finish must not exceed deadline
-                        if finish <= deadline {
-                            if finish < best_case_finish_time {
-                                best_case_finish_time = finish;
-                            }
-                            self.scratch_options.push(decision);
+                    // Slack-specific constraint: finish must not exceed deadline
+                    if finish <= deadline {
+                        if finish < best_case_finish_time {
+                            best_case_finish_time = finish;
                         }
+                        self.scratch_options.push(decision);
                     }
+                }
             }
 
             if self.scratch_options.is_empty() {

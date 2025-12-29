@@ -275,9 +275,10 @@ where
         }
 
         if let Some(&right_interval) = right_peekable.peek()
-            && left_interval.intersects(*right_interval) {
-                return true;
-            }
+            && left_interval.intersects(*right_interval)
+        {
+            return true;
+        }
     }
     false
 }
