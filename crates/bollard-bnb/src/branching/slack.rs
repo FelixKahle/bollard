@@ -183,7 +183,6 @@ where
             for b in 0..num_berths {
                 let berth_index = BerthIndex::new(b);
 
-                #[allow(clippy::collapsible_if)]
                 if let Some(decision) = unsafe {
                     Decision::try_new_unchecked(
                         vessel_index,
@@ -193,8 +192,8 @@ where
                         state,
                         evaluator,
                     )
-                } {
-                    if let Some(duration) = unsafe {
+                }
+                    && let Some(duration) = unsafe {
                         model
                             .vessel_processing_time_unchecked(vessel_index, berth_index)
                             .into()
@@ -209,7 +208,6 @@ where
                             self.scratch_options.push(decision);
                         }
                     }
-                }
             }
 
             if self.scratch_options.is_empty() {
