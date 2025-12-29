@@ -139,7 +139,7 @@ void bollard_bnb_solver_free(BnbSolver* ptr);
 The API exports specific functions for every combination of **Evaluator** + **Decision Builder**.
 
 * **Evaluators**: `hybrid`, `workload`, `wtft` (Weighted Flow Time).
-* **Builders**: `chronological_exhaustive`, `fcfs_heuristic`, `regret_heuristic`, `slack_heuristic`, `wspt_heuristic`.
+* **Builders**: `chronological_exhaustive`, `fcfs_heuristic`, `regret_heuristic`, `slack_heuristic`, `wspt_heuristic`, `spt_heuristic` and `lpt_heuristic`.
 
 *Standard Signature:*
 
