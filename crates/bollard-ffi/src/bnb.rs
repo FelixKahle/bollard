@@ -806,13 +806,13 @@ pub unsafe extern "C" fn bollard_bnb_outcome_time_total_ms(ptr: *const BnbSolver
 /// FFI-compatible representation of a fixed assignment.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FfiFixedAssignment {
+pub struct BnbFfiFixedAssignment {
     pub start_time: i64,
     pub berth_index: usize,
     pub vessel_index: usize,
 }
 
-impl std::fmt::Display for FfiFixedAssignment {
+impl std::fmt::Display for BnbFfiFixedAssignment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -822,7 +822,7 @@ impl std::fmt::Display for FfiFixedAssignment {
     }
 }
 
-impl From<FixedAssignment<i64>> for FfiFixedAssignment {
+impl From<FixedAssignment<i64>> for BnbFfiFixedAssignment {
     #[inline]
     fn from(fixed: FixedAssignment<i64>) -> Self {
         Self {
@@ -833,9 +833,9 @@ impl From<FixedAssignment<i64>> for FfiFixedAssignment {
     }
 }
 
-impl From<FfiFixedAssignment> for FixedAssignment<i64> {
+impl From<BnbFfiFixedAssignment> for FixedAssignment<i64> {
     #[inline]
-    fn from(val: FfiFixedAssignment) -> Self {
+    fn from(val: BnbFfiFixedAssignment) -> Self {
         FixedAssignment::new(
             val.start_time,
             BerthIndex::new(val.berth_index),
@@ -980,7 +980,7 @@ macro_rules! generate_solve {
             pub unsafe extern "C" fn [<$fn_name _with_fixed>](
                 solver_ptr: *mut BnbSolver<i64>,
                 model_ptr: *const Model<i64>,
-                fixed_ptr: *const FfiFixedAssignment, // Pointer to FFI array
+                fixed_ptr: *const BnbFfiFixedAssignment, // Pointer to FFI array
                 fixed_len: usize,                     // Length of array
                 solution_limit: usize,
                 time_limit_ms: i64,
