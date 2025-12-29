@@ -1,59 +1,50 @@
 # Bollard Search
 
-High-level components for building exact search pipelines in the Bollard ecosystem. This crate provides pluggable monitors, a concurrent incumbent holder, portfolio solver interfaces, unified result reporting, and lightweight runtime statistics.
+**High-level components for building modular search pipelines in the Bollard ecosystem.**
 
-## What This Crate Offers
+`bollard_search` provides the essential infrastructure to construct robust optimization strategies. While it serves as the foundation for exact solvers (like Branch-and-Bound), its architecture is generic enough to support local search, heuristics, and hybrid meta-heuristics. It offers pluggable monitoring, concurrent incumbent management, and unified result reporting.
 
-- Search Monitors:
-  - Observe lifecycle events (enter/exit search, steps, solutions).
-  - Enforce termination criteria (time limit, solution count, external interrupt).
-  - Compose multiple monitors via a composite wrapper.
+## Key Features
 
-- Incumbent Management:
-  - `SharedIncumbent<T>` holds the best solution discovered so far.
-  - Atomic upper bound for fast filtering; mutex-protected snapshot for correctness.
+* **Pluggable Search Monitors**: A flexible observation system (`SearchMonitor`) to track lifecycle events (steps, solutions, backtracks) and enforce termination criteria (time limits, solution counts, or external interrupts).
+* **Concurrent Incumbent Management**: The `SharedIncumbent<T>` type allows multiple search threads to safely share the "best so far" solution. It utilizes atomic upper bounds for rapid filtering and mutex-protected snapshots for data consistency.
+* **Portfolio Interface**: Standardized traits (`PortfolioSolver`) that enable running diverse strategies (exact or heuristic) in parallel under a unified context.
+* **Unified Statistics**: A lightweight, fluent statistics builder and result types that decouple the search logic from how results are reported to the user or FFI.
+* **Numeric Bounds**: The `SolverNumeric` trait consolidates all required numeric capabilities (checked/saturating arithmetic, conversions) needed for a solver implementation.
 
-- Portfolio Solvers:
-  - Standardized context and result types for running multiple strategies.
-  - Clean integration with shared incumbent and monitoring interfaces.
+## Architecture
 
-- Results & Stats:
-  - Unified solver result and termination reason types.
-  - Lightweight, human-readable statistics with a fluent builder.
+The crate is organized into modular components that can be used independently or together:
 
-- Numeric Bounds:
-  - `SolverNumeric` collects all numeric capabilities needed by the solver (checked/saturating arithmetic, conversions, traits).
+1. **`monitor`**: Search observation and control.
+* **`search_monitor`**: Defines the `SearchMonitor<T>` trait and `SearchCommand` enum.
+* **`composite`**: Wrapper to aggregate multiple monitors and broadcast events.
+* **`time_limit` / `solution` / `interrupt**`: Concrete implementations for common stopping criteria.
 
-## Modules Overview
 
-- `monitor`:
-  - `search_monitor`: Trait (`SearchMonitor<T>`) and `SearchCommand` enum.
-  - `composite`: Aggregate multiple monitors and forward lifecycle events.
-  - `interrupt`: External stop signal via `AtomicBool`.
-  - `solution`: Global solution-count limit via `AtomicU64`.
-  - `time_limit`: Wall-clock time limit with step-filtered checks.
-  - `index`: Strongly typed monitor indices (zero-cost wrappers).
+2. **`incumbent`**: Thread-safe solution storage.
+* Contains `SharedIncumbent<T>`, combining atomic bounds with full solution storage.
 
-- `incumbent`:
-  - `SharedIncumbent<T>` with atomic upper bound and mutex-backed snapshot.
 
-- `portfolio`:
-  - `PortfolioSolverContext<'a, T>` and `PortofolioSolver<T>` interface.
-  - `PortfolioSolverResult<T>` capturing solver result and termination reason.
+3. **`portfolio`**: Interfaces for strategy orchestration.
+* Defines `PortfolioSolverContext<'a, T>` and the `PortfolioSolver<T>` trait.
 
-- `result`:
-  - `SolverResult<T>` and `TerminationReason`.
-  - `SolverOutcome<T>` with `SolverStatistics`.
 
-- `stats`:
-  - `SolverStatistics` and `SolverStatisticsBuilder`.
+4. **`result` / `stats**`: Reporting structures.
+* **`result`**: `SolverOutcome<T>`, `SolverResult<T>`, and `TerminationReason`.
+* **`stats`**: `SolverStatistics` and its builder.
 
-- `num`:
-  - `SolverNumeric` trait for required numeric bounds.
 
-## Quick Examples
+5. **`num`**: Numeric abstractions.
+* `SolverNumeric` trait to simplify generic bounds on solver implementations.
+
+
+
+## Quick Start
 
 ### 1. Building a Composite Monitor
+
+Create a monitoring stack that handles time limits, solution counts, and external interrupts simultaneously.
 
 ```rust
 use bollard_search::monitor::composite::CompositeMonitor;
@@ -67,112 +58,49 @@ fn main() {
     let stop_flag = AtomicBool::new(false);
     let global_solution_count = AtomicU64::new(0);
 
+    // Combine multiple monitors into one
     let mut monitors = CompositeMonitor::<i64>::new();
     monitors.add_monitor(InterruptMonitor::new(&stop_flag));
     monitors.add_monitor(SolutionMonitor::with_limit(&global_solution_count, 5));
     monitors.add_monitor(TimeLimitMonitor::new(Duration::from_secs(30)));
 
-    // Hook monitors into your search loop
-    // monitors.on_enter_search(model);
-    // loop {
-    //     monitors.on_step();
-    //     match monitors.search_command() {
-    //         bollard_search::monitor::search_monitor::SearchCommand::Continue => { /* keep searching */ }
-    //         bollard_search::monitor::search_monitor::SearchCommand::Terminate(reason) => {
-    //             println!("Terminating search: {}", reason);
-    //             break;
-    //         }
-    //     }
-    // }
-    // monitors.on_exit_search();
+    // In your search loop:
+    // monitors.on_step();
+    // if let SearchCommand::Terminate(reason) = monitors.search_command() { ... }
 }
+
 ```
 
-### 2. Managing the Incumbent
+### 2. Defining a Portfolio Strategy
 
-```rust
-use bollard_search::incumbent::SharedIncumbent;
-use bollard_model::solution::Solution;
-
-fn main() {
-    let incumbent: SharedIncumbent<i64> = SharedIncumbent::new();
-
-    // Candidate solution
-    let candidate = Solution::new(100i64, Vec::new(), Vec::new());
-
-    if incumbent.try_install(&candidate) {
-        println!("Installed new incumbent with objective {}", incumbent.upper_bound());
-    }
-
-    if let Some(best) = incumbent.snapshot() {
-        println!("Current best objective: {}", best.objective_value());
-    }
-}
-```
-
-### 3. Portfolio Solver Interface
+Implement the `PortfolioSolver` trait to create a custom strategy (exact or heuristic) that integrates with the ecosystem.
 
 ```rust
 use bollard_search::portfolio::{PortfolioSolverContext, PortfolioSolverResult, PortofolioSolver};
-use bollard_search::incumbent::SharedIncumbent;
-use bollard_search::monitor::search_monitor::{SearchMonitor, SearchCommand, DummyMonitor};
-use bollard_model::model::Model;
 use num_traits::{PrimInt, Signed};
 
 struct MyStrategy;
 
 impl<T: PrimInt + Signed + Send + Sync> PortofolioSolver<T> for MyStrategy {
     fn invoke<'a>(&mut self, ctx: PortfolioSolverContext<'a, T>) -> PortfolioSolverResult<T> {
+        // Notify monitors that search is starting
         ctx.monitor.on_enter_search(ctx.model);
-        // ... run your strategy, propose solutions via ctx.incumbent.try_install(...)
-        // ... periodically check ctx.monitor.search_command() for termination
+        
+        // ... execute logic (e.g., local search, constructive heuristic) ...
+        // ... report new best solutions via ctx.incumbent.try_install(sol) ...
+        
         ctx.monitor.on_exit_search();
 
-        // Return an outcome (here: infeasible)
-        PortfolioSolverResult::infeasible()
+        PortfolioSolverResult::infeasible() // Return final status
     }
 
     fn name(&self) -> &str { "MyStrategy" }
 }
 
-fn main() {
-    // Example: set up and invoke a portfolio strategy
-    // let model: Model<i64> = ...;
-    // let incumbent = SharedIncumbent::<i64>::new();
-    // let mut monitor = DummyMonitor::<i64>::new();
-    // let ctx = PortfolioSolverContext::new(&model, &incumbent, &mut monitor);
-    // let mut strategy = MyStrategy;
-    // let result = strategy.invoke(ctx);
-    // println!("{}", result);
-}
 ```
 
-### 4. Reporting Results and Stats
+## Design & Performance
 
-```rust
-use bollard_search::result::{SolverOutcome, SolverResult};
-use bollard_search::stats::{SolverStatistics, SolverStatisticsBuilder};
-use bollard_model::solution::Solution;
-use std::time::Duration;
-
-fn main() {
-    let stats = SolverStatisticsBuilder::new()
-        .solutions_found(3)
-        .used_threads(8)
-        .solve_duration(Duration::from_millis(1200))
-        .build();
-
-    let sol = Solution::new(42i64, Vec::new(), Vec::new());
-    let outcome = SolverOutcome::optimal(sol, stats);
-
-    println!("{}", outcome); // human-friendly multi-line report
-    assert!(matches!(outcome.result(), SolverResult::Optimal(_)));
-}
-```
-
-## Design Notes
-
-- Monitors are designed with minimal overhead and frequent invocation in mind.
-- `SharedIncumbent` uses relaxed atomics for the upper bound and a mutex for correctness on solution snapshots.
-- Portfolio solver interfaces keep strategies modular and composable.
-- Result types and statistics are simple and serializable for FFI and UI integration.
+* **Generic Pipelines**: While often used for Branch-and-Bound, these components are agnostic to the search method. Local search algorithms can utilize the `SharedIncumbent` to coordinate with constructive heuristics in a parallel portfolio.
+* **Low-Overhead Monitoring**: Monitors are designed for frequent invocation (e.g., every search node). Checks like time limits are often step-filtered (checked every  steps) to minimize system call overhead.
+* **Concurrency**: `SharedIncumbent` uses relaxed atomic ordering for reading the upper bound, ensuring that checking "can this branch be better than the best known solution?" is extremely fast and non-blocking.

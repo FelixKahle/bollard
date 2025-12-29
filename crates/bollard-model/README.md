@@ -2,19 +2,34 @@
 
 **The Core Domain Model for the Bollard Berth Allocation Solver.**
 
-`bollard_model` provides the fundamental data structures, types, and builders required to define, validate, and represent the **Berth Allocation Problem (BAP)**. It is designed for high-performance combinatorial optimization, utilizing memory-efficient layouts and strict type safety to prevent common logic errors during the solving process.
+`bollard_model` provides the fundamental data structures, validation logic, and builder patterns required to define the **Berth Allocation Problem (BAP)**. It is designed for high-performance combinatorial optimization, utilizing memory-efficient layouts (Structure of Arrays) and strict type safety to prevent common logical errors before the solving phase begins.
 
 ## Key Features
 
-* **Type-Safe Indexing**: Distinct `VesselIndex` and `BerthIndex` types ensure that ship IDs and dock IDs are never accidentally swapped.
-* **Two-Phase Construction**: Implements the **Builder Pattern** to separate the mutable configuration phase from the immutable, high-speed solving phase.
-* **Memory Optimization**: Uses **Structure of Arrays (SoA)** and flattened vectors for cache locality.
-* **Sentinel-Based Optionals**: Custom `ProcessingTime` types avoid `Option<T>` overhead in hot loops.
-* **Complexity Analysis**: Built-in tools to calculate the logarithmic search space size to estimate solver difficulty.
+* **Two-Phase Construction**: Implements the **Builder Pattern** to separate the mutable configuration phase from the immutable, high-speed solving phase, allowing for rigorous validation during the build step.
+* **Type-Safe Indexing**: Distinct `VesselIndex` and `BerthIndex` types ensure that ship IDs and dock IDs are never accidentally swapped, eliminating a common class of bugs in scheduling logic.
+* **Memory Optimization**: Internal data structures use **Structure of Arrays (SoA)** and flattened vectors to maximize cache locality during hot loops in the solver.
+* **Sentinel-Based Optionals**: Custom `ProcessingTime` types utilize sentinel values to avoid the storage overhead of standard Rust `Option<T>` wrappers.
+* **Complexity Analysis**: Includes built-in tools to calculate the logarithmic search space size, helping to estimate solver difficulty and memory requirements upfront.
 
-## Usage Example
+## Architecture
 
-The lifecycle of a problem definition involves creating a `ModelBuilder`, adding constraints, and building the immutable `Model`.
+The crate is organized into four main modules:
+
+1. **`index`**: Strongly typed indices (`VesselIndex`, `BerthIndex`) used throughout the ecosystem.
+2. **`model`**: The core definitions.
+* `ModelBuilder`: The mutable interface for setting up constraints.
+* `Model`: The immutable, validated struct optimized for read-heavy solver access.
+
+
+3. **`solution`**: Structures representing the final assignment of vessels to berths and times (`Solution`).
+4. **`time`**: Low-level time representations, including the sentinel-optimized `ProcessingTime`.
+
+## Quick Start
+
+### Defining a Problem Instance
+
+The lifecycle involves initializing a builder, defining constraints, and "freezing" it into an immutable Model.
 
 ```rust
 use bollard_model::model::ModelBuilder;
@@ -54,11 +69,8 @@ fn main() {
 
 ```
 
-## Architecture
+## Design & Performance
 
-The crate is organized into four main modules:
-
-1. **`index`**: Strongly typed indices (`VesselIndex`, `BerthIndex`).
-2. **`model`**: The core `Model` struct (immutable) and `ModelBuilder` (mutable). Contains logic for validation and complexity estimation.
-3. **`solution`**: The `Solution` struct representing the final assignment of berths and times.
-4. **`time`**: Low-level time representations, including the sentinel-optimized `ProcessingTime`.
+* **Immutable by Default**: Once `builder.build()` is called, the resulting `Model` is immutable. This allows the solver to access problem data concurrently without locking synchronization primitives.
+* **Cache Locality**: By flattening vessel and berth properties into parallel arrays (Structure of Arrays), the CPU prefetcher can load relevant data more effectively than with an array of structs (AoS), significantly speeding up the evaluation of objective functions.
+* **Constraint Validation**: The builder enforces logical consistency (e.g., ensuring arrival times are non-negative, intervals are well-formed) before the potentially expensive search process begins.

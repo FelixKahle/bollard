@@ -1,91 +1,94 @@
 # Bollard Solver
 
-Portfolio-based orchestration for search in the Bollard ecosystem. This crate runs multiple solver strategies in parallel, manages a shared incumbent solution, and enforces termination via pluggable monitors (time limit, solution count, external interrupt).
+**The high-level portfolio orchestrator for the Bollard scheduling ecosystem.**
 
-## What This Crate Provides
+`bollard_solver` is the entry point for running scheduling tasks. It runs multiple solver strategies (exact, heuristic, or local search) in parallel, manages a shared incumbent solution, and enforces global termination criteria. It is designed to maximize hardware utilization by racing different strategies against each other to find the best solution in the shortest time.
 
-- Portfolio Orchestrator:
-  - Launches multiple strategies (implementations of `PortofolioSolver<T>`) in parallel threads.
-  - Builds a per-thread monitor stack (interrupt, solution-limit, optional time-limit).
-  - Aggregates results and produces a unified `SolverOutcome<T>`.
+## Key Features
 
-- Shared Incumbent:
-  - `SharedIncumbent<T>` stores the best solution found so far.
-  - Atomic upper bound for fast comparisons; mutex-backed snapshot for correctness.
+* **Portfolio Orchestration**: Simultaneously launches multiple strategies (implementations of `PortfolioSolver<T>`) in separate threads.
+* **Shared Incumbent Integration**: Automatically manages a `SharedIncumbent<T>`, ensuring that when one thread finds a better solution, it is immediately available to all other threads for pruning or reference.
+* **Ergonomic Configuration**: A fluent `SolverBuilder` to easily configure time limits, solution limits, and the specific portfolio of strategies to run.
+* **Unified Outcomes**: Aggregates results from all threads into a single `SolverOutcome<T>`, consolidating statistics and determining the final termination reason (e.g., Optimality Proven, Time Limit Reached).
 
-- Unified Outcomes & Statistics:
-  - `SolverOutcome<T>` with `SolverResult<T>` and `TerminationReason`.
-  - `SolverStatistics` and a fluent builder to report runtime metrics.
+## Architecture
 
-- Ergonomic Builder:
-  - `SolverBuilder` to configure solution/time limits and add portfolio solvers.
+The crate provides a streamlined API surface centered around the solver lifecycle:
 
-## Module Overview
+1. **`solver`**: The core orchestration logic.
+* **`SolverBuilder<'a, T>`**: The primary configuration interface. Allows setting global constraints (time, solution count) and adding strategies.
+* **`Solver<'a, T>`**: The immutable orchestrator that executes the search via `solve(&Model<T>)`.
 
-- `solver`:
-  - `Solver<'a, T>`: High-level orchestrator; `solve(&Model<T>) -> SolverOutcome<T>`.
-  - `SolverBuilder<'a, T>`: Builder for solver configuration.
-  - Orchestration integrates `bollard-search`’s monitors and incumbent management.
+
+2. **Integration**:
+* It binds together `bollard_search` components (Monitors, Incumbents) and `bollard_model` (Problem definition) into a cohesive runtime.
+
+
 
 ## Quick Start
 
-### 1. Build a Solver with a Portfolio
+### 1. Constructing and Running a Solver
+
+The builder pattern allows you to compose a specific set of strategies and limits.
 
 ```rust
-use bollard_solver::solver::{SolverBuilder};
+use bollard_solver::solver::SolverBuilder;
 use bollard_model::model::Model;
-// bring your portfolio solver implementations
-// use bollard_bnb::portfolio::BnbPortfolioSolver; // for example
+use std::time::Duration;
+
+// Assume we have a strategy implementation available
+// use bollard_bnb::portfolio::BnbPortfolioSolver; 
 
 fn main() {
-    // Construct your model
+    // 1. Construct the problem model
     // let model: Model<i64> = ...;
 
-    // Construct your portfolio strategies (implement PortofolioSolver<i64>)
-    // let s1 = ...;
-    // let s2 = ...;
-
-    // Configure solver
+    // 2. Configure the solver with specific limits and strategies
     let mut solver = SolverBuilder::<i64>::new()
-        // .with_solution_limit(10)
-        // .with_time_limit(std::time::Duration::from_secs(30))
-        // .add_solver(s1)
-        // .add_solver(s2)
+        .with_solution_limit(10) // Stop after finding 10 feasible solutions
+        .with_time_limit(Duration::from_secs(30)) // Or stop after 30 seconds
+        // .add_solver(StrategyA::new())
+        // .add_solver(StrategyB::new())
         .build();
 
-    // Run
+    // 3. Execute the search
     // let outcome = solver.solve(&model);
-    // println!("{}", outcome);
+    
+    // println!("Final Status: {}", outcome.result());
 }
+
 ```
 
-### 2. Inspect Outcome and Statistics
+### 2. Inspecting Outcomes and Statistics
+
+The `SolverOutcome` provides a unified view of what happened during the parallel search.
 
 ```rust
 use bollard_solver::solver::SolverBuilder;
 use bollard_search::result::SolverResult;
-use std::time::Duration;
 
 fn main() {
-    // let model: Model<i64> = ...;
-    let mut solver = SolverBuilder::<i64>::new()
-        .with_time_limit(Duration::from_secs(10))
-        .build();
-
+    // ... setup and solve ...
     // let outcome = solver.solve(&model);
-    // println!("Result: {}", outcome.result());
-    // println!("Termination: {}", outcome.reason());
-    // println!("Stats:\n{}", outcome.statistics());
 
-    // if let SolverResult::Optimal(sol) = outcome.result() {
-    //     println!("Optimal objective: {}", sol.objective_value());
-    // }
+    // Check high-level status
+    println!("Termination Reason: {}", outcome.reason());
+
+    // Access detailed runtime statistics (aggregated across threads)
+    println!("Stats:\n{}", outcome.statistics());
+
+    // Retrieve the best solution found
+    if let SolverResult::Optimal(sol) = outcome.result() {
+        println!("Optimal objective: {}", sol.objective_value());
+    } else if let SolverResult::Feasible(sol) = outcome.result() {
+        println!("Best feasible objective: {}", sol.objective_value());
+    }
 }
+
 ```
 
-## Design Notes
+## Design & Performance
 
-- Portfolio model: Each strategy runs independently with its own monitor stack.
-- Global signals: When a thread proves optimality, the orchestrator sets an interrupt flag to stop others early.
-- Minimal overhead: Monitors are designed to be efficient; atomic counters and relaxed ordering are used where safe.
-- Deterministic outcome assembly: The best solution across threads and the shared incumbent is selected, with termination reasons consolidated.
+* **Parallel Independence**: Each strategy in the portfolio runs in its own thread with its own monitor stack. This prevents a slow or stalled strategy from blocking the progress of others.
+* **Global Optimality Signals**: The orchestrator coordinates "Optimality Proven" signals. If one thread proves optimality, the orchestrator triggers an interrupt flag to stop all other threads immediately, saving computational resources.
+* **Deterministic Outcome Assembly**: While thread scheduling is non-deterministic, the result assembly is robust. The orchestrator selects the best solution from the shared incumbent and the individual thread results, ensuring the highest quality solution is always returned.
