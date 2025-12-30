@@ -61,12 +61,6 @@ jobs:
               use_cross: true,
             }
           - {
-              os: ubuntu-latest,
-              target: x86_64-unknown-linux-musl,
-              name: linux-musl-x64,
-              use_cross: false,
-            }
-          - {
               os: windows-latest,
               target: x86_64-pc-windows-msvc,
               name: windows-x64,
@@ -116,10 +110,6 @@ jobs:
       - name: Install cross (Linux)
         if: runner.os == 'Linux' && matrix.job.use_cross == true
         run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Install MUSL tools (Linux)
-        if: runner.os == 'Linux' && matrix.job.target == 'x86_64-unknown-linux-musl'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools pkg-config
 
       - name: Check Formatting
         run: cargo fmt --all -- --check
