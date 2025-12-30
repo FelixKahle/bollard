@@ -69,6 +69,7 @@ jobs:
           fi
       - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: stable
           components: rustfmt, clippy
           targets: ${{ matrix.job.target }}
 
