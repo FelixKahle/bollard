@@ -149,6 +149,9 @@ where
         let num_vessels = self.model.num_vessels();
         let num_berths = self.model.num_berths();
 
+        let last_decision_time = self.state.last_decision_time();
+        let last_decision_vessel = self.state.last_decision_vessel();
+
         // Iterate vessels × berths in row-major order using typed indices
         while self.current_vessel.get() < num_vessels {
             let vessel_index = self.current_vessel;
@@ -177,6 +180,16 @@ where
                     self.evaluator,
                 )
             } {
+                if decision.start_time() < last_decision_time {
+                    continue;
+                }
+
+                if decision.start_time() == last_decision_time
+                    && decision.vessel_index() < last_decision_vessel
+                {
+                    continue;
+                }
+
                 return Some(decision);
             }
         }

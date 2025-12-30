@@ -46,8 +46,8 @@
 //! * **Assignments**: Which vessel goes to which berth at what time.
 //! * **Statistics**: Nodes explored, max depth, and runtime.
 
+use bollard_bnb::branching::edf::EarliestDeadlineFirstBuilder;
 use bollard_bnb::branching::lpt::LptHeuristicBuilder;
-use bollard_bnb::branching::mrv::MostConstrainedBuilder;
 use bollard_bnb::branching::spt::SptHeuristicBuilder;
 use bollard_bnb::result::BnbSolverOutcome;
 use bollard_bnb::{
@@ -1093,11 +1093,11 @@ generate_solve!(
 );
 
 generate_solve!(
-    bollard_bnb_solver_solve_with_hybrid_evaluator_and_mrv_heuristic_builder,
+    bollard_bnb_solver_solve_with_hybrid_evaluator_and_edf_heuristic_builder,
     HybridEvaluator<i64>,
-    MostConstrainedBuilder<i64>,
+    EarliestDeadlineFirstBuilder<i64>,
     |m: &Model<i64>| HybridEvaluator::preallocated(m.num_berths(), m.num_vessels()),
-    |m: &Model<i64>| MostConstrainedBuilder::preallocated(m.num_berths(), m.num_vessels())
+    |m: &Model<i64>| EarliestDeadlineFirstBuilder::preallocated(m.num_berths(), m.num_vessels())
 );
 
 // --- Workload Evaluator Combinations ---
@@ -1159,11 +1159,11 @@ generate_solve!(
 );
 
 generate_solve!(
-    bollard_bnb_solver_solve_with_workload_evaluator_and_mrv_heuristic_builder,
+    bollard_bnb_solver_solve_with_workload_evaluator_and_edf_heuristic_builder,
     WorkloadEvaluator<i64>,
-    MostConstrainedBuilder<i64>,
+    EarliestDeadlineFirstBuilder<i64>,
     |m: &Model<i64>| WorkloadEvaluator::preallocated(m.num_berths(), m.num_vessels()),
-    |m: &Model<i64>| MostConstrainedBuilder::preallocated(m.num_berths(), m.num_vessels())
+    |m: &Model<i64>| EarliestDeadlineFirstBuilder::preallocated(m.num_berths(), m.num_vessels())
 );
 
 // --- Weighted Flow Time Evaluator Combinations ---
@@ -1225,11 +1225,11 @@ generate_solve!(
 );
 
 generate_solve!(
-    bollard_bnb_solver_solve_with_wtft_evaluator_and_mrv_heuristic_builder,
+    bollard_bnb_solver_solve_with_wtft_evaluator_and_edf_heuristic_builder,
     WeightedFlowTimeEvaluator<i64>,
-    MostConstrainedBuilder<i64>,
+    EarliestDeadlineFirstBuilder<i64>,
     |m: &Model<i64>| WeightedFlowTimeEvaluator::preallocated(m.num_berths(), m.num_vessels()),
-    |m: &Model<i64>| MostConstrainedBuilder::preallocated(m.num_berths(), m.num_vessels())
+    |m: &Model<i64>| EarliestDeadlineFirstBuilder::preallocated(m.num_berths(), m.num_vessels())
 );
 
 #[cfg(test)]
