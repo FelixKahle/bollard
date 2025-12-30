@@ -23,7 +23,7 @@ name: Bollard Build and Test
 permissions:
   contents: read
 
-on: [push] # if this ever becomes a project with many contributors, consider adding pull_request here
+on: [push]
 
 env:
   CARGO_TERM_COLOR: always
