@@ -338,16 +338,16 @@ where
             processing_time,
         )?;
 
-        let last_decision_time = state.last_decision_time();
-        if actual_start_time < last_decision_time {
-            return None;
-        }
+        //let last_decision_time = state.last_decision_time();
+        //if actual_start_time < last_decision_time {
+        //    return None;
+        //}
 
-        if actual_start_time == last_decision_time
-            && vessel_index.get() < state.last_decision_vessel().get()
-        {
-            return None;
-        }
+        //if actual_start_time == last_decision_time
+        //    && vessel_index.get() < state.last_decision_vessel().get()
+        //{
+        //    return None;
+        //}
 
         if is_symmetric_to_previous_berth(
             vessel_index,
@@ -462,16 +462,16 @@ where
             )?
         };
 
-        let last_decision_time = state.last_decision_time();
-        if actual_start_time < last_decision_time {
-            return None;
-        }
+        //let last_decision_time = state.last_decision_time();
+        //if actual_start_time < last_decision_time {
+        //    return None;
+        //}
 
-        if actual_start_time == last_decision_time
-            && vessel_index.get() < state.last_decision_vessel().get()
-        {
-            return None;
-        }
+        //if actual_start_time == last_decision_time
+        //    && vessel_index.get() < state.last_decision_vessel().get()
+        //{
+        //    return None;
+        //}
 
         if unsafe {
             is_symmetric_to_previous_berth_unchecked(
@@ -948,85 +948,6 @@ mod tests {
         assert!(
             d.is_none(),
             "already-assigned vessel should yield no decision"
-        );
-    }
-
-    #[test]
-    fn test_forward_in_time_and_tie_breaking_by_vessel_index() {
-        let model = build_basic_model();
-        let mut ba = BerthAvailability::<IntegerType>::new();
-        assert!(ba.initialize(&model, &[]));
-
-        let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-
-        // Set last decision to time 10, vessel 1
-        state.set_last_decision(10, VesselIndex::new(1));
-
-        // Candidate starting before time 10 must be filtered
-        {
-            // Make berth 0 free at time 0 explicitly to test the time guard
-            state.set_berth_free_time(BerthIndex::new(0), 0);
-            // Vessel 0 arrival is 0, processing fits, earliest availability 0 -> actual_start 5? No: nominal max(arrival=0, berth_free=0)=0; availability permits start at 0; but we set last_decision_time=10 -> should filter
-            let d = Decision::try_new(
-                VesselIndex::new(0),
-                BerthIndex::new(0),
-                &model,
-                &ba,
-                &state,
-                &mut eval,
-            );
-            assert!(
-                d.is_none(),
-                "decisions before last_decision_time must be filtered"
-            );
-        }
-
-        // Now force decisions at exactly time 10:
-        state.set_berth_free_time(BerthIndex::new(0), 10);
-        state.set_berth_free_time(BerthIndex::new(1), 10);
-
-        // At time 10, vessel 0 has index < last_decision_vessel(1) -> filtered
-        let d0 = Decision::try_new(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            &model,
-            &ba,
-            &state,
-            &mut eval,
-        );
-        assert!(
-            d0.is_none(),
-            "equal time, lower vessel index than last decision must be filtered"
-        );
-
-        // Vessel 1 equal to last_decision_vessel -> allowed
-        let d1 = Decision::try_new(
-            VesselIndex::new(1),
-            BerthIndex::new(0),
-            &model,
-            &ba,
-            &state,
-            &mut eval,
-        );
-        assert!(
-            d1.is_some(),
-            "equal time, same vessel index should be allowed"
-        );
-
-        // Vessel 2 greater than last_decision_vessel -> allowed
-        // Use lower-index berth (0) to avoid adjacent-berth symmetry filtering.
-        let d2 = Decision::try_new(
-            VesselIndex::new(2),
-            BerthIndex::new(0),
-            &model,
-            &ba,
-            &state,
-            &mut eval,
-        );
-        assert!(
-            d2.is_some(),
-            "equal time, higher vessel index should be allowed (canonical lower-index berth)"
         );
     }
 

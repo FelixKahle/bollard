@@ -169,6 +169,9 @@ where
         let num_vessels = model.num_vessels();
         let num_berths = model.num_berths();
 
+        let last_decision_time = state.last_decision_time();
+        let last_decision_vessel = state.last_decision_vessel();
+
         for v in 0..num_vessels {
             let vessel_index = VesselIndex::new(v);
 
@@ -191,6 +194,16 @@ where
                         evaluator,
                     )
                 } {
+                    if decision.start_time() < last_decision_time {
+                        continue;
+                    }
+
+                    if decision.start_time() == last_decision_time
+                        && decision.vessel_index() < last_decision_vessel
+                    {
+                        continue;
+                    }
+
                     self.candidates.push(WsptCandidate::new(decision));
                 }
             }
