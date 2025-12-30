@@ -751,6 +751,46 @@ pub unsafe extern "C" fn bollard_model_berth_opening_time(
     FfiOpenClosedInterval::from(*interval)
 }
 
+/// Checks if a specific vessel-berth assignment is forbidden in the Bollard model.
+///
+/// # Panics
+///
+/// This function will panic if `vessel_index` or `berth_index` is out of bounds,
+/// or if the pointer is null.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_builder_build`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_model_vessel_allowed_on_berth(
+    ptr: *const Model<i64>,
+    vessel_index: usize,
+    berth_index: usize,
+) -> bool {
+    assert!(
+        !ptr.is_null(),
+        "called `bollard_model_vessel_allowed_on_berth` with null pointer"
+    );
+
+    let model = &*ptr;
+
+    assert!(vessel_index < model.num_vessels(),
+        "called `bollard_model_vessel_allowed_on_berth` with vessel index out of bounds: the len is {} but the index is {}",
+        model.num_vessels(),
+        vessel_index
+    );
+
+    assert!(berth_index < model.num_berths(),
+        "called `bollard_model_vessel_allowed_on_berth` with berth index out of bounds: the len is {} but the index is {}",
+        model.num_berths(),
+        berth_index
+    );
+
+    model.vessel_allowed_on_berth(VesselIndex::new(vessel_index), BerthIndex::new(berth_index))
+}
+
 /// Returns the log complexity of the Bollard model as a floating-point number.
 ///
 /// # Panics

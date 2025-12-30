@@ -39,6 +39,7 @@ All builders:
 - `slack`: Best‑first by tightest time slack. For deadline `D` and best‑case finish `F*`, slack is `S = D − F*` (smaller is more urgent).
 - `spt`: Shortest Processing Time first; orders by increasing processing time `p`.
 - `lpt`: Longest Processing Time first; orders by decreasing processing time `p`.
+- `mrv`: Minimum Remaining Values; orders by fewest feasible berth options (most constrained first).
 
 ## Math at a Glance
 
