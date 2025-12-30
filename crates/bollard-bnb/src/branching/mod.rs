@@ -34,6 +34,7 @@
 //! - `slack`: best‑first by tightest time slack (deadline pressure).
 //! - `spt`: best‑first by shortest processing time.
 //! - `lpt`: best‑first by longest processing time.
+//! - `mrv`: best‑first by minimum remaining values (feasible berths).
 //!
 //! All iterators are fused: once exhausted, further `next()` calls yield `None`.
 
@@ -41,6 +42,7 @@ pub mod chronological;
 pub mod decision;
 pub mod fcfs;
 pub mod lpt;
+pub mod mrv;
 pub mod regret;
 pub mod slack;
 pub mod spt;
