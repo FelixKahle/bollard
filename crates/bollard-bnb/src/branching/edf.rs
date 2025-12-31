@@ -152,16 +152,15 @@ where
                         state,
                         evaluator,
                     )
+                } && let Some(duration) = unsafe {
+                    model
+                        .vessel_processing_time_unchecked(vessel_index, berth_index)
+                        .into()
                 } {
-                    let finish_time = unsafe {
-                        decision.start_time().saturating_add_val(
-                            model
-                                .vessel_processing_time_unchecked(vessel_index, berth_index)
-                                .unwrap_unchecked(),
-                        )
-                    };
-                    let deadline = model.vessel_latest_departure_time(vessel_index);
-                    let slack = deadline.saturating_sub(finish_time);
+                    let finish = decision.start_time() + duration;
+                    let deadline =
+                        unsafe { model.vessel_latest_departure_time_unchecked(vessel_index) };
+                    let slack = deadline.saturating_sub(finish);
                     self.candidates.push(EdfCandidate { decision, slack });
                 }
             }
