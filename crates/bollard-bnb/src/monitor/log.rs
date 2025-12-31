@@ -152,7 +152,8 @@ where
         self.print_header();
     }
 
-    fn on_exit_search(&mut self, _statistics: &BnbSolverStatistics) {
+    fn on_exit_search(&mut self, statistics: &BnbSolverStatistics) {
+        self.log_line(statistics);
         println!("{}", Self::HEADER_FOOTER_RULE);
         println!("Search finished.");
     }
