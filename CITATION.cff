@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Kahle"
+  given-names: "Felix"
+  orcid: "https://orcid.org/0009-0005-7719-9382"
+title: "bollard: A high-performance search engine for the Berth Allocation Problem"
+version: 0.1.0
+date-released: 2026-01-02
+url: "https://github.com/FelixKahle/bollard"
