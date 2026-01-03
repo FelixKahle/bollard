@@ -19,10 +19,12 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-mod memory;
-mod mutator;
-mod queue;
-mod undo;
+pub mod decoder;
+pub mod eval;
+pub mod memory;
+pub mod mutator;
+pub mod queue;
+pub mod undo;
 
 // swap	Fine-tuning, pairwise exchanges	Sparse Bitset (Fastest)
 // shift	Changing priority, re-scheduling	Range Copy (Fast)

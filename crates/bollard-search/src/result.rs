@@ -97,6 +97,14 @@ where
             _ => panic!("called `SolverResult::unwrap_optimal()` on a non-optimal result"),
         }
     }
+
+    #[inline]
+    pub fn unwrap_feasible(&self) -> &Solution<T> {
+        match self {
+            SolverResult::Feasible(sol) => sol,
+            _ => panic!("called `SolverResult::unwrap_feasible()` on a non-feasible result"),
+        }
+    }
 }
 
 /// The reason for the solver's termination.

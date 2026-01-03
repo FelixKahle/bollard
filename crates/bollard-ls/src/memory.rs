@@ -145,6 +145,30 @@ where
     pub fn start_times(&self) -> &[T] {
         &self.start_times
     }
+
+    /// Returns a mutable slice of assigned berths for all vessels.
+    #[inline]
+    pub fn berth_mut(&mut self) -> &mut [BerthIndex] {
+        &mut self.berths
+    }
+
+    /// Returns a mutable slice of assigned start times for all vessels.
+    #[inline]
+    pub fn start_time_mut(&mut self) -> &mut [T] {
+        &mut self.start_times
+    }
+
+    /// Sets the objective value of this solution.
+    #[inline]
+    pub fn set_objective_value(&mut self, value: T) {
+        self.objective_value = value;
+    }
+
+    /// Returns mutable slices of assigned berths and start times for all vessels.
+    #[inline(always)]
+    pub fn as_mut_slices(&mut self) -> (&mut [BerthIndex], &mut [T]) {
+        (&mut self.berths, &mut self.start_times)
+    }
 }
 
 impl<T> From<Solution<T>> for Schedule<T>
@@ -217,7 +241,7 @@ where
     pub fn from_solution(solution: Solution<T>) -> Self {
         let num_vessels = solution.num_vessels();
 
-        // 1. Reconstruct Genotype (Queue) from Phenotype
+        // Reconstruct Genotype (Queue) from Phenotype
         // We create a list of indices and sort them by the solution's start times.
         // This ensures the queue represents the "decoding order" of the provided solution.
         let mut indices: Vec<VesselIndex> = (0..num_vessels).map(VesselIndex::new).collect();
@@ -234,7 +258,7 @@ where
         let mut queue = VesselPriorityQueue::with_capacity(num_vessels);
         queue.extend(indices);
 
-        // 2. Extract Phenotype Data
+        // Extract Phenotype Data
         // We extract the vectors once.
         let objective_value = solution.objective_value();
         let berths = solution.berths().to_vec();
@@ -248,6 +272,13 @@ where
         }
     }
 
+    /// Returns a reference to the current accepted schedule.
+    #[inline(always)]
+    pub fn current_schedule(&self) -> &Schedule<T> {
+        &self.current
+    }
+
+    /// Returns a mutable reference to the candidate schedule.
     #[inline(always)]
     pub fn mutate(&mut self) -> Mutator<'_, T> {
         self.undo_log.clear();

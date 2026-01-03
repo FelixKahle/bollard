@@ -43,58 +43,6 @@ use bollard_core::{math::interval::ClosedOpenInterval, num::constants::MinusOne}
 use bollard_model::{index::BerthIndex, model::Model};
 use num_traits::{PrimInt, Signed};
 
-/// Checks whether the given intervals are disjoint and sorted by start time.
-///
-/// Returns `true` if the intervals are disjoint and sorted, `false` otherwise.
-#[inline(always)]
-fn are_disjoint_and_sorted<T>(intervals: &[ClosedOpenInterval<T>]) -> bool
-where
-    T: PrimInt,
-{
-    intervals.windows(2).all(|w| w[0].end() <= w[1].start())
-}
-
-/// Highly optimized lower bound search for the first interval
-/// whose start time is >= key.
-///
-/// # Panics
-///
-/// In debug builds, this function will panic if `intervals` is not sorted
-/// by start time in ascending order.
-///
-/// # Invariants
-///
-/// - `intervals` must be sorted by start time in ascending order.
-#[inline(always)]
-fn lower_bound_start<T>(intervals: &[ClosedOpenInterval<T>], key: T) -> usize
-where
-    T: PrimInt,
-{
-    debug_assert!(
-        are_disjoint_and_sorted(intervals),
-        "called `lower_bound_start` with intervals that are not disjoint and sorted"
-    );
-
-    let mut lo: usize = 0;
-    let mut hi: usize = intervals.len();
-
-    while lo < hi {
-        let mid = lo + ((hi - lo) >> 1);
-        debug_assert!(
-            mid < intervals.len(),
-            "`lower_bound_start` computed mid index out of bounds"
-        );
-        // SAFETY: mid is always in bounds because lo < hi <= intervals.len(),
-        // therefore mid < intervals.len()
-        if unsafe { intervals.get_unchecked(mid).start() } < key {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    lo
-}
-
 /// Merges a list of closed-open intervals in place, coalescing overlaps and adjacency.
 ///
 /// This function sorts intervals by start time, then performs a linear, in-place
@@ -130,7 +78,7 @@ where
     intervals.truncate(write_index + 1);
 
     debug_assert!(
-        are_disjoint_and_sorted(intervals),
+        bollard_core::algorithm::are_disjoint_and_sorted(intervals),
         "`merge_intervals_in_place` output is not disjoint and sorted"
     );
 }
@@ -157,11 +105,11 @@ fn subtract_intervals_into<T>(
     T: PrimInt,
 {
     debug_assert!(
-        are_disjoint_and_sorted(base),
+        bollard_core::algorithm::are_disjoint_and_sorted(base),
         "called `subtract_intervals_into` with `base` not sorted by start or not disjoint"
     );
     debug_assert!(
-        are_disjoint_and_sorted(exclusions),
+        bollard_core::algorithm::are_disjoint_and_sorted(exclusions),
         "called `subtract_intervals_into` with `exclusions` not sorted by start or not disjoint"
     );
 
@@ -251,11 +199,11 @@ where
     T: PrimInt,
 {
     debug_assert!(
-        are_disjoint_and_sorted(left_intervals),
+        bollard_core::algorithm::are_disjoint_and_sorted(left_intervals),
         "called `has_overlaps` with `left_intervals` not sorted by start or not disjoint"
     );
     debug_assert!(
-        are_disjoint_and_sorted(right_intervals),
+        bollard_core::algorithm::are_disjoint_and_sorted(right_intervals),
         "called `has_overlaps` with `right_intervals` not sorted by start or not disjoint"
     );
 
@@ -283,6 +231,8 @@ where
     false
 }
 
+/// Tracks berth availability over time using disjoint, sorted closed-open intervals.
+/// Provides efficient initialization from fixed assignments and querying routines.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BerthAvailability<T>
 where
@@ -545,7 +495,7 @@ where
             return None;
         }
 
-        let lower_bound = lower_bound_start(intervals, start_time);
+        let lower_bound = bollard_core::algorithm::lower_bound_start(intervals, start_time);
 
         if lower_bound > 0 {
             let interval = &intervals[lower_bound - 1];
@@ -601,7 +551,7 @@ where
             return None;
         }
 
-        let lower_bound = lower_bound_start(intervals, start_time);
+        let lower_bound = bollard_core::algorithm::lower_bound_start(intervals, start_time);
         if lower_bound > 0 {
             let interval = unsafe { intervals.get_unchecked(lower_bound - 1) };
             if start_time >= interval.start() && start_time < interval.end() {
@@ -641,54 +591,12 @@ mod tests {
     }
 
     #[test]
-    fn test_are_disjoint_and_sorted_true_empty() {
-        let v: Vec<ClosedOpenInterval<IntegerType>> = vec![];
-        assert!(are_disjoint_and_sorted(&v));
-    }
-
-    #[test]
-    fn test_are_disjoint_and_sorted_true_single() {
-        let v = vec![iv(0, 10)];
-        assert!(are_disjoint_and_sorted(&v));
-    }
-
-    #[test]
-    fn test_are_disjoint_and_sorted_true_multiple_disjoint_sorted() {
-        let v = vec![iv(0, 5), iv(5, 10), iv(10, 20)];
-        assert!(are_disjoint_and_sorted(&v));
-    }
-
-    #[test]
-    fn test_are_disjoint_and_sorted_false_overlap() {
-        let v = vec![iv(0, 10), iv(9, 15)];
-        assert!(!are_disjoint_and_sorted(&v));
-    }
-
-    #[test]
-    fn test_are_disjoint_and_sorted_false_unsorted() {
-        let v = vec![iv(10, 20), iv(0, 5)];
-        // Even though disjoint, unsorted by start should fail
-        assert!(!are_disjoint_and_sorted(&v));
-    }
-
-    #[test]
-    fn test_lower_bound_start_basic() {
-        let v = vec![iv(0, 5), iv(5, 10), iv(10, 20)];
-        assert_eq!(lower_bound_start(&v, 0), 0);
-        assert_eq!(lower_bound_start(&v, 4), 1); // first start >= 4 is index 1 (5-10)
-        assert_eq!(lower_bound_start(&v, 5), 1);
-        assert_eq!(lower_bound_start(&v, 6), 2); // first start >= 6 is index 2 (10-20)
-        assert_eq!(lower_bound_start(&v, 10), 2);
-        assert_eq!(lower_bound_start(&v, 21), 3);
-    }
-
-    #[test]
     fn test_merge_intervals_in_place_no_change_disjoint_sorted() {
         let mut v = vec![iv(0, 5), iv(5, 10), iv(15, 20)];
         merge_intervals_in_place(&mut v);
         // Adjacent (0,5) and (5,10) should merge; (15,20) remains
         assert_eq!(v, vec![iv(0, 10), iv(15, 20)]);
-        assert!(are_disjoint_and_sorted(&v));
+        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&v));
     }
 
     #[test]
@@ -697,7 +605,7 @@ mod tests {
         merge_intervals_in_place(&mut v);
         // (0,7) and (5,10) overlap -> merge to (0,10)
         assert_eq!(v, vec![iv(0, 10), iv(11, 12)]);
-        assert!(are_disjoint_and_sorted(&v));
+        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&v));
     }
 
     #[test]
@@ -706,7 +614,7 @@ mod tests {
         merge_intervals_in_place(&mut v);
         // Adjacent chain merges into (0,6) and (7,10)
         assert_eq!(v, vec![iv(0, 6), iv(7, 10)]);
-        assert!(are_disjoint_and_sorted(&v));
+        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&v));
     }
 
     #[test]
@@ -716,7 +624,7 @@ mod tests {
         let mut out = Vec::new();
         subtract_intervals_into(&base, &excl, &mut out);
         assert_eq!(out, base);
-        assert!(are_disjoint_and_sorted(&out));
+        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&out));
     }
 
     #[test]
@@ -735,7 +643,7 @@ mod tests {
         let mut out = Vec::new();
         subtract_intervals_into(&base, &excl, &mut out);
         assert_eq!(out, vec![iv(0, 3), iv(7, 10)]);
-        assert!(are_disjoint_and_sorted(&out));
+        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&out));
     }
 
     #[test]
@@ -746,7 +654,7 @@ mod tests {
         subtract_intervals_into(&base, &excl, &mut out);
         // Expect segments: [0,2), [7,10), [12,15)
         assert_eq!(out, vec![iv(0, 2), iv(7, 10), iv(12, 15)]);
-        assert!(are_disjoint_and_sorted(&out));
+        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&out));
     }
 
     #[test]
