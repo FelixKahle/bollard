@@ -111,7 +111,7 @@ fn bench_real_instances(c: &mut Criterion) {
     }
 
     let loader = ProblemLoader::<i64>::new();
-    let mut evaluator = WeightedFlowTimeEvaluator::<i64>::default();
+    let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
     let group_re = Regex::new(r"f(\d+x\d+)").unwrap();
     let mut group = c.benchmark_group("decoder_benchmark");
 
