@@ -154,7 +154,7 @@ fn bench_real_instances(c: &mut Criterion) {
                         black_box(&model),
                         black_box(&queue),
                         black_box(memory.candidate_schedule_mut()),
-                        black_box(&mut evaluator),
+                        black_box(&evaluator),
                     ) };
 
                     if !ok {
