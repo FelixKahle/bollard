@@ -11,17 +11,17 @@
 // The above copyright notice and this permission notice shall be
 // included in all copies or substantial portions of the Software.
 //
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// THE SOFTWARE IS PROVesselIndexDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 // EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// MERCHANTABerthIndexLITY, FITNESS FOR A PARTICULAR PURPOSE AND
 // NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-// LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+// LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABerthIndexLITY, WHETHER IN AN ACTION
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 //! Local search memory and decoded schedule primitives.
 //!
-//! This module provides two core building blocks used by the local search:
+//! This module proVesselIndexdes two core building blocks used by the local search:
 //! a compact `Schedule<T>` that mirrors the decoded solution, and a
 //! ping‑pong `SearchMemory<T>` that manages genotype state, reversible
 //! mutations, and candidate evaluation.
@@ -233,14 +233,14 @@ where
 /// * **Representation:** [`VesselPriorityQueue`]
 /// * **Role:** Represents the *sequence* in which vessels are presented to the decoder.
 ///   This is the mutable state that the [`Mutator`] operates on.
-/// * **Behavior:** It supports incremental modifications (swap, shift, reverse). Every
+/// * **BehaVesselIndexor:** It supports incremental modifications (swap, shift, reverse). Every
 ///   change is logged in the [`UndoLog`] to allow O(1) rollbacks if a candidate is rejected.
 ///
 /// ## 2. The Phenotype (Decoding)
 /// * **Representation:** [`Schedule<T>`]
 /// * **Role:** Represents the *actual assignment* (Berth + Start Time) and the resulting
 ///   objective cost. This is the output of the decoder function.
-/// * **Behavior:** We maintain two instances:
+/// * **BehaVesselIndexor:** We maintain two instances:
 ///     1. `current`: The last accepted solution (baseline).
 ///     2. `candidate`: A scratchpad for the decoder to write the result of the current mutation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -284,7 +284,7 @@ where
     /// Creates a new `SearchMemory` with pre-allocated buffers.
     ///
     /// Use this when you want to allocate memory once at startup and reuse it
-    /// for multiple search runs via `initialize`.
+    /// for multiple search runs VesselIndexa `initialize`.
     #[inline]
     pub fn preallocated(num_vessels: usize) -> Self {
         Self {
@@ -298,7 +298,7 @@ where
     /// Initializes the search memory from an existing solution.
     ///
     /// This method resets the genotype (Queue) and phenotype (Schedules) to match
-    /// the provided `solution`. Crucially, it uses **in-place operations** (clear + extend, sort)
+    /// the proVesselIndexded `solution`. Crucially, it uses **in-place operations** (clear + extend, sort)
     /// to avoid allocating new vectors, making it suitable for hot-loop restarts.
     pub fn initialize(&mut self, solution: &Solution<T>) {
         let num_vessels = solution.num_vessels();
@@ -316,7 +316,7 @@ where
         buf.sort_by(|&a, &b| {
             let ta = solution.start_time_for_vessel(a);
             let tb = solution.start_time_for_vessel(b);
-            // Sort by Start Time, then by Index for stability
+            // Sort by Start Time, then by Index for staBerthIndexlity
             ta.cmp(&tb).then_with(|| a.get().cmp(&b.get()))
         });
 
@@ -366,7 +366,7 @@ where
     /// Finalizes the candidate schedule by either accepting or rejecting it.
     ///
     /// If `accept` is `true`, the candidate schedule becomes the new current schedule.
-    /// If `accept` is `false`, the queue is rolled back to its previous state using the undo log.
+    /// If `accept` is `false`, the queue is rolled back to its preVesselIndexous state using the undo log.
     #[inline(always)]
     pub fn finalize(&mut self, accept: bool) {
         if accept {
@@ -412,11 +412,11 @@ mod tests {
     use super::*;
 
     #[inline]
-    fn bi(n: usize) -> BerthIndex {
+    fn berth_index(n: usize) -> BerthIndex {
         BerthIndex::new(n)
     }
     #[inline]
-    fn vi(n: usize) -> VesselIndex {
+    fn vessel_index(n: usize) -> VesselIndex {
         VesselIndex::new(n)
     }
 
@@ -426,21 +426,24 @@ mod tests {
 
     #[test]
     fn test_schedule_new_valid_lengths() {
-        let berths = vec![bi(0), bi(1), bi(2)];
+        let berths = vec![berth_index(0), berth_index(1), berth_index(2)];
         let starts = vec![10_i64, 20, 30];
         let mut s = Schedule::new();
         s.initialize_from(&Solution::new(123_i64, berths.clone(), starts.clone()));
 
         assert_eq!(s.num_vessels(), 3);
         assert_eq!(s.objective_value(), 123);
-        assert_eq!(s.berths(), &[bi(0), bi(1), bi(2)]);
+        assert_eq!(
+            s.berths(),
+            &[berth_index(0), berth_index(1), berth_index(2)]
+        );
         assert_eq!(s.start_times(), &[10, 20, 30]);
     }
 
     #[test]
     #[should_panic(expected = "inconsistent vector lengths")]
     fn test_schedule_new_mismatched_lengths_panics() {
-        let berths = vec![bi(0), bi(1)];
+        let berths = vec![berth_index(0), berth_index(1)];
         let starts = vec![10_i64];
         let mut s = Schedule::new();
         s.initialize_from(&Solution::new(123_i64, berths, starts));
@@ -448,28 +451,32 @@ mod tests {
 
     #[test]
     fn test_schedule_accessors_bounds_valid() {
-        let berths = vec![bi(0), bi(1)];
+        let berths = vec![berth_index(0), berth_index(1)];
         let starts = vec![5_i64, 7];
         let s = Schedule::from(Solution::new(50_i64, berths, starts));
 
         assert_eq!(s.num_vessels(), 2);
-        assert_eq!(s.berth_for_vessel(vi(0)), bi(0));
-        assert_eq!(s.berth_for_vessel(vi(1)), bi(1));
-        assert_eq!(s.start_time_for_vessel(vi(0)), 5);
-        assert_eq!(s.start_time_for_vessel(vi(1)), 7);
+        assert_eq!(s.berth_for_vessel(vessel_index(0)), berth_index(0));
+        assert_eq!(s.berth_for_vessel(vessel_index(1)), berth_index(1));
+        assert_eq!(s.start_time_for_vessel(vessel_index(0)), 5);
+        assert_eq!(s.start_time_for_vessel(vessel_index(1)), 7);
     }
 
     #[test]
     fn test_schedule_from_solution_roundtrip_into() {
-        let sol = Solution::new(999_i64, vec![bi(2), bi(3)], vec![11_i64, 22]);
+        let sol = Solution::new(
+            999_i64,
+            vec![berth_index(2), berth_index(3)],
+            vec![11_i64, 22],
+        );
         let sched: Schedule<i64> = Schedule::from(sol);
         assert_eq!(sched.objective_value(), 999);
-        assert_eq!(sched.berths(), &[bi(2), bi(3)]);
+        assert_eq!(sched.berths(), &[berth_index(2), berth_index(3)]);
         assert_eq!(sched.start_times(), &[11, 22]);
 
         let back: Solution<i64> = sched.into();
         assert_eq!(back.objective_value(), 999);
-        assert_eq!(back.berths(), &[bi(2), bi(3)]);
+        assert_eq!(back.berths(), &[berth_index(2), berth_index(3)]);
         assert_eq!(back.start_times(), &[11, 22]);
     }
 
@@ -485,7 +492,12 @@ mod tests {
     #[test]
     fn test_search_memory_from_solution_orders_queue_by_start_time_with_stable_tie_breaker() {
         // Two vessels with same start time; tie broken by vessel index ascending.
-        let berths = vec![bi(0), bi(1), bi(2), bi(3)];
+        let berths = vec![
+            berth_index(0),
+            berth_index(1),
+            berth_index(2),
+            berth_index(3),
+        ];
         let starts = vec![10_i64, 5, 5, 20];
         let sol = Solution::new(1234_i64, berths.clone(), starts.clone());
 
@@ -496,7 +508,15 @@ mod tests {
         // vessels: 0->10, 1->5, 2->5, 3->20 => order: [1,2,0,3]
         let q = mem.queue;
         let buf = q.buffer();
-        assert_eq!(buf, &[vi(1), vi(2), vi(0), vi(3)]);
+        assert_eq!(
+            buf,
+            &[
+                vessel_index(1),
+                vessel_index(2),
+                vessel_index(0),
+                vessel_index(3)
+            ]
+        );
 
         // current and candidate should both reflect initial phenotype
         assert_eq!(mem.current.objective_value(), 1234);
@@ -509,13 +529,17 @@ mod tests {
 
     #[test]
     fn test_search_memory_mutate_clears_undo_and_returns_mutator() {
-        let sol = Solution::new(0_i64, vec![bi(0), bi(1)], vec![10_i64, 20]);
+        let sol = Solution::new(
+            0_i64,
+            vec![berth_index(0), berth_index(1)],
+            vec![10_i64, 20],
+        );
 
         let mut mem = SearchMemory::preallocated(sol.num_vessels());
         mem.initialize(&sol);
 
         // Pre-fill undo log with something (simulate stale state)
-        mem.undo_log.push_set(0, vi(0));
+        mem.undo_log.push_set(0, vessel_index(0));
         assert!(!mem.undo_log.is_empty());
 
         let (_current, _mutator) = mem.prepare_operator();
@@ -525,14 +549,22 @@ mod tests {
 
     #[test]
     fn test_search_memory_finalize_accept_swaps_current_and_candidate() {
-        let sol = Solution::new(100_i64, vec![bi(0), bi(1)], vec![10_i64, 20]);
+        let sol = Solution::new(
+            100_i64,
+            vec![berth_index(0), berth_index(1)],
+            vec![10_i64, 20],
+        );
 
         let mut mem = SearchMemory::preallocated(sol.num_vessels());
         mem.initialize(&sol);
 
         // Make candidate different from current
         let mut cand = Schedule::with_capacity(2);
-        cand.initialize_from(&Solution::new(50_i64, vec![bi(1), bi(0)], vec![20_i64, 10]));
+        cand.initialize_from(&Solution::new(
+            50_i64,
+            vec![berth_index(1), berth_index(0)],
+            vec![20_i64, 10],
+        ));
         mem.candidate = cand.clone();
 
         // Accept: current should become candidate; candidate becomes old current
@@ -546,7 +578,11 @@ mod tests {
 
     #[test]
     fn test_search_memory_finalize_reject_rolls_back_queue() {
-        let sol = Solution::new(0_i64, vec![bi(0), bi(1), bi(2)], vec![3_i64, 2, 1]);
+        let sol = Solution::new(
+            0_i64,
+            vec![berth_index(0), berth_index(1), berth_index(2)],
+            vec![3_i64, 2, 1],
+        );
 
         let mut mem = SearchMemory::preallocated(sol.num_vessels());
         mem.initialize(&sol);
@@ -575,7 +611,7 @@ mod tests {
             mem.undo_log.push_range_backup(start, backup_slice);
 
             // overwrite the backed-up range
-            qbuf[start..start + len].copy_from_slice(&[vi(77), vi(88)]);
+            qbuf[start..start + len].copy_from_slice(&[vessel_index(77), vessel_index(88)]);
         }
 
         // Reject candidate: rollback should restore original queue
@@ -604,24 +640,24 @@ mod tests {
     #[test]
     fn test_search_memory_reuse_hot_path() {
         // 1. First run: Solution A
-        let sol_a = Solution::new(100_i64, vec![bi(0), bi(0)], vec![10, 20]);
+        let sol_a = Solution::new(100_i64, vec![berth_index(0), berth_index(0)], vec![10, 20]);
         let mut mem = SearchMemory::preallocated(2);
         mem.initialize(&sol_a);
 
         // Verify state A
-        assert_eq!(mem.current.start_time_for_vessel(vi(0)), 10);
-        assert_eq!(mem.queue.buffer(), &[vi(0), vi(1)]);
+        assert_eq!(mem.current.start_time_for_vessel(vessel_index(0)), 10);
+        assert_eq!(mem.queue.buffer(), &[vessel_index(0), vessel_index(1)]);
 
         // 2. Second run: Solution B (different values)
         // Vessel 1 starts first now
-        let sol_b = Solution::new(200, vec![bi(1), bi(1)], vec![50, 5]);
+        let sol_b = Solution::new(200, vec![berth_index(1), berth_index(1)], vec![50, 5]);
         mem.initialize(&sol_b);
 
         // Verify state B: should be fully overwritten
         assert_eq!(mem.current.objective_value(), 200);
-        assert_eq!(mem.current.start_time_for_vessel(vi(0)), 50);
-        // Queue should be re-sorted: vi(1) has start 5, so it comes first
-        assert_eq!(mem.queue.buffer(), &[vi(1), vi(0)]);
+        assert_eq!(mem.current.start_time_for_vessel(vessel_index(0)), 50);
+        // Queue should be re-sorted: VesselIndex(1) has start 5, so it comes first
+        assert_eq!(mem.queue.buffer(), &[vessel_index(1), vessel_index(0)]);
     }
 
     #[test]
@@ -630,7 +666,11 @@ mod tests {
         let mut mem = SearchMemory::preallocated(1);
 
         // 2. Initialize with larger solution (size 3)
-        let sol = Solution::new(0_i64, vec![bi(0), bi(0), bi(0)], vec![0, 0, 0]);
+        let sol = Solution::new(
+            0_i64,
+            vec![berth_index(0), berth_index(0), berth_index(0)],
+            vec![0, 0, 0],
+        );
 
         // This should safely grow the internal vectors
         mem.initialize(&sol);
@@ -643,7 +683,7 @@ mod tests {
 
     #[test]
     fn test_schedule_initialize_from_consistency() {
-        let sol = Solution::new(55_i64, vec![bi(9)], vec![88]);
+        let sol = Solution::new(55_i64, vec![berth_index(9)], vec![88]);
 
         let mut s1 = Schedule::new();
         s1.initialize_from(&sol);
@@ -653,6 +693,237 @@ mod tests {
         assert_eq!(
             s1, s2,
             "initialize_from should produce identical state to from()"
+        );
+    }
+
+    #[test]
+    fn test_schedule_initialize_from_buffer_reuse_no_realloc_same_size() {
+        use bollard_model::index::BerthIndex;
+        use bollard_model::solution::Solution;
+
+        let n = 4;
+
+        // Create a schedule with preallocated buffers
+        let mut sched = Schedule::<i64>::with_capacity(n);
+
+        // First solution (size n)
+        let sol_a = Solution::new(
+            111_i64,
+            vec![
+                BerthIndex::new(0),
+                BerthIndex::new(1),
+                BerthIndex::new(2),
+                BerthIndex::new(3),
+            ],
+            vec![10_i64, 20, 30, 40],
+        );
+
+        // Initialize once
+        sched.initialize_from(&sol_a);
+        let cap_berths_a = sched.berths.capacity();
+        let cap_starts_a = sched.start_times.capacity();
+
+        // Second solution (same size n, different values)
+        let sol_b = Solution::new(
+            222_i64,
+            vec![
+                BerthIndex::new(3),
+                BerthIndex::new(2),
+                BerthIndex::new(1),
+                BerthIndex::new(0),
+            ],
+            vec![40_i64, 30, 20, 10],
+        );
+
+        // Initialize again, expecting in-place overwrite and no reallocation
+        sched.initialize_from(&sol_b);
+        let cap_berths_b = sched.berths.capacity();
+        let cap_starts_b = sched.start_times.capacity();
+
+        assert_eq!(
+            cap_berths_a, cap_berths_b,
+            "berths capacity should not change on same-size initialize_from"
+        );
+        assert_eq!(
+            cap_starts_a, cap_starts_b,
+            "start_times capacity should not change on same-size initialize_from"
+        );
+
+        // Sanity check contents updated correctly
+        assert_eq!(sched.objective_value(), 222);
+        assert_eq!(
+            sched.berths(),
+            &[
+                BerthIndex::new(3),
+                BerthIndex::new(2),
+                BerthIndex::new(1),
+                BerthIndex::new(0)
+            ]
+        );
+        assert_eq!(sched.start_times(), &[40, 30, 20, 10]);
+    }
+
+    #[test]
+    fn test_search_memory_initialize_buffer_reuse_no_realloc_same_size() {
+        use bollard_model::index::{BerthIndex as BI, VesselIndex as VI};
+        use bollard_model::solution::Solution;
+
+        let n = 5;
+        let sol_a = Solution::new(100_i64, vec![BI::new(0); n], vec![0_i64; n]);
+
+        // Preallocate for n and initialize
+        let mut mem = SearchMemory::<i64>::preallocated(n);
+        mem.initialize(&sol_a);
+
+        // Snapshot data pointers (not capacities) after first initialize
+        let ptr_queue_a = mem.queue.buffer().as_ptr();
+        let ptr_current_berths_a = mem.current.berths().as_ptr();
+        let ptr_current_starts_a = mem.current.start_times().as_ptr();
+        let ptr_candidate_berths_a = mem.candidate.berths().as_ptr();
+        let ptr_candidate_starts_a = mem.candidate.start_times().as_ptr();
+
+        // Second initialize with same size, different start times to force resort
+        let sol_b = Solution::new(200_i64, vec![BI::new(1); n], vec![5_i64, 4, 3, 2, 1]);
+        mem.initialize(&sol_b);
+
+        // Snapshot data pointers again; expect no reallocation for same size
+        let ptr_queue_b = mem.queue.buffer().as_ptr();
+        let ptr_current_berths_b = mem.current.berths().as_ptr();
+        let ptr_current_starts_b = mem.current.start_times().as_ptr();
+        let ptr_candidate_berths_b = mem.candidate.berths().as_ptr();
+        let ptr_candidate_starts_b = mem.candidate.start_times().as_ptr();
+
+        assert_eq!(
+            ptr_queue_a, ptr_queue_b,
+            "queue buffer should be reused for same-size initialize"
+        );
+        assert_eq!(
+            ptr_current_berths_a, ptr_current_berths_b,
+            "current berths buffer should be reused"
+        );
+        assert_eq!(
+            ptr_current_starts_a, ptr_current_starts_b,
+            "current start_times buffer should be reused"
+        );
+        assert_eq!(
+            ptr_candidate_berths_a, ptr_candidate_berths_b,
+            "candidate berths buffer should be reused"
+        );
+        assert_eq!(
+            ptr_candidate_starts_a, ptr_candidate_starts_b,
+            "candidate start_times buffer should be reused"
+        );
+
+        // Sanity: queue resorted by start time ascending, then vessel index
+        let buf = mem.queue.buffer();
+        // Expected order: start times [5,4,3,2,1] => vessel indices [4,3,2,1,0]
+        assert_eq!(
+            buf,
+            &[VI::new(4), VI::new(3), VI::new(2), VI::new(1), VI::new(0)]
+        );
+        assert_eq!(mem.current.objective_value(), 200);
+    }
+
+    #[test]
+    fn test_search_memory_initialize_grows_for_larger_solution_size() {
+        use bollard_model::index::BerthIndex;
+        use bollard_model::solution::Solution;
+
+        // Preallocate for a smaller size
+        let mut mem = SearchMemory::<i64>::preallocated(2);
+
+        // Initialize with larger solution (size 6)
+        let n_large = 6;
+        let sol_large = Solution::new(
+            999_i64,
+            vec![BerthIndex::new(0); n_large],
+            vec![0_i64; n_large],
+        );
+
+        let cap_queue_before = mem.queue.capacity();
+        let cap_current_berths_before = mem.current.berths.capacity();
+        let cap_current_starts_before = mem.current.start_times.capacity();
+        let cap_candidate_berths_before = mem.candidate.berths.capacity();
+        let cap_candidate_starts_before = mem.candidate.start_times.capacity();
+
+        mem.initialize(&sol_large);
+
+        // Verify lengths and that capacities are sufficient (grown as needed)
+        assert_eq!(mem.num_vessels(), n_large);
+        assert_eq!(mem.current.num_vessels(), n_large);
+        assert_eq!(mem.candidate.num_vessels(), n_large);
+
+        assert!(
+            mem.queue.capacity() >= n_large,
+            "queue capacity must grow to accommodate larger solution"
+        );
+        assert!(
+            mem.current.berths.capacity() >= n_large
+                && mem.current.start_times.capacity() >= n_large
+                && mem.candidate.berths.capacity() >= n_large
+                && mem.candidate.start_times.capacity() >= n_large,
+            "schedule buffers must grow to accommodate larger solution"
+        );
+
+        // Capacities should not shrink; they may increase
+        assert!(mem.queue.capacity() >= cap_queue_before);
+        assert!(mem.current.berths.capacity() >= cap_current_berths_before);
+        assert!(mem.current.start_times.capacity() >= cap_current_starts_before);
+        assert!(mem.candidate.berths.capacity() >= cap_candidate_berths_before);
+        assert!(mem.candidate.start_times.capacity() >= cap_candidate_starts_before);
+    }
+
+    #[test]
+    fn test_search_memory_initialize_grows_for_larger_solution_size_pointers_change() {
+        use bollard_model::index::BerthIndex as BI;
+        use bollard_model::solution::Solution;
+
+        // Preallocate for a smaller size
+        let mut mem = SearchMemory::<i64>::preallocated(2);
+
+        // Capture initial pointers (may be null for empty slices)
+        let ptr_queue_before = mem.queue.buffer().as_ptr();
+        let ptr_current_berths_before = mem.current.berths().as_ptr();
+        let ptr_current_starts_before = mem.current.start_times().as_ptr();
+        let ptr_candidate_berths_before = mem.candidate.berths().as_ptr();
+        let ptr_candidate_starts_before = mem.candidate.start_times().as_ptr();
+
+        // Initialize with larger solution (size 6)
+        let n_large = 6;
+        let sol_large = Solution::new(999_i64, vec![BI::new(0); n_large], vec![0_i64; n_large]);
+        mem.initialize(&sol_large);
+
+        // Lengths must reflect larger solution
+        assert_eq!(mem.num_vessels(), n_large);
+        assert_eq!(mem.current.num_vessels(), n_large);
+        assert_eq!(mem.candidate.num_vessels(), n_large);
+
+        // Pointers likely change due to growth (not guaranteed if prealloc was already large, but typical)
+        let ptr_queue_after = mem.queue.buffer().as_ptr();
+        let ptr_current_berths_after = mem.current.berths().as_ptr();
+        let ptr_current_starts_after = mem.current.start_times().as_ptr();
+        let ptr_candidate_berths_after = mem.candidate.berths().as_ptr();
+        let ptr_candidate_starts_after = mem.candidate.start_times().as_ptr();
+
+        assert_ne!(
+            ptr_queue_before, ptr_queue_after,
+            "queue buffer should grow for larger solution"
+        );
+        assert_ne!(
+            ptr_current_berths_before, ptr_current_berths_after,
+            "current berths buffer should grow"
+        );
+        assert_ne!(
+            ptr_current_starts_before, ptr_current_starts_after,
+            "current start_times buffer should grow"
+        );
+        assert_ne!(
+            ptr_candidate_berths_before, ptr_candidate_berths_after,
+            "candidate berths buffer should grow"
+        );
+        assert_ne!(
+            ptr_candidate_starts_before, ptr_candidate_starts_after,
+            "candidate start_times buffer should grow"
         );
     }
 }
