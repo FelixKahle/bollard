@@ -45,7 +45,10 @@ use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 use std::time::Instant;
 
-/// Local search engine.
+/// Local search engine for berth scheduling.
+///
+/// The `LocalSearchEngine` coordinates memory management and the control flow of a local
+/// search run. It keeps reusable `SearchMemory` buffers to minimize allocations across runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalSearchEngine<T>
 where
@@ -77,7 +80,12 @@ where
         }
     }
 
-    /// Creates a new engine with pre-allocated memory for a specific problem size.
+    /// Creates a new engine with pre‑allocated memory for a specific problem size.
+    ///
+    /// Use this to eliminate most runtime allocations in hot paths by pre‑sizing
+    /// the internal `SearchMemory` buffers to `num_vessels`.
+    ///
+    /// Note: If a future run uses a larger problem, buffers will grow accordingly.
     #[inline]
     pub fn preallocated(num_vessels: usize) -> Self {
         Self {
@@ -85,7 +93,33 @@ where
         }
     }
 
-    /// Runs the local search engine.
+    /// Runs the local search engine to improve an initial solution.
+    ///
+    /// The engine performs iterative neighborhood exploration:
+    /// - The operator proposes a mutation to the current schedule via the priority queue.
+    /// - The decoder attempts to construct a feasible candidate schedule and objective delta.
+    /// - The metaheuristic decides whether to accept the candidate.
+    /// - The monitor observes progress and may request termination.
+    ///
+    /// On success, returns a `LocalSearchEngineOutcome` containing:
+    /// - The best solution discovered (not necessarily the last accepted).
+    /// - Aggregated run statistics.
+    /// - A termination reason (local optimum, metaheuristic directive, or aborted).
+    ///
+    /// # Parameters:
+    /// - `model`: Problem data (berths, vessels, opening times, processing times).
+    /// - `decoder`: Responsible for building candidate schedules from the queue; must be initialized with `model`.
+    /// - `neighborhood`: Defines neighborhoods explored by the operator.
+    /// - `operator`: Applies mutations to the queue (genotype) with an undo log for rollback.
+    /// - `metaheuristic`: Governs acceptance decisions and termination policy.
+    /// - `monitor`: Observes iterations, solutions, and can request early termination.
+    /// - `evaluator`: Computes per‑assignment score and objective delta.
+    /// - `initial_solution`: Starting point for the search; also seeds memory/queue ordering.
+    ///
+    /// # Notes:
+    /// - Internally reuses memory buffers across runs for performance.
+    /// - Uses `decode_unchecked` for speed under the assumption that inputs are validated elsewhere.
+    ///   In debug builds, assertions help catch inconsistencies early.
     #[allow(clippy::too_many_arguments)]
     pub fn run<E, N, M, D, O, SM>(
         &mut self,
@@ -109,12 +143,28 @@ where
         let start_time = Instant::now();
         let mut stats = LocalSearchStatistics::default();
 
+        // Initialize memory with the initial solution
         self.memory.initialize(initial_solution);
+        // Best solution found so far. Starts as the initial solution.
         let mut best_solution = self.memory.current_schedule().clone();
+
+        debug_assert!(
+            model.num_vessels() == self.memory.num_vessels()
+                && self.memory.current_schedule().num_vessels() == initial_solution.num_vessels(),
+            "called `LocalSearchEngine::run` with inconsistent number of vessels: model has {}, memory has {}, current schedule has {}, initial solution has {}",
+            model.num_vessels(),
+            self.memory.num_vessels(),
+            self.memory.current_schedule().num_vessels(),
+            initial_solution.num_vessels()
+        );
+
+        // Prepare the decoder
+        decoder.initialize(model);
 
         monitor.on_start(self.memory.current_schedule());
         metaheuristic.on_start(self.memory.current_schedule());
 
+        // Prepare for the first iteration
         operator.prepare(
             self.memory.current_schedule(),
             self.memory.queue(),
@@ -153,6 +203,15 @@ where
                 continue;
             }
 
+            debug_assert!(
+                self.memory.candidate_schedule().num_vessels() == self.memory.num_vessels()
+                    && self.memory.num_vessels() == model.num_vessels(),
+                "called `LocalSearchEngine::run` with inconsistent number of vessels after decoding: candidate schedule has {}, memory has {}, model has {}",
+                self.memory.candidate_schedule().num_vessels(),
+                self.memory.num_vessels(),
+                model.num_vessels()
+            );
+
             stats.on_found_solution();
 
             let accept = metaheuristic.should_accept(
@@ -165,6 +224,13 @@ where
                 self.memory.accept_current();
                 stats.on_accepted_solution();
 
+                debug_assert!(
+                    self.memory.current_schedule().num_vessels() == self.memory.num_vessels(),
+                    "called `LocalSearchEngine::run` with inconsistent number of vessels after acceptance: current schedule has {}, memory has {}",
+                    self.memory.current_schedule().num_vessels(),
+                    self.memory.num_vessels()
+                );
+
                 metaheuristic.on_accept(self.memory.current_schedule());
                 monitor.on_solution_accepted(self.memory.current_schedule(), &stats);
 
@@ -172,17 +238,36 @@ where
                     < best_solution.objective_value()
                 {
                     best_solution = self.memory.current_schedule().clone();
+
+                    debug_assert!(
+                        best_solution.objective_value()
+                            <= self.memory.current_schedule().objective_value(),
+                        "called `LocalSearchEngine::run` with inconsistent best solution objective value: best solution has {}, current schedule has {}",
+                        best_solution.objective_value(),
+                        self.memory.current_schedule().objective_value()
+                    );
+
                     metaheuristic.on_new_best(&best_solution);
                     monitor.on_solution_found(&best_solution, &stats);
                 }
 
+                // Prepare for the next iteration
                 operator.prepare(
                     self.memory.current_schedule(),
                     self.memory.queue(),
                     neighborhood,
                 );
             } else {
+                let queue_len_before = self.memory.num_vessels();
                 self.memory.discard_candidate();
+
+                debug_assert!(
+                    self.memory.num_vessels() == queue_len_before,
+                    "called `LocalSearchEngine::run` with inconsistent queue length after rejection: before was {}, now is {}",
+                    queue_len_before,
+                    self.memory.num_vessels()
+                );
+
                 metaheuristic.on_reject(self.memory.candidate_schedule());
                 monitor.on_solution_rejected(self.memory.candidate_schedule(), &stats);
             }

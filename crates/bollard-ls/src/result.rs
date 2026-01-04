@@ -49,19 +49,11 @@ pub enum LocalSearchTerminationReason {
 impl std::fmt::Display for LocalSearchTerminationReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LocalSearchTerminationReason::LocalOptimum => {
-                write!(f, "Terminated: Reached local optimum")
+            LocalSearchTerminationReason::LocalOptimum => write!(f, "Local Optimum Reached"),
+            LocalSearchTerminationReason::Metaheuristic(msg) => {
+                write!(f, "Metaheuristic Termination: {}", msg)
             }
-            LocalSearchTerminationReason::Metaheuristic(name) => {
-                write!(
-                    f,
-                    "Terminated: Metaheuristic '{}' requested termination",
-                    name
-                )
-            }
-            LocalSearchTerminationReason::Aborted(reason) => {
-                write!(f, "Terminated: Aborted due to {}", reason)
-            }
+            LocalSearchTerminationReason::Aborted(msg) => write!(f, "Aborted: {}", msg),
         }
     }
 }
@@ -116,16 +108,19 @@ impl<T> LocalSearchEngineOutcome<T> {
     }
 
     /// Returns the termination reason.
+    #[inline]
     pub fn termination_reason(&self) -> &LocalSearchTerminationReason {
         &self.termination_reason
     }
 
     /// Returns the solution.
+    #[inline]
     pub fn solution(&self) -> &Solution<T> {
         &self.solution
     }
 
     /// Returns the statistics.
+    #[inline]
     pub fn statistics(&self) -> &LocalSearchStatistics {
         &self.statistics
     }

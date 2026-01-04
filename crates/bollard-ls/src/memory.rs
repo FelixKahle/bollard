@@ -63,7 +63,11 @@ impl<T> Schedule<T>
 where
     T: SolverNumeric,
 {
+    // The constructors are purposely not public to enforce controlled initialization
+    // by the `SearchMemory` struct.
+
     /// Creates a new empty `Schedule`.
+    #[inline]
     fn new() -> Self {
         Self {
             objective_value: T::zero(),
@@ -310,19 +314,51 @@ where
         // Direct fill: Populate queue with indices [0, 1, ..., N-1]
         self.queue.extend((0..num_vessels).map(VesselIndex::new));
 
+        debug_assert!(
+            self.queue.len() == num_vessels,
+            "called `SearchMemory::initialize` with inconsistent queue length: expected {}, got {}",
+            num_vessels,
+            self.queue.len()
+        );
+
         // In-place sort: Reorder indices based on the solution's start times.
         // This effectively "encodes" the solution back into a queue representation.
         let buf = self.queue.buffer_mut();
-        buf.sort_by(|&a, &b| {
-            let ta = solution.start_time_for_vessel(a);
-            let tb = solution.start_time_for_vessel(b);
-            // Sort by Start Time, then by Index for staBerthIndexlity
-            ta.cmp(&tb).then_with(|| a.get().cmp(&b.get()))
+        buf.sort_by(|&first_vessel, &second_vessel| {
+            let first_vessel_start_time = solution.start_time_for_vessel(first_vessel);
+            let second_vessel_start_time = solution.start_time_for_vessel(second_vessel);
+
+            // Sort by start time, then by vessel index for stability
+            first_vessel_start_time
+                .cmp(&second_vessel_start_time)
+                .then_with(|| first_vessel.get().cmp(&second_vessel.get()))
         });
+
+        debug_assert!(
+            buf.windows(2).all(|pair| {
+                let vessel_index_a = pair[0];
+                let vessel_index_b = pair[1];
+                let start_time_a = solution.start_time_for_vessel(vessel_index_a);
+                let start_time_b = solution.start_time_for_vessel(vessel_index_b);
+                start_time_a < start_time_b
+                    || (start_time_a == start_time_b
+                        && vessel_index_a.get() <= vessel_index_b.get())
+            }),
+            "called `SearchMemory::initialize` but queue is not properly sorted by start times"
+        );
 
         // Reset Phenotype (Schedules) using internal buffer reuse
         self.current.initialize_from(solution);
         self.candidate.initialize_from(solution);
+
+        debug_assert!(
+            self.current.num_vessels() == num_vessels
+                && self.candidate.num_vessels() == num_vessels,
+            "called `SearchMemory::initialize` with inconsistent schedule lengths: expected {}, got current {}, candidate {}",
+            self.current.num_vessels(),
+            self.candidate.num_vessels(),
+            num_vessels
+        );
     }
 
     /// Clears the search memory, resetting all internal state.
@@ -358,6 +394,8 @@ where
         )
     }
 
+    /// Returns references to the vessel priority queue and the candidate schedule for evaluation.
+    /// The queue is immutable, while the candidate schedule is mutable.
     #[inline(always)]
     pub fn evaluation_target(&mut self) -> (&VesselPriorityQueue, &mut Schedule<T>) {
         (&self.queue, &mut self.candidate)
@@ -370,9 +408,9 @@ where
     #[inline(always)]
     pub fn finalize(&mut self, accept: bool) {
         if accept {
-            std::mem::swap(&mut self.current, &mut self.candidate);
+            self.accept_current();
         } else {
-            self.undo_log.apply_rollback(&mut self.queue);
+            self.discard_candidate();
         }
     }
 
@@ -380,12 +418,27 @@ where
     #[inline(always)]
     pub fn accept_current(&mut self) {
         std::mem::swap(&mut self.current, &mut self.candidate);
+
+        debug_assert!(
+            self.current.num_vessels() == self.candidate.num_vessels(),
+            "called `SearchMemory::accept_current` with inconsistent schedule lengths: current {}, candidate {}",
+            self.current.num_vessels(),
+            self.candidate.num_vessels()
+        );
     }
 
     /// Discards the candidate schedule and rolls back the queue.
     #[inline(always)]
     pub fn discard_candidate(&mut self) {
+        let before_len = self.queue.len();
         self.undo_log.apply_rollback(&mut self.queue);
+
+        debug_assert!(
+            self.queue.len() == before_len,
+            "called `SearchMemory::discard_candidate` but queue length changed during rollback: before {}, after {}",
+            before_len,
+            self.queue.len()
+        );
     }
 
     /// Returns a reference to the vessel priority queue (genotype).
@@ -419,10 +472,6 @@ mod tests {
     fn vessel_index(n: usize) -> VesselIndex {
         VesselIndex::new(n)
     }
-
-    // ---------------------------
-    // Schedule<i64> invariants/tests
-    // ---------------------------
 
     #[test]
     fn test_schedule_new_valid_lengths() {

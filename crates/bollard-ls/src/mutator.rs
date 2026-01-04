@@ -33,8 +33,6 @@
 //! perform a sequence of changes, evaluate the resulting candidate,
 //! and either accept (no rollback) or reject (apply rollback).
 
-#![allow(dead_code)]
-
 use crate::{queue::VesselPriorityQueue, undo::UndoLog};
 use bollard_model::index::VesselIndex;
 use bollard_search::num::SolverNumeric;

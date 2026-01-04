@@ -52,6 +52,9 @@ where
     /// Returns the name of the decoder.
     fn name(&self) -> &str;
 
+    /// Initializes the decoder for the given model.
+    fn initialize(&mut self, model: &Model<T>);
+
     /// Decodes the given priority queue into a schedule.
     ///
     /// The decoder will fill the provided `state` with berth assignments and start times
@@ -127,7 +130,7 @@ where
 /// compare candidates and applies a deterministic tie‑break (lower score, then
 /// earlier finish, then earlier start). Internal buffers are reused between
 /// calls to minimize overhead in tight loops.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct GreedyDecoder<T, E>
 where
     T: SolverNumeric,
@@ -137,14 +140,34 @@ where
     _phantom: std::marker::PhantomData<E>,
 }
 
+impl<T, E> Default for GreedyDecoder<T, E>
+where
+    T: SolverNumeric,
+    E: AssignmentEvaluator<T>,
+{
+    #[inline(always)]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T, E> GreedyDecoder<T, E>
 where
     T: SolverNumeric,
     E: AssignmentEvaluator<T>,
 {
+    /// Creates a new `GreedyDecoder` with no pre-allocated berths.
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self {
+            berth_free_times: Vec::new(),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
     /// Creates a new `GreedyDecoder` with the specified number of berths and evaluator.
     #[inline(always)]
-    pub fn new(num_berths: usize) -> Self {
+    pub fn preallocated(num_berths: usize) -> Self {
         Self {
             berth_free_times: vec![T::zero(); num_berths],
             _phantom: std::marker::PhantomData,
@@ -159,38 +182,41 @@ where
     ///
     /// # Panics
     ///
-    /// In debug builds, this function will panic if `berth_idx` is not within
+    /// In debug builds, this function will panic if `berth_index` is not within
     /// `0..self.berth_free_times.len()`.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `berth_idx` is within `0..self.berth_free_times.len()`.
+    /// The caller must ensure that `berth_index` is within `0..self.berth_free_times.len()`.
     #[inline]
     unsafe fn find_earliest_start(
         &self,
         model: &Model<T>,
-        berth_idx: BerthIndex,
+        berth_index: BerthIndex,
         vessel_arrival: T,
         duration: T,
     ) -> Option<T> {
         debug_assert!(
-            berth_idx.get() < self.berth_free_times.len(),
-            "called `GreedyDecoder::find_earliest_start` with `berth_idx` out of bounds: the len is {} but the index is {}",
+            berth_index.get() < self.berth_free_times.len(),
+            "called `GreedyDecoder::find_earliest_start` with `berth_index` out of bounds: the len is {} but the index is {}",
             self.berth_free_times.len(),
-            berth_idx.get(),
+            berth_index.get(),
         );
 
-        let berth_free = unsafe { *self.berth_free_times.get_unchecked(berth_idx.get()) };
+        let berth_free = unsafe { *self.berth_free_times.get_unchecked(berth_index.get()) };
         let min_start = if berth_free > vessel_arrival {
             berth_free
         } else {
             vessel_arrival
         };
 
-        let intervals = unsafe { model.berth_opening_times_unchecked(berth_idx) };
+        let intervals = unsafe { model.berth_opening_times_unchecked(berth_index) };
+        // Start from the first interval with start >= min_start, but also check the
+        // previous interval (if any). That prior interval may start < min_start yet still
+        // cover min_start (i.e., end > min_start) and thus be feasible. If zero `saturating_sub`
+        // prevents underflow.
         let search_start_index =
             bollard_core::algorithm::lower_bound_start(intervals, min_start).saturating_sub(1);
-
         for interval in &intervals[search_start_index..] {
             let open_end = interval.end();
 
@@ -243,6 +269,16 @@ where
 {
     fn name(&self) -> &str {
         "GreedyDecoder"
+    }
+
+    fn initialize(&mut self, model: &Model<T>) {
+        let num_berths = model.num_berths();
+
+        // Make sure the berth free times vector is the correct size.
+        if self.berth_free_times.len() != num_berths {
+            self.berth_free_times.resize(num_berths, T::zero());
+        }
+        self.berth_free_times.fill(T::zero());
     }
 
     fn decode(
@@ -580,7 +616,7 @@ mod tests {
 
         let mut memory = new_memory_for_model(&model);
         let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
 
         assert!(decode_and_accept(
             &mut decoder,
@@ -614,7 +650,7 @@ mod tests {
 
         let mut memory = new_memory_for_model(&model);
         let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
 
         let ok = unsafe {
             decoder.decode_unchecked(&model, &queue, memory.candidate_schedule_mut(), &evaluator)
@@ -644,7 +680,7 @@ mod tests {
 
         let mut memory = new_memory_for_model(&model);
         let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
 
         assert!(decode_and_accept(
             &mut decoder,
@@ -678,7 +714,7 @@ mod tests {
 
         let mut memory2 = new_memory_for_model(&model2);
         let evaluator2 = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder2 = GreedyDecoder::<i64, _>::new(model2.num_berths());
+        let mut decoder2 = GreedyDecoder::<i64, _>::preallocated(model2.num_berths());
 
         assert!(decode_and_accept(
             &mut decoder2,
@@ -715,7 +751,7 @@ mod tests {
 
         let mut memory = new_memory_for_model(&model);
         let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
 
         assert!(decode_and_accept(
             &mut decoder,
@@ -745,7 +781,7 @@ mod tests {
 
         let mut memory = new_memory_for_model(&model);
         let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
 
         assert!(decode_and_accept(
             &mut decoder,
@@ -786,7 +822,7 @@ mod tests {
 
         let mut memory = new_memory_for_model(&model);
         let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
 
         let ok = unsafe {
             decoder.decode_unchecked(&model, &queue, memory.candidate_schedule_mut(), &evaluator)

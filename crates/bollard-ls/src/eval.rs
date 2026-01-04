@@ -114,12 +114,44 @@ where
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct WeightedFlowTimeEvaluator<T>
 where
     T: SolverNumeric,
 {
     _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T> WeightedFlowTimeEvaluator<T>
+where
+    T: SolverNumeric,
+{
+    /// Creates a new WeightedFlowTimeEvaluator.
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> std::fmt::Display for WeightedFlowTimeEvaluator<T>
+where
+    T: SolverNumeric,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WeightedFlowTimeEvaluator")
+    }
+}
+
+impl<T> Default for WeightedFlowTimeEvaluator<T>
+where
+    T: SolverNumeric,
+{
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T> WeightedFlowTimeEvaluator<T>

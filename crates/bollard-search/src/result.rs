@@ -124,7 +124,7 @@ impl std::fmt::Display for TerminationReason {
         match self {
             TerminationReason::OptimalityProven => write!(f, "Optimality Proven"),
             TerminationReason::InfeasibilityProven => write!(f, "Infeasibility Proven"),
-            TerminationReason::Aborted(index) => write!(f, "Aborted: {}", *index),
+            TerminationReason::Aborted(msg) => write!(f, "Aborted: {}", msg),
         }
     }
 }

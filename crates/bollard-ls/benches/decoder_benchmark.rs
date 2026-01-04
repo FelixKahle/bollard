@@ -134,7 +134,7 @@ fn bench_real_instances(c: &mut Criterion) {
         let placeholder = Solution::new(0_i64, vec![bi(0); num_vessels], vec![0_i64; num_vessels]);
         memory.initialize(&placeholder);
 
-        let mut decoder = GreedyDecoder::new(num_berths);
+        let mut decoder = GreedyDecoder::preallocated(num_berths);
 
         let size_label = group_re
             .captures(&file_name)
