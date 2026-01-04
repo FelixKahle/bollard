@@ -286,7 +286,6 @@ impl VesselPriorityQueue {
     /// This method allocates a `HashSet` to track seen indices, so it should not be
     /// used in performance-critical paths. While it is fine to use in debug assertions,
     /// it is not recommended for release builds.
-    #[cfg(debug_assertions)]
     #[inline(always)]
     fn is_unique(&self) -> bool {
         match self.queue.len() {
