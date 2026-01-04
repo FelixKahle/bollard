@@ -278,11 +278,13 @@ where
         &self.current
     }
 
-    /// Returns a mutable reference to the candidate schedule.
-    #[inline(always)]
-    pub fn mutate(&mut self) -> Mutator<'_, T> {
+    /// Returns the schedule as immutable reference and a mutable mutator for applying mutations.
+    pub fn prepare_operator(&mut self) -> (&Schedule<T>, Mutator<'_, T>) {
         self.undo_log.clear();
-        Mutator::new(&mut self.queue, &mut self.undo_log)
+        (
+            &self.current,
+            Mutator::new(&mut self.queue, &mut self.undo_log),
+        )
     }
 
     //#[inline(always)]
@@ -290,6 +292,10 @@ where
     //    (&self.queue, &mut self.candidate)
     //}
 
+    /// Finalizes the candidate schedule by either accepting or rejecting it.
+    ///
+    /// If `accept` is `true`, the candidate schedule becomes the new current schedule.
+    /// If `accept` is `false`, the queue is rolled back to its previous state using the undo log.
     #[inline(always)]
     pub fn finalize(&mut self, accept: bool) {
         if accept {
@@ -297,6 +303,18 @@ where
         } else {
             self.undo_log.apply_rollback(&mut self.queue);
         }
+    }
+
+    /// Accepts the candidate schedule unconditionally.
+    #[inline(always)]
+    pub fn accept_current(&mut self) {
+        std::mem::swap(&mut self.current, &mut self.candidate);
+    }
+
+    /// Discards the candidate schedule and rolls back the queue.
+    #[inline(always)]
+    pub fn discard_candidate(&mut self) {
+        self.undo_log.apply_rollback(&mut self.queue);
     }
 }
 
@@ -405,7 +423,7 @@ mod tests {
         mem.undo_log.push_set(0, vi(0));
         assert!(!mem.undo_log.is_empty());
 
-        let _mutator = mem.mutate();
+        let (_current, _mutator) = mem.prepare_operator();
         // mutate() must clear undo log
         assert!(mem.undo_log.is_empty());
     }

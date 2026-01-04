@@ -269,6 +269,18 @@ where
         use rand::seq::SliceRandom;
         buf[start..end].shuffle(rng);
     }
+
+    /// Returns a reference to the underlying vessel priority queue.
+    #[inline(always)]
+    pub fn queue(&self) -> &VesselPriorityQueue {
+        self.queue
+    }
+
+    /// Returns a reference to the underlying undo log.
+    #[inline(always)]
+    pub fn log(&self) -> &UndoLog {
+        self.log
+    }
 }
 
 #[cfg(test)]
