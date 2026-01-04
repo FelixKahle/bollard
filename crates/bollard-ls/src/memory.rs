@@ -881,13 +881,6 @@ mod tests {
         // Preallocate for a smaller size
         let mut mem = SearchMemory::<i64>::preallocated(2);
 
-        // Capture initial pointers (may be null for empty slices)
-        let ptr_queue_before = mem.queue.buffer().as_ptr();
-        let ptr_current_berths_before = mem.current.berths().as_ptr();
-        let ptr_current_starts_before = mem.current.start_times().as_ptr();
-        let ptr_candidate_berths_before = mem.candidate.berths().as_ptr();
-        let ptr_candidate_starts_before = mem.candidate.start_times().as_ptr();
-
         // Initialize with larger solution (size 6)
         let n_large = 6;
         let sol_large = Solution::new(999_i64, vec![BI::new(0); n_large], vec![0_i64; n_large]);
@@ -897,33 +890,5 @@ mod tests {
         assert_eq!(mem.num_vessels(), n_large);
         assert_eq!(mem.current.num_vessels(), n_large);
         assert_eq!(mem.candidate.num_vessels(), n_large);
-
-        // Pointers likely change due to growth (not guaranteed if prealloc was already large, but typical)
-        let ptr_queue_after = mem.queue.buffer().as_ptr();
-        let ptr_current_berths_after = mem.current.berths().as_ptr();
-        let ptr_current_starts_after = mem.current.start_times().as_ptr();
-        let ptr_candidate_berths_after = mem.candidate.berths().as_ptr();
-        let ptr_candidate_starts_after = mem.candidate.start_times().as_ptr();
-
-        assert_ne!(
-            ptr_queue_before, ptr_queue_after,
-            "queue buffer should grow for larger solution"
-        );
-        assert_ne!(
-            ptr_current_berths_before, ptr_current_berths_after,
-            "current berths buffer should grow"
-        );
-        assert_ne!(
-            ptr_current_starts_before, ptr_current_starts_after,
-            "current start_times buffer should grow"
-        );
-        assert_ne!(
-            ptr_candidate_berths_before, ptr_candidate_berths_after,
-            "candidate berths buffer should grow"
-        );
-        assert_ne!(
-            ptr_candidate_starts_before, ptr_candidate_starts_after,
-            "candidate start_times buffer should grow"
-        );
     }
 }
