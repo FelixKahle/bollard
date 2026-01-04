@@ -145,11 +145,13 @@ fn bench_real_instances(c: &mut Criterion) {
             &path,
             |b, _path| {
                 b.iter(|| {
-                    let ok = decoder.decode(
+                    let ok = unsafe {
+
+                    decoder.decode_unchecked(
                         black_box(&model),
                         black_box(&queue),
                         black_box(&mut schedule),
-                    );
+                    ) };
 
                     if !ok {
                         panic!("Benchmark configuration error: GreedyDecoder failed on a known-feasible queue.");

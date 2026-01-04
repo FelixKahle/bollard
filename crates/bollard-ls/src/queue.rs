@@ -159,6 +159,8 @@ impl VesselPriorityQueue {
     /// # Panics
     ///
     /// Panics if the index is out of not within `0..len()`.
+    /// In debug builds, this function will also panic if setting the
+    /// index results in duplicate vessel indices.
     #[inline]
     pub fn set(&mut self, index: usize, vessel_index: VesselIndex) {
         debug_assert!(
@@ -169,6 +171,14 @@ impl VesselPriorityQueue {
         );
 
         self.queue[index] = vessel_index;
+
+        debug_assert!(
+            self.is_unique(),
+            "called `VesselPriorityQueue::set` resulting in duplicate vessel indices after setting index {} to {}: {}",
+            index,
+            vessel_index,
+            self
+        );
     }
 
     /// Sets the vessel index at the specified index without performing
@@ -177,6 +187,8 @@ impl VesselPriorityQueue {
     /// # Panics
     ///
     /// In debug builds, this function will panic if the index is not within `0..len()`.
+    /// In debug builds, this function will also panic if setting the
+    /// index results in duplicate vessel indices.
     ///
     /// # Safety
     ///
@@ -193,6 +205,14 @@ impl VesselPriorityQueue {
         unsafe {
             *self.queue.get_unchecked_mut(index) = vessel_index;
         }
+
+        debug_assert!(
+            self.is_unique(),
+            "called `VesselPriorityQueue::set_unchecked` resulting in duplicate vessel indices after setting index {} to {}: {}",
+            index,
+            vessel_index,
+            self
+        );
     }
 
     /// Returns the capacity of the priority queue.
@@ -209,9 +229,21 @@ impl VesselPriorityQueue {
     }
 
     /// Pushes a vessel index onto the priority queue.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, this function will panic if pushing the
+    /// index results in duplicate vessel indices.
     #[inline]
     pub fn push(&mut self, vessel_index: VesselIndex) {
         self.queue.push(vessel_index);
+
+        debug_assert!(
+            self.is_unique(),
+            "called `VesselPriorityQueue::push` resulting in duplicate vessel indices after pushing {}: {}",
+            vessel_index,
+            self
+        );
     }
 
     /// Pops a vessel index off the priority queue.
@@ -242,6 +274,33 @@ impl VesselPriorityQueue {
     #[inline]
     pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, VesselIndex> {
         self.queue.iter_mut()
+    }
+
+    /// Checks if all vessel indices in the priority queue are unique.
+    ///
+    /// This method is only available in debug builds and is intended for
+    /// internal consistency checks.
+    ///
+    /// # Note
+    ///
+    /// This method allocates a `HashSet` to track seen indices, so it should not be
+    /// used in performance-critical paths. While it is fine to use in debug assertions,
+    /// it is not recommended for release builds.
+    #[cfg(debug_assertions)]
+    #[inline(always)]
+    fn is_unique(&self) -> bool {
+        match self.queue.len() {
+            0 | 1 => return true,
+            _ => {}
+        }
+
+        let mut seen = std::collections::HashSet::with_capacity(self.queue.len());
+        for &v in &self.queue {
+            if !seen.insert(v) {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -277,10 +336,15 @@ impl<'a> IntoIterator for &'a mut VesselPriorityQueue {
 
 impl FromIterator<VesselIndex> for VesselPriorityQueue {
     #[inline]
-    fn from_iter<T: IntoIterator<Item = VesselIndex>>(iter: T) -> Self {
-        Self {
-            queue: iter.into_iter().collect(),
-        }
+    fn from_iter<I: IntoIterator<Item = VesselIndex>>(iter: I) -> Self {
+        let mut q = VesselPriorityQueue::new();
+        q.queue.extend(iter);
+        debug_assert!(
+            q.is_unique(),
+            "constructed `VesselPriorityQueue` via FromIterator with duplicate vessel indices: {}",
+            q
+        );
+        q
     }
 }
 
@@ -288,6 +352,12 @@ impl Extend<VesselIndex> for VesselPriorityQueue {
     #[inline]
     fn extend<T: IntoIterator<Item = VesselIndex>>(&mut self, iter: T) {
         self.queue.extend(iter);
+
+        debug_assert!(
+            self.is_unique(),
+            "called `VesselPriorityQueue::extend` resulting in duplicate vessel indices: {}",
+            self
+        );
     }
 }
 

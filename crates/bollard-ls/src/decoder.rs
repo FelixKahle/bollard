@@ -42,6 +42,8 @@ use bollard_model::{index::BerthIndex, model::Model};
 use bollard_search::num::SolverNumeric;
 
 /// A decoder that transforms a priority queue into a schedule.
+///
+/// Provides both checked and unchecked decoding methods.
 pub trait Decoder<T>
 where
     T: SolverNumeric,
@@ -56,6 +58,37 @@ where
     /// was constructed, or `false` if any vessel could not be assigned.
     /// Note that if `false` is returned, the contents of `state` may be incomplete or invalid.
     fn decode(
+        &mut self,
+        model: &Model<T>,
+        queue: &VesselPriorityQueue,
+        state: &mut Schedule<T>,
+    ) -> bool;
+
+    /// Decodes the given priority queue into a schedule.
+    ///
+    /// The decoder will fill the provided `state` with berth assignments and start times
+    /// based on the vessel order in `queue`. It returns `true` if a valid schedule
+    /// was constructed, or `false` if any vessel could not be assigned.
+    /// Note that if `false` is returned, the contents of `state` may be incomplete or invalid.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee all preconditions below. Violating any of them results
+    /// in immediate undefined behavior:
+    ///
+    /// - Model/queue/state coherence:
+    ///   * Every `VesselIndex` in `queue` refers to a valid vessel in `model`.
+    ///   * `state` has been initialized for all vessels/berths referenced by `queue` and `model`.
+    ///   * Any time windows, capacities, and index bounds required by `model` are satisfied.
+    /// - Evaluator soundness:
+    ///   * The `AssignmentEvaluator` used by this decoder can be invoked without additional
+    ///     runtime checks (no panics, no UB) for all inputs produced during decoding.
+    /// - Decoder-specific invariants:
+    ///   * All invariants documented by this decoder (e.g., monotonic berth free times, non-overlapping
+    ///     assignments, deadline feasibility) are already established or will be upheld by the caller.
+    ///
+    /// In debug builds, some of these conditions may be asserted; in release builds they are not checked.
+    unsafe fn decode_unchecked(
         &mut self,
         model: &Model<T>,
         queue: &VesselPriorityQueue,
@@ -95,7 +128,7 @@ where
     T: SolverNumeric,
     E: AssignmentEvaluator<T>,
 {
-    berth_free_times: Vec<T>,
+    berth_free_times: Vec<T>, // len = num_berths
     evaluator: E,
 }
 
@@ -260,6 +293,129 @@ where
                 vessel_idx.get(),
             );
 
+            let arrival = model.vessel_arrival_time(vessel_idx);
+
+            let mut best_berth = None;
+            let mut best_start = T::max_value();
+            let mut best_finish = T::max_value();
+            let mut best_score = T::max_value();
+            let mut best_delta = T::zero();
+
+            for berth_index in 0..num_berths {
+                assert!(
+                    berth_index < num_berths,
+                    "encountered `berth_index` out of bounds in `GreedyDecoder::decode`: the len is {} but the index is {}",
+                    num_berths,
+                    berth_index,
+                );
+
+                let berth = BerthIndex::new(berth_index);
+
+                let pt_opt = model.vessel_processing_time(vessel_idx, berth);
+                if pt_opt.is_none() {
+                    continue;
+                }
+                let duration = pt_opt.unwrap_unchecked();
+
+                if let Some(start_time) =
+                    // SAFETY: berth_index is in bounds due to loop condition and assert above.
+                    unsafe { self.find_earliest_start(model, berth, arrival, duration) }
+                {
+                    let eval_opt = self
+                        .evaluator
+                        .evaluate(model, vessel_idx, berth, start_time);
+
+                    if let Some(eval) = eval_opt {
+                        let finish_time = start_time + duration;
+
+                        if should_prefer::<T>(
+                            eval.score,
+                            finish_time,
+                            start_time,
+                            best_score,
+                            best_finish,
+                            best_start,
+                        ) {
+                            best_finish = finish_time;
+                            best_start = start_time;
+
+                            best_score = eval.score;
+                            best_delta = eval.objective_delta;
+                            best_berth = Some(berth);
+                        }
+                    }
+                }
+            }
+
+            if let Some(berth) = best_berth {
+                let vessel_index_usize = vessel_idx.get();
+                berths_out[vessel_index_usize] = berth;
+                starts_out[vessel_index_usize] = best_start;
+                self.berth_free_times[berth.get()] = best_finish;
+
+                total_objective = total_objective + best_delta;
+            } else {
+                return false;
+            }
+        }
+
+        state.set_objective_value(total_objective);
+        true
+    }
+
+    unsafe fn decode_unchecked(
+        &mut self,
+        model: &Model<T>,
+        queue: &VesselPriorityQueue,
+        state: &mut Schedule<T>,
+    ) -> bool {
+        let num_berths = model.num_berths();
+        let num_vessels = model.num_vessels();
+        let (berths_out, starts_out) = state.as_mut_slices();
+
+        debug_assert!(
+            berths_out.len() == num_vessels,
+            "called `GreedyDecoder::decode_unchecked` with `berths_out` length mismatch: expected {} vessels but got {}; num_vessels={}, starts_out_len={}",
+            num_vessels,
+            berths_out.len(),
+            num_vessels,
+            starts_out.len(),
+        );
+
+        debug_assert!(
+            starts_out.len() == num_vessels,
+            "called `GreedyDecoder::decode_unchecked` with `starts_out` length mismatch: expected {} vessels but got {}; num_vessels={}, berths_out_len={}",
+            num_vessels,
+            starts_out.len(),
+            num_vessels,
+            berths_out.len(),
+        );
+
+        debug_assert!(
+            queue.len() == num_vessels,
+            "called `GreedyDecoder::decode_unchecked` with `queue` length mismatch: expected {} vessels but got {}",
+            num_vessels,
+            queue.len(),
+        );
+
+        debug_assert!(
+            self.berth_free_times.len() == num_berths,
+            "called `GreedyDecoder::decode_unchecked` with `berth_free_times` length mismatch: expected {} berths but got {}",
+            num_berths,
+            self.berth_free_times.len(),
+        );
+
+        self.berth_free_times.fill(T::zero());
+        let mut total_objective = T::zero();
+
+        for &vessel_idx in queue.iter() {
+            debug_assert!(
+                vessel_idx.get() < num_vessels,
+                "encountered `vessel_idx` out of bounds in `GreedyDecoder::decode_unchecked`: the len is {} but the index is {}",
+                num_vessels,
+                vessel_idx.get(),
+            );
+
             let arrival = unsafe { model.vessel_arrival_time_unchecked(vessel_idx) };
 
             let mut best_berth = None;
@@ -271,7 +427,7 @@ where
             for berth_index in 0..num_berths {
                 debug_assert!(
                     berth_index < num_berths,
-                    "encountered `berth_index` out of bounds in `GreedyDecoder::decode`: the len is {} but the index is {}",
+                    "encountered `berth_index` out of bounds in `GreedyDecoder::decode_unchecked`: the len is {} but the index is {}",
                     num_berths,
                     berth_index,
                 );
@@ -404,7 +560,7 @@ mod tests {
         let evaluator = WeightedFlowTimeEvaluator::<Num>::default();
         let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
 
-        let ok = decoder.decode(&model, &queue, &mut schedule);
+        let ok = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
         assert!(ok, "decode should succeed with simple feasible model");
 
         // Validate assignments match earliest feasible selections:
@@ -447,7 +603,7 @@ mod tests {
         let evaluator = WeightedFlowTimeEvaluator::<Num>::default();
         let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
 
-        let ok = decoder.decode(&model, &queue, &mut schedule);
+        let ok = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
         assert!(
             !ok,
             "decode must return false when no feasible berth exists"
@@ -492,7 +648,7 @@ mod tests {
         // First decode: scores are equal (10 vs 10).
         // Secondary tie-breaker prefers earliest finish: equal again.
         // Tertiary tie-breaker prefers earliest start: berth 0 start=0 vs berth 1 start=5 => choose berth 0.
-        let ok = decoder.decode(&model, &queue, &mut schedule);
+        let ok = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
         assert!(ok);
         assert_eq!(schedule.berth_for_vessel(vi(0)), bi(0));
         assert_eq!(schedule.start_time_for_vessel(vi(0)), 0);
@@ -532,7 +688,7 @@ mod tests {
         let evaluator2 = WeightedFlowTimeEvaluator::<Num>::default();
         let mut decoder2 = GreedyDecoder::<Num, _>::new(model2.num_berths(), evaluator2);
 
-        let ok2 = decoder2.decode(&model2, &queue2, &mut schedule2);
+        let ok2 = unsafe { decoder2.decode_unchecked(&model2, &queue2, &mut schedule2) };
         assert!(ok2);
 
         // v1 goes to berth 0 at start 0, finish 50
@@ -578,7 +734,7 @@ mod tests {
         let evaluator = WeightedFlowTimeEvaluator::<Num>::default();
         let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
 
-        let ok = decoder.decode(&model, &queue, &mut schedule);
+        let ok = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
         assert!(ok);
 
         // v0: earliest feasible start is at opening start 10; duration 3 => finish 13
@@ -610,7 +766,7 @@ mod tests {
         let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
 
         // First decode
-        let ok1 = decoder.decode(&model, &queue, &mut schedule);
+        let ok1 = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
         assert!(ok1);
 
         // Second decode into a fresh schedule must not carry over previous berth_free_times.
@@ -619,7 +775,7 @@ mod tests {
             vec![bi(0); model.num_vessels()],
             vec![0; model.num_vessels()],
         );
-        let ok2 = decoder.decode(&model, &queue, &mut schedule2);
+        let ok2 = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule2) };
         assert!(ok2);
 
         // The same solution should be produced again for this deterministic case.
@@ -647,7 +803,7 @@ mod tests {
         let evaluator = WeightedFlowTimeEvaluator::<Num>::default();
         let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
 
-        let ok = decoder.decode(&model, &queue, &mut schedule);
+        let ok = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
 
         // Should fail because Evaluator returns None
         assert!(!ok, "Decoder accepted a vessel that violates the deadline");
