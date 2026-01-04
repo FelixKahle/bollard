@@ -91,7 +91,7 @@ where
 
     /// Evaluates the assignment of a vessel to a berth at a given start time.
     fn evaluate(
-        &mut self,
+        &self,
         model: &Model<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,
@@ -186,7 +186,7 @@ where
     }
 
     fn evaluate(
-        &mut self,
+        &self,
         model: &Model<T>,
         vessel_index: VesselIndex,
         berth_index: BerthIndex,

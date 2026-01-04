@@ -94,7 +94,7 @@ impl VesselPriorityQueue {
     ///
     /// # Panics
     ///
-    /// Panics if the index is out of not within `0..len()`.
+    /// Panics if the index is not within `0..len()`.
     #[inline]
     pub fn get(&self, index: usize) -> Option<VesselIndex> {
         self.queue.get(index).copied()
@@ -126,7 +126,7 @@ impl VesselPriorityQueue {
     ///
     /// # Panics
     ///
-    /// Panics if the index is out of not within `0..len()`.
+    /// Panics if the index is not within `0..len()`.
     #[inline]
     pub fn get_mut(&mut self, index: usize) -> Option<&mut VesselIndex> {
         self.queue.get_mut(index)
@@ -158,7 +158,7 @@ impl VesselPriorityQueue {
     ///
     /// # Panics
     ///
-    /// Panics if the index is out of not within `0..len()`.
+    /// Panics if the index is not within `0..len()`.
     /// In debug builds, this function will also panic if setting the
     /// index results in duplicate vessel indices.
     #[inline]

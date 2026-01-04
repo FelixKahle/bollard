@@ -58,14 +58,14 @@ pub trait Neighborhoods: std::fmt::Debug + Send + Sync {
 
         assert!(
             a_index < self.num_vessels(),
-            "called `Neighborhoods::are_neighbors_unchecked` with vessel index out of bounds: the len is {} but the index is {}",
+            "called `Neighborhoods::are_neighbors` with vessel index out of bounds: the len is {} but the index is {}",
             a_index,
             self.num_vessels(),
         );
 
         assert!(
             b_index < self.num_vessels(),
-            "called `Neighborhoods::are_neighbors_unchecked` with vessel index out of bounds: the len is {} but the index is {}",
+            "called `Neighborhoods::are_neighbors` with vessel index out of bounds: the len is {} but the index is {}",
             b_index,
             self.num_vessels(),
         );

@@ -25,7 +25,7 @@ use bollard_bnb::eval::hybrid::HybridEvaluator;
 use bollard_bnb::monitor::solution::SolutionLimitMonitor;
 use bollard_ls::decoder::{Decoder, GreedyDecoder};
 use bollard_ls::eval::WeightedFlowTimeEvaluator;
-use bollard_ls::memory::Schedule;
+use bollard_ls::memory::SearchMemory;
 use bollard_ls::queue::VesselPriorityQueue;
 use bollard_model::index::{BerthIndex, VesselIndex};
 use bollard_model::loading::ProblemLoader;
@@ -111,7 +111,7 @@ fn bench_real_instances(c: &mut Criterion) {
     }
 
     let loader = ProblemLoader::<i64>::new();
-    let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
+    let mut evaluator = WeightedFlowTimeEvaluator::<i64>::default();
     let group_re = Regex::new(r"f(\d+x\d+)").unwrap();
     let mut group = c.benchmark_group("decoder_benchmark");
 
@@ -130,8 +130,11 @@ fn bench_real_instances(c: &mut Criterion) {
         let feasible_sol = find_feasible_solution(&model);
         let queue = construct_queue(&feasible_sol);
 
-        let mut schedule = Schedule::new(0, vec![bi(0); num_vessels], vec![0; num_vessels]);
-        let mut decoder = GreedyDecoder::new(num_berths, evaluator.clone());
+        let mut memory = SearchMemory::<i64>::preallocated(num_vessels);
+        let placeholder = Solution::new(0_i64, vec![bi(0); num_vessels], vec![0_i64; num_vessels]);
+        memory.initialize(&placeholder);
+
+        let mut decoder = GreedyDecoder::new(num_berths);
 
         let size_label = group_re
             .captures(&file_name)
@@ -150,7 +153,8 @@ fn bench_real_instances(c: &mut Criterion) {
                     decoder.decode_unchecked(
                         black_box(&model),
                         black_box(&queue),
-                        black_box(&mut schedule),
+                        black_box(memory.candidate_schedule_mut()),
+                        black_box(&mut evaluator),
                     ) };
 
                     if !ok {

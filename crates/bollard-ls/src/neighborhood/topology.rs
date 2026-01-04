@@ -63,6 +63,7 @@ pub struct StaticTopology {
 }
 
 impl Neighborhoods for StaticTopology {
+    /// Returns the total number of vessels in the problem instance.
     #[inline]
     fn num_vessels(&self) -> usize {
         // offsets has length num_vessels + 1
@@ -90,7 +91,8 @@ impl Neighborhoods for StaticTopology {
 
         // Linear scan over a small contiguous slice is typically faster
         // than a Hash-Set due to L1 cache prefetching.
-        self.neighbors_of(a).contains(&b)
+        // SAFETY: caller upholds bounds; debug asserts above validate invariants.
+        unsafe { self.neighbors_of_unchecked(a).contains(&b) }
     }
 
     #[inline(always)]

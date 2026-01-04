@@ -19,26 +19,13 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-//! Local search components for Bollard.
+//! Monitoring utilities for local search.
 //!
-//! This crate provides the building blocks to run high‑performance local search
-//! on scheduling models: a decoder that maps priority queues to concrete schedules,
-//! a stateful operator interface for neighborhood exploration, metaheuristics for
-//! acceptance and termination control, and lightweight monitoring and statistics.
-//! The design emphasizes tight inner loops with clear safety contracts, cache‑friendly
-//! data structures, and reuse of preallocated memory to minimize overhead during
-//! iterative improvement.
+//! This module groups the traits and helpers used to observe and control
+//! local search execution. It provides the core monitoring interface for
+//! lifecycle callbacks and a time‑based monitor that can terminate runs
+//! after a configured duration, enabling lightweight progress reporting
+//! and practical stopping criteria without burdening the hot path.
 
-pub mod decoder;
-pub mod engine;
-pub mod eval;
-pub mod memory;
-pub mod metaheuristic;
-pub mod monitor;
-pub mod mutator;
-pub mod neighborhood;
-pub mod operator;
-pub mod queue;
-pub mod result;
-pub mod stats;
-pub mod undo;
+pub mod local_search_monitor;
+pub mod time;

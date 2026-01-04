@@ -44,9 +44,10 @@ use bollard_search::num::SolverNumeric;
 /// A decoder that transforms a priority queue into a schedule.
 ///
 /// Provides both checked and unchecked decoding methods.
-pub trait Decoder<T>
+pub trait Decoder<T, E>
 where
     T: SolverNumeric,
+    E: AssignmentEvaluator<T>,
 {
     /// Returns the name of the decoder.
     fn name(&self) -> &str;
@@ -62,6 +63,7 @@ where
         model: &Model<T>,
         queue: &VesselPriorityQueue,
         state: &mut Schedule<T>,
+        evaluator: &E,
     ) -> bool;
 
     /// Decodes the given priority queue into a schedule.
@@ -93,21 +95,24 @@ where
         model: &Model<T>,
         queue: &VesselPriorityQueue,
         state: &mut Schedule<T>,
+        evaluator: &E,
     ) -> bool;
 }
 
-impl<T> std::fmt::Debug for dyn Decoder<T>
+impl<T, E> std::fmt::Debug for dyn Decoder<T, E>
 where
     T: SolverNumeric,
+    E: AssignmentEvaluator<T>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Decoder({})", self.name())
     }
 }
 
-impl<T> std::fmt::Display for dyn Decoder<T>
+impl<T, E> std::fmt::Display for dyn Decoder<T, E>
 where
     T: SolverNumeric,
+    E: AssignmentEvaluator<T>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Decoder({})", self.name())
@@ -129,7 +134,7 @@ where
     E: AssignmentEvaluator<T>,
 {
     berth_free_times: Vec<T>, // len = num_berths
-    evaluator: E,
+    _phantom: std::marker::PhantomData<E>,
 }
 
 impl<T, E> GreedyDecoder<T, E>
@@ -139,10 +144,10 @@ where
 {
     /// Creates a new `GreedyDecoder` with the specified number of berths and evaluator.
     #[inline(always)]
-    pub fn new(num_berths: usize, evaluator: E) -> Self {
+    pub fn new(num_berths: usize) -> Self {
         Self {
             berth_free_times: vec![T::zero(); num_berths],
-            evaluator,
+            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -231,7 +236,7 @@ fn should_prefer<T: SolverNumeric>(
             && candidate_start < best_start)
 }
 
-impl<T, E> Decoder<T> for GreedyDecoder<T, E>
+impl<T, E> Decoder<T, E> for GreedyDecoder<T, E>
 where
     T: SolverNumeric,
     E: AssignmentEvaluator<T>,
@@ -245,6 +250,7 @@ where
         model: &Model<T>,
         queue: &VesselPriorityQueue,
         state: &mut Schedule<T>,
+        evaluator: &E,
     ) -> bool {
         let num_berths = model.num_berths();
         let num_vessels = model.num_vessels();
@@ -321,9 +327,7 @@ where
                     // SAFETY: berth_index is in bounds due to loop condition and assert above.
                     unsafe { self.find_earliest_start(model, berth, arrival, duration) }
                 {
-                    let eval_opt = self
-                        .evaluator
-                        .evaluate(model, vessel_idx, berth, start_time);
+                    let eval_opt = evaluator.evaluate(model, vessel_idx, berth, start_time);
 
                     if let Some(eval) = eval_opt {
                         let finish_time = start_time + duration;
@@ -368,6 +372,7 @@ where
         model: &Model<T>,
         queue: &VesselPriorityQueue,
         state: &mut Schedule<T>,
+        evaluator: &E,
     ) -> bool {
         let num_berths = model.num_berths();
         let num_vessels = model.num_vessels();
@@ -444,8 +449,7 @@ where
                     unsafe { self.find_earliest_start(model, berth, arrival, duration) }
                 {
                     let eval_opt = unsafe {
-                        self.evaluator
-                            .evaluate_unchecked(model, vessel_idx, berth, start_time)
+                        evaluator.evaluate_unchecked(model, vessel_idx, berth, start_time)
                     };
 
                     if let Some(eval) = eval_opt {
@@ -490,15 +494,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{eval::WeightedFlowTimeEvaluator, memory::Schedule};
+    use crate::eval::WeightedFlowTimeEvaluator;
+    use crate::memory::SearchMemory;
     use bollard_core::math::interval::ClosedOpenInterval;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
+        solution::Solution,
         time::ProcessingTime,
     };
-
-    type Num = i64;
+    use num_traits::Zero;
 
     #[inline]
     fn vi(i: usize) -> VesselIndex {
@@ -509,34 +514,58 @@ mod tests {
         BerthIndex::new(i)
     }
 
-    fn build_model_simple() -> bollard_model::model::Model<Num> {
-        // Two berths, three vessels, open 24/7 by default.
-        let mut bldr = ModelBuilder::<Num>::new(2, 3);
+    #[inline]
+    fn new_memory_for_model(model: &bollard_model::model::Model<i64>) -> SearchMemory<i64> {
+        let num_vessels = model.num_vessels();
+        let mut mem = SearchMemory::<i64>::preallocated(num_vessels);
+        let placeholder = Solution::new(
+            i64::zero(),
+            vec![bi(0); num_vessels],
+            vec![i64::zero(); num_vessels],
+        );
+        mem.initialize(&placeholder);
+        mem
+    }
 
-        // Arrival times
+    #[inline]
+    fn decode_and_accept<T, E>(
+        decoder: &mut GreedyDecoder<T, E>,
+        model: &bollard_model::model::Model<T>,
+        queue: &crate::queue::VesselPriorityQueue,
+        memory: &mut SearchMemory<T>,
+        evaluator: &E,
+    ) -> bool
+    where
+        T: SolverNumeric,
+        E: AssignmentEvaluator<T>,
+    {
+        let ok = unsafe {
+            decoder.decode_unchecked(model, queue, memory.candidate_schedule_mut(), evaluator)
+        };
+        if ok {
+            memory.accept_current();
+        }
+        ok
+    }
+
+    fn build_model_simple() -> bollard_model::model::Model<i64> {
+        let mut bldr = ModelBuilder::<i64>::new(2, 3);
+
         bldr.set_vessel_arrival_time(vi(0), 0)
             .set_vessel_arrival_time(vi(1), 0)
             .set_vessel_arrival_time(vi(2), 0);
 
-        // Latest departures far in the future
         bldr.set_vessel_latest_departure_time(vi(0), 1_000)
             .set_vessel_latest_departure_time(vi(1), 1_000)
             .set_vessel_latest_departure_time(vi(2), 1_000);
 
-        // Equal weights
         bldr.set_vessel_weight(vi(0), 1)
             .set_vessel_weight(vi(1), 1)
             .set_vessel_weight(vi(2), 1);
 
-        // Processing times:
-        // Vessel 0 can use berth 0 for 5, berth 1 for 10.
         bldr.set_vessel_processing_time(vi(0), bi(0), ProcessingTime::some(5))
             .set_vessel_processing_time(vi(0), bi(1), ProcessingTime::some(10));
-
-        // Vessel 1 can use berth 0 for 7 only.
         bldr.set_vessel_processing_time(vi(1), bi(0), ProcessingTime::some(7));
-
-        // Vessel 2 can use berth 1 for 3 only.
         bldr.set_vessel_processing_time(vi(2), bi(1), ProcessingTime::some(3));
 
         bldr.build()
@@ -545,65 +574,51 @@ mod tests {
     #[test]
     fn test_decode_success_basic_assignment_and_objective() {
         let model = build_model_simple();
-        // Priority queue decides visiting order; here [0,1,2].
+
         let mut queue = crate::queue::VesselPriorityQueue::new();
         queue.extend([vi(0), vi(1), vi(2)]);
 
-        // Prepare state buffers sized to num_vessels.
-        let mut schedule = Schedule::<Num>::new(
-            0,
-            vec![bi(0); model.num_vessels()],
-            vec![0; model.num_vessels()],
-        );
+        let mut memory = new_memory_for_model(&model);
+        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
+        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
 
-        // Greedy decoder with WeightedFlowTimeEvaluator (score == objective_delta).
-        let evaluator = WeightedFlowTimeEvaluator::<Num>::default();
-        let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
+        assert!(decode_and_accept(
+            &mut decoder,
+            &model,
+            &queue,
+            &mut memory,
+            &evaluator
+        ));
 
-        let ok = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
-        assert!(ok, "decode should succeed with simple feasible model");
+        let schedule = memory.current_schedule();
 
-        // Validate assignments match earliest feasible selections:
-        // Vessel 0: both berths feasible; prefers smaller score (completion*weight).
-        // With start 0, durations: b0=5 => finish=5, score=5; b1=10 => finish=10, score=10 => pick b0.
         assert_eq!(schedule.berth_for_vessel(vi(0)), bi(0));
         assert_eq!(schedule.start_time_for_vessel(vi(0)), 0);
 
-        // Vessel 1: only berth 0; berth 0 free time is now 5 (from v0). Arrival 0 -> min_start=5; duration 7 -> finish=12 within deadline.
         assert_eq!(schedule.berth_for_vessel(vi(1)), bi(0));
         assert_eq!(schedule.start_time_for_vessel(vi(1)), 5);
 
-        // Vessel 2: only berth 1; that berth has been unused, free time 0; start 0; duration 3.
         assert_eq!(schedule.berth_for_vessel(vi(2)), bi(1));
         assert_eq!(schedule.start_time_for_vessel(vi(2)), 0);
 
-        // Objective = sum of completion times * weight:
-        // v0: finish=5, w=1 -> 5
-        // v1: finish=12, w=1 -> 12
-        // v2: finish=3, w=1 -> 3
-        // total = 20
         assert_eq!(schedule.objective_value(), 20);
     }
 
     #[test]
     fn test_decode_infeasible_returns_false() {
-        // Model with one vessel that cannot dock anywhere (all processing times None).
-        let bldr = ModelBuilder::<Num>::new(2, 1);
-        // Arrival and deadlines default to feasible, but no processing times set => all None.
+        let bldr = ModelBuilder::<i64>::new(2, 1);
         let model = bldr.build();
 
         let mut queue = crate::queue::VesselPriorityQueue::new();
         queue.extend([vi(0)]);
 
-        let mut schedule = Schedule::<Num>::new(
-            0,
-            vec![bi(0); model.num_vessels()],
-            vec![0; model.num_vessels()],
-        );
-        let evaluator = WeightedFlowTimeEvaluator::<Num>::default();
-        let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
+        let mut memory = new_memory_for_model(&model);
+        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
+        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
 
-        let ok = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
+        let ok = unsafe {
+            decoder.decode_unchecked(&model, &queue, memory.candidate_schedule_mut(), &evaluator)
+        };
         assert!(
             !ok,
             "decode must return false when no feasible berth exists"
@@ -612,23 +627,13 @@ mod tests {
 
     #[test]
     fn test_tie_breaking_score_then_finish_then_start() {
-        // Build a model to force equal score on two berths, but different finish and start.
-        let mut bldr = ModelBuilder::<Num>::new(2, 1);
+        let mut bldr = ModelBuilder::<i64>::new(2, 1);
 
-        // Vessel 0: arrival 0, weight 1, deadline large
         bldr.set_vessel_latest_departure_time(vi(0), 1000)
             .set_vessel_weight(vi(0), 1);
 
-        // Opening times:
-        // Berth 0 open [0, 1000)
-        // Berth 1 open [5, 1000) (delayed opening causes later start if berth_free < 5)
-        // We model this by closing [0,5) on berth 1.
         bldr.add_berth_closing_time(bi(1), ClosedOpenInterval::new(0, 5));
 
-        // Processing times:
-        // Choose durations so that completion time is equal across both berths if starting at min feasible.
-        // b0: duration 10, starting at 0 => completion 10
-        // b1: duration 5, starting at 5 => completion 10
         bldr.set_vessel_processing_time(vi(0), bi(0), ProcessingTime::some(10))
             .set_vessel_processing_time(vi(0), bi(1), ProcessingTime::some(5));
 
@@ -637,87 +642,69 @@ mod tests {
         let mut queue = crate::queue::VesselPriorityQueue::new();
         queue.extend([vi(0)]);
 
-        let mut schedule = Schedule::<Num>::new(
-            0,
-            vec![bi(0); model.num_vessels()],
-            vec![0; model.num_vessels()],
-        );
-        let evaluator = WeightedFlowTimeEvaluator::<Num>::default();
-        let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
+        let mut memory = new_memory_for_model(&model);
+        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
+        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
 
-        // First decode: scores are equal (10 vs 10).
-        // Secondary tie-breaker prefers earliest finish: equal again.
-        // Tertiary tie-breaker prefers earliest start: berth 0 start=0 vs berth 1 start=5 => choose berth 0.
-        let ok = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
-        assert!(ok);
+        assert!(decode_and_accept(
+            &mut decoder,
+            &model,
+            &queue,
+            &mut memory,
+            &evaluator
+        ));
+
+        let schedule = memory.current_schedule();
         assert_eq!(schedule.berth_for_vessel(vi(0)), bi(0));
         assert_eq!(schedule.start_time_for_vessel(vi(0)), 0);
         assert_eq!(schedule.objective_value(), 10);
 
-        // Now make berth 0 busy so its earliest finish becomes later, testing secondary tie-breaker.
-        // We'll add a second vessel that occupies berth 0 before the first vessel is decoded.
-        let mut bldr2 = ModelBuilder::<Num>::new(2, 2);
+        let mut bldr2 = ModelBuilder::<i64>::new(2, 2);
         bldr2
             .set_vessel_latest_departure_time(vi(0), 1000)
             .set_vessel_latest_departure_time(vi(1), 1000)
             .set_vessel_weight(vi(0), 1)
             .set_vessel_weight(vi(1), 1);
-
-        // Same opening times as above: close [0,5) on berth 1
         bldr2.add_berth_closing_time(bi(1), ClosedOpenInterval::new(0, 5));
-
-        // v0: the target with equal completion candidates as before
         bldr2
             .set_vessel_processing_time(vi(0), bi(0), ProcessingTime::some(10))
             .set_vessel_processing_time(vi(0), bi(1), ProcessingTime::some(5));
-
-        // v1: occupies berth 0 first with long duration to push finish later.
         bldr2.set_vessel_processing_time(vi(1), bi(0), ProcessingTime::some(50));
 
         let model2 = bldr2.build();
 
-        // Queue: decode v1 first, then v0
         let mut queue2 = crate::queue::VesselPriorityQueue::new();
         queue2.extend([vi(1), vi(0)]);
 
-        let mut schedule2 = Schedule::<Num>::new(
-            0,
-            vec![bi(0); model2.num_vessels()],
-            vec![0; model2.num_vessels()],
-        );
-        let evaluator2 = WeightedFlowTimeEvaluator::<Num>::default();
-        let mut decoder2 = GreedyDecoder::<Num, _>::new(model2.num_berths(), evaluator2);
+        let mut memory2 = new_memory_for_model(&model2);
+        let evaluator2 = WeightedFlowTimeEvaluator::<i64>::default();
+        let mut decoder2 = GreedyDecoder::<i64, _>::new(model2.num_berths());
 
-        let ok2 = unsafe { decoder2.decode_unchecked(&model2, &queue2, &mut schedule2) };
-        assert!(ok2);
+        assert!(decode_and_accept(
+            &mut decoder2,
+            &model2,
+            &queue2,
+            &mut memory2,
+            &evaluator2
+        ));
 
-        // v1 goes to berth 0 at start 0, finish 50
+        let schedule2 = memory2.current_schedule();
+
         assert_eq!(schedule2.berth_for_vessel(vi(1)), bi(0));
         assert_eq!(schedule2.start_time_for_vessel(vi(1)), 0);
 
-        // For v0:
-        // - Berth 0 earliest start is 50 due to berth_free_times -> completion 60.
-        // - Berth 1 earliest start is 5 due to opening, completion 10.
-        // Score difference now decides: 10 < 60 => pick berth 1.
         assert_eq!(schedule2.berth_for_vessel(vi(0)), bi(1));
         assert_eq!(schedule2.start_time_for_vessel(vi(0)), 5);
     }
 
     #[test]
     fn test_respects_opening_times_and_find_earliest_start() {
-        // One berth with a gap in opening, two vessels arriving early.
-        let mut bldr = ModelBuilder::<Num>::new(1, 2);
-        // Close [0, 10) so the earliest possible start is 10.
+        let mut bldr = ModelBuilder::<i64>::new(1, 2);
         bldr.add_berth_closing_time(bi(0), ClosedOpenInterval::new(0, 10));
-        // Both vessels can use the berth with different durations.
         bldr.set_vessel_processing_time(vi(0), bi(0), ProcessingTime::some(3))
             .set_vessel_processing_time(vi(1), bi(0), ProcessingTime::some(4));
-
-        // Arrival times before opening window
         bldr.set_vessel_arrival_time(vi(0), 0)
             .set_vessel_arrival_time(vi(1), 0);
-
-        // Deadlines sufficiently large
         bldr.set_vessel_latest_departure_time(vi(0), 100)
             .set_vessel_latest_departure_time(vi(1), 100);
 
@@ -726,59 +713,59 @@ mod tests {
         let mut queue = crate::queue::VesselPriorityQueue::new();
         queue.extend([vi(0), vi(1)]);
 
-        let mut schedule = Schedule::<Num>::new(
-            0,
-            vec![bi(0); model.num_vessels()],
-            vec![0; model.num_vessels()],
-        );
-        let evaluator = WeightedFlowTimeEvaluator::<Num>::default();
-        let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
+        let mut memory = new_memory_for_model(&model);
+        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
+        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
 
-        let ok = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
-        assert!(ok);
+        assert!(decode_and_accept(
+            &mut decoder,
+            &model,
+            &queue,
+            &mut memory,
+            &evaluator
+        ));
 
-        // v0: earliest feasible start is at opening start 10; duration 3 => finish 13
+        let schedule = memory.current_schedule();
+
         assert_eq!(schedule.berth_for_vessel(vi(0)), bi(0));
         assert_eq!(schedule.start_time_for_vessel(vi(0)), 10);
 
-        // v1: berth_free_times now 13; earliest feasible start is 13 within opening [10,MAX); duration 4 => finish 17
         assert_eq!(schedule.berth_for_vessel(vi(1)), bi(0));
         assert_eq!(schedule.start_time_for_vessel(vi(1)), 13);
 
-        // Objective equals sum of completion times: 13 + 17 = 30
         assert_eq!(schedule.objective_value(), 30);
     }
 
     #[test]
     fn test_berth_free_times_reset_between_decode_calls() {
-        // Ensure consecutive calls start with fresh berth_free_times = 0
         let model = build_model_simple();
 
         let mut queue = crate::queue::VesselPriorityQueue::new();
         queue.extend([vi(0), vi(1), vi(2)]);
 
-        let mut schedule = Schedule::<Num>::new(
-            0,
-            vec![bi(0); model.num_vessels()],
-            vec![0; model.num_vessels()],
-        );
-        let evaluator = WeightedFlowTimeEvaluator::<Num>::default();
-        let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
+        let mut memory = new_memory_for_model(&model);
+        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
+        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
 
-        // First decode
-        let ok1 = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
-        assert!(ok1);
+        assert!(decode_and_accept(
+            &mut decoder,
+            &model,
+            &queue,
+            &mut memory,
+            &evaluator
+        ));
+        let schedule = memory.current_schedule();
 
-        // Second decode into a fresh schedule must not carry over previous berth_free_times.
-        let mut schedule2 = Schedule::<Num>::new(
-            0,
-            vec![bi(0); model.num_vessels()],
-            vec![0; model.num_vessels()],
-        );
-        let ok2 = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule2) };
-        assert!(ok2);
+        let mut memory2 = new_memory_for_model(&model);
+        assert!(decode_and_accept(
+            &mut decoder,
+            &model,
+            &queue,
+            &mut memory2,
+            &evaluator
+        ));
+        let schedule2 = memory2.current_schedule();
 
-        // The same solution should be produced again for this deterministic case.
         assert_eq!(schedule2.berths(), schedule.berths());
         assert_eq!(schedule2.start_times(), schedule.start_times());
         assert_eq!(schedule2.objective_value(), schedule.objective_value());
@@ -786,26 +773,24 @@ mod tests {
 
     #[test]
     fn test_decode_fails_on_deadline_violation() {
-        let mut bldr = ModelBuilder::<Num>::new(1, 1);
+        let mut bldr = ModelBuilder::<i64>::new(1, 1);
         bldr.set_vessel_arrival_time(vi(0), 0)
             .set_vessel_weight(vi(0), 1)
-            // Strict deadline at 5
             .set_vessel_latest_departure_time(vi(0), 5);
-
-        // Process takes 10 (Finish 10 > Deadline 5)
         bldr.set_vessel_processing_time(vi(0), bi(0), ProcessingTime::some(10));
 
         let model = bldr.build();
+
         let mut queue = crate::queue::VesselPriorityQueue::new();
         queue.push(vi(0));
 
-        let mut schedule = Schedule::<Num>::new(0, vec![bi(0)], vec![0]);
-        let evaluator = WeightedFlowTimeEvaluator::<Num>::default();
-        let mut decoder = GreedyDecoder::<Num, _>::new(model.num_berths(), evaluator);
+        let mut memory = new_memory_for_model(&model);
+        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
+        let mut decoder = GreedyDecoder::<i64, _>::new(model.num_berths());
 
-        let ok = unsafe { decoder.decode_unchecked(&model, &queue, &mut schedule) };
-
-        // Should fail because Evaluator returns None
+        let ok = unsafe {
+            decoder.decode_unchecked(&model, &queue, memory.candidate_schedule_mut(), &evaluator)
+        };
         assert!(!ok, "Decoder accepted a vessel that violates the deadline");
     }
 }

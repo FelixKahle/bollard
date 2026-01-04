@@ -40,8 +40,6 @@
 //! allocations and data movement while keeping invariants explicit through
 //! debug assertions.
 
-#![allow(dead_code)]
-
 use crate::{mutator::Mutator, queue::VesselPriorityQueue, undo::UndoLog};
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
@@ -65,25 +63,54 @@ impl<T> Schedule<T>
 where
     T: SolverNumeric,
 {
-    /// Constructs a new `Schedule`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `berths` and `start_times` have different lengths.
-    pub fn new(objective_value: T, berths: Vec<BerthIndex>, start_times: Vec<T>) -> Self {
-        assert_eq!(
-            berths.len(),
-            start_times.len(),
-            "called Solution::new with inconsistent vector lengths: berths.len() = {}, start_times.len() = {}",
-            berths.len(),
-            start_times.len()
-        );
-
+    /// Creates a new empty `Schedule`.
+    fn new() -> Self {
         Self {
-            objective_value,
-            berths,
-            start_times,
+            objective_value: T::zero(),
+            berths: Vec::new(),
+            start_times: Vec::new(),
         }
+    }
+
+    /// Initializes this schedule from an existing solution.
+    ///
+    /// This method reuses the internal vectors `berths` and `start_times` by clearing
+    /// them and extending them with data from `solution`. This avoids reallocating
+    /// the underlying heap memory if the capacity is sufficient.
+    #[inline]
+    fn initialize_from(&mut self, solution: &Solution<T>) {
+        self.objective_value = solution.objective_value();
+
+        self.berths.clear();
+        self.berths.extend_from_slice(solution.berths());
+
+        self.start_times.clear();
+        self.start_times.extend_from_slice(solution.start_times());
+
+        debug_assert!(
+            self.berths.len() == self.start_times.len(),
+            "called `Schedule::initialize_from` with inconsistent vector lengths: berths.len() = {}, start_times.len() = {}",
+            self.berths.len(),
+            self.start_times.len()
+        );
+    }
+
+    /// Creates a new `Schedule` with pre-allocated buffers.
+    #[inline]
+    fn with_capacity(num_vessels: usize) -> Self {
+        Self {
+            objective_value: T::zero(),
+            berths: Vec::with_capacity(num_vessels),
+            start_times: Vec::with_capacity(num_vessels),
+        }
+    }
+
+    /// Clears the schedule, resetting it to an empty state.
+    #[inline]
+    fn clear(&mut self) {
+        self.objective_value = T::zero();
+        self.berths.clear();
+        self.start_times.clear();
     }
 
     /// Returns the assigned berth for a specific vessel.
@@ -96,7 +123,7 @@ where
         let index = vessel_index.get();
         debug_assert!(
             index < self.num_vessels(),
-            "called `Solution::berth_for_vessel` with vessel index out of bounds: the len is {} but the index is {}",
+            "called `Schedule::berth_for_vessel` with vessel index out of bounds: the len is {} but the index is {}",
             index,
             self.num_vessels()
         );
@@ -114,21 +141,21 @@ where
         let index = vessel_index.get();
         debug_assert!(
             index < self.num_vessels(),
-            "called `Solution::start_time_for_vessel` with vessel index out of bounds: the len is {} but the index is {}",
+            "called `Schedule::start_time_for_vessel` with vessel index out of bounds: the len is {} but the index is {}",
             index,
             self.num_vessels()
         );
 
-        self.start_times[vessel_index.get()]
+        self.start_times[index]
     }
 
-    /// Returns the number of vessels in this solution.
+    /// Returns the number of vessels in this schedule.
     #[inline]
     pub fn num_vessels(&self) -> usize {
         self.berths.len()
     }
 
-    /// Returns the total objective value of this solution.
+    /// Returns the total objective value of this schedule.
     #[inline]
     pub fn objective_value(&self) -> T {
         self.objective_value
@@ -230,46 +257,87 @@ where
     candidate: Schedule<T>, // scratchpad for decoding
 }
 
+impl<T> Default for SearchMemory<T>
+where
+    T: SolverNumeric,
+{
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> SearchMemory<T>
 where
     T: SolverNumeric,
 {
-    /// Allocates memory and initializes it from an existing `Solution`.
+    /// Creates a new, empty `SearchMemory`.
+    pub fn new() -> Self {
+        Self {
+            queue: VesselPriorityQueue::new(),
+            undo_log: UndoLog::new(32, 0),
+            current: Schedule::new(),
+            candidate: Schedule::new(),
+        }
+    }
+
+    /// Creates a new `SearchMemory` with pre-allocated buffers.
     ///
-    /// This effectively "reconstructs" the search state so that the Local Search
-    /// can resume or start from a specific solution found by another algorithm.
-    pub fn from_solution(solution: Solution<T>) -> Self {
+    /// Use this when you want to allocate memory once at startup and reuse it
+    /// for multiple search runs via `initialize`.
+    #[inline]
+    pub fn preallocated(num_vessels: usize) -> Self {
+        Self {
+            queue: VesselPriorityQueue::with_capacity(num_vessels),
+            undo_log: UndoLog::new(32, num_vessels),
+            current: Schedule::with_capacity(num_vessels),
+            candidate: Schedule::with_capacity(num_vessels),
+        }
+    }
+
+    /// Initializes the search memory from an existing solution.
+    ///
+    /// This method resets the genotype (Queue) and phenotype (Schedules) to match
+    /// the provided `solution`. Crucially, it uses **in-place operations** (clear + extend, sort)
+    /// to avoid allocating new vectors, making it suitable for hot-loop restarts.
+    pub fn initialize(&mut self, solution: &Solution<T>) {
         let num_vessels = solution.num_vessels();
 
-        // Reconstruct Genotype (Queue) from Phenotype
-        // We create a list of indices and sort them by the solution's start times.
-        // This ensures the queue represents the "decoding order" of the provided solution.
-        let mut indices: Vec<VesselIndex> = (0..num_vessels).map(VesselIndex::new).collect();
+        // Reset Genotype (Queue)
+        self.queue.clear();
+        self.undo_log.clear();
 
-        indices.sort_by(|&a, &b| {
+        // Direct fill: Populate queue with indices [0, 1, ..., N-1]
+        self.queue.extend((0..num_vessels).map(VesselIndex::new));
+
+        // In-place sort: Reorder indices based on the solution's start times.
+        // This effectively "encodes" the solution back into a queue representation.
+        let buf = self.queue.buffer_mut();
+        buf.sort_by(|&a, &b| {
             let ta = solution.start_time_for_vessel(a);
             let tb = solution.start_time_for_vessel(b);
-            // Primary Sort: Start Time (Ascending)
-            // Secondary Sort: Vessel Index (Stability)
+            // Sort by Start Time, then by Index for stability
             ta.cmp(&tb).then_with(|| a.get().cmp(&b.get()))
         });
 
-        // Initialize the Queue
-        let mut queue = VesselPriorityQueue::with_capacity(num_vessels);
-        queue.extend(indices);
+        // Reset Phenotype (Schedules) using internal buffer reuse
+        self.current.initialize_from(solution);
+        self.candidate.initialize_from(solution);
+    }
 
-        // Extract Phenotype Data
-        // We extract the vectors once.
-        let objective_value = solution.objective_value();
-        let berths = solution.berths().to_vec();
-        let start_times = solution.start_times().to_vec();
+    /// Clears the search memory, resetting all internal state.
+    #[inline(always)]
+    pub fn clear(&mut self) {
+        self.queue.clear();
+        self.undo_log.clear();
+        self.current.clear();
+        self.candidate.clear();
+    }
 
-        Self {
-            queue,
-            undo_log: UndoLog::new(32, num_vessels),
-            current: Schedule::new(objective_value, berths.clone(), start_times.clone()),
-            candidate: Schedule::new(objective_value, berths, start_times),
-        }
+    /// Returns the number of vessels in the priority queue.
+    #[inline(always)]
+    pub fn num_vessels(&self) -> usize {
+        self.queue.len()
     }
 
     /// Returns a reference to the current accepted schedule.
@@ -279,6 +347,9 @@ where
     }
 
     /// Returns the schedule as immutable reference and a mutable mutator for applying mutations.
+    ///
+    /// This splits the borrow of `SearchMemory`: `Schedule` is immutable, while
+    /// `queue` and `undo_log` (wrapped in `Mutator`) are mutable.
     pub fn prepare_operator(&mut self) -> (&Schedule<T>, Mutator<'_, T>) {
         self.undo_log.clear();
         (
@@ -287,10 +358,10 @@ where
         )
     }
 
-    //#[inline(always)]
-    //pub fn evaluation_target(&mut self) -> (&VesselPriorityQueue, &mut Schedule<T>) {
-    //    (&self.queue, &mut self.candidate)
-    //}
+    #[inline(always)]
+    pub fn evaluation_target(&mut self) -> (&VesselPriorityQueue, &mut Schedule<T>) {
+        (&self.queue, &mut self.candidate)
+    }
 
     /// Finalizes the candidate schedule by either accepting or rejecting it.
     ///
@@ -316,6 +387,24 @@ where
     pub fn discard_candidate(&mut self) {
         self.undo_log.apply_rollback(&mut self.queue);
     }
+
+    /// Returns a reference to the vessel priority queue (genotype).
+    #[inline(always)]
+    pub fn queue(&self) -> &crate::queue::VesselPriorityQueue {
+        &self.queue
+    }
+
+    /// Returns a reference to the candidate (scratchpad) schedule.
+    #[inline(always)]
+    pub fn candidate_schedule(&self) -> &Schedule<T> {
+        &self.candidate
+    }
+
+    /// Returns a mutable reference to the candidate (scratchpad) schedule.
+    #[inline(always)]
+    pub fn candidate_schedule_mut(&mut self) -> &mut Schedule<T> {
+        &mut self.candidate
+    }
 }
 
 #[cfg(test)]
@@ -339,7 +428,9 @@ mod tests {
     fn test_schedule_new_valid_lengths() {
         let berths = vec![bi(0), bi(1), bi(2)];
         let starts = vec![10_i64, 20, 30];
-        let s = Schedule::new(123_i64, berths, starts);
+        let mut s = Schedule::new();
+        s.initialize_from(&Solution::new(123_i64, berths.clone(), starts.clone()));
+
         assert_eq!(s.num_vessels(), 3);
         assert_eq!(s.objective_value(), 123);
         assert_eq!(s.berths(), &[bi(0), bi(1), bi(2)]);
@@ -351,14 +442,15 @@ mod tests {
     fn test_schedule_new_mismatched_lengths_panics() {
         let berths = vec![bi(0), bi(1)];
         let starts = vec![10_i64];
-        let _ = Schedule::new(0, berths, starts);
+        let mut s = Schedule::new();
+        s.initialize_from(&Solution::new(123_i64, berths, starts));
     }
 
     #[test]
     fn test_schedule_accessors_bounds_valid() {
         let berths = vec![bi(0), bi(1)];
         let starts = vec![5_i64, 7];
-        let s = Schedule::new(42, berths, starts);
+        let s = Schedule::from(Solution::new(50_i64, berths, starts));
 
         assert_eq!(s.num_vessels(), 2);
         assert_eq!(s.berth_for_vessel(vi(0)), bi(0));
@@ -383,7 +475,7 @@ mod tests {
 
     #[test]
     fn test_schedule_zero_vessels_edge_case() {
-        let s = Schedule::new(0_i64, vec![], vec![]);
+        let s = Schedule::<i64>::from(Solution::new(0_i64, vec![], vec![]));
         assert_eq!(s.num_vessels(), 0);
         assert!(s.berths().is_empty());
         assert!(s.start_times().is_empty());
@@ -397,7 +489,8 @@ mod tests {
         let starts = vec![10_i64, 5, 5, 20];
         let sol = Solution::new(1234_i64, berths.clone(), starts.clone());
 
-        let mem = SearchMemory::from_solution(sol);
+        let mut mem = SearchMemory::preallocated(sol.num_vessels());
+        mem.initialize(&sol);
 
         // queue should be ordered by ascending start time, then vessel index:
         // vessels: 0->10, 1->5, 2->5, 3->20 => order: [1,2,0,3]
@@ -417,7 +510,9 @@ mod tests {
     #[test]
     fn test_search_memory_mutate_clears_undo_and_returns_mutator() {
         let sol = Solution::new(0_i64, vec![bi(0), bi(1)], vec![10_i64, 20]);
-        let mut mem = SearchMemory::from_solution(sol);
+
+        let mut mem = SearchMemory::preallocated(sol.num_vessels());
+        mem.initialize(&sol);
 
         // Pre-fill undo log with something (simulate stale state)
         mem.undo_log.push_set(0, vi(0));
@@ -431,10 +526,13 @@ mod tests {
     #[test]
     fn test_search_memory_finalize_accept_swaps_current_and_candidate() {
         let sol = Solution::new(100_i64, vec![bi(0), bi(1)], vec![10_i64, 20]);
-        let mut mem = SearchMemory::from_solution(sol);
+
+        let mut mem = SearchMemory::preallocated(sol.num_vessels());
+        mem.initialize(&sol);
 
         // Make candidate different from current
-        let cand = Schedule::new(50_i64, vec![bi(1), bi(0)], vec![20_i64, 10]);
+        let mut cand = Schedule::with_capacity(2);
+        cand.initialize_from(&Solution::new(50_i64, vec![bi(1), bi(0)], vec![20_i64, 10]));
         mem.candidate = cand.clone();
 
         // Accept: current should become candidate; candidate becomes old current
@@ -449,7 +547,9 @@ mod tests {
     #[test]
     fn test_search_memory_finalize_reject_rolls_back_queue() {
         let sol = Solution::new(0_i64, vec![bi(0), bi(1), bi(2)], vec![3_i64, 2, 1]);
-        let mut mem = SearchMemory::from_solution(sol);
+
+        let mut mem = SearchMemory::preallocated(sol.num_vessels());
+        mem.initialize(&sol);
 
         let original = mem.queue.buffer().to_vec();
 
@@ -486,7 +586,10 @@ mod tests {
     #[test]
     fn test_search_memory_zero_vessels_from_solution() {
         let sol = Solution::new(0_i64, vec![], vec![]);
-        let mem = SearchMemory::from_solution(sol);
+
+        let mut mem = SearchMemory::preallocated(sol.num_vessels());
+        mem.initialize(&sol);
+
         // Queue empty
         assert!(mem.queue.is_empty());
         assert_eq!(mem.queue.len(), 0);
@@ -496,5 +599,60 @@ mod tests {
         assert_eq!(mem.current.num_vessels(), 0);
         assert_eq!(mem.candidate.num_vessels(), 0);
         assert_eq!(mem.current, mem.candidate);
+    }
+
+    #[test]
+    fn test_search_memory_reuse_hot_path() {
+        // 1. First run: Solution A
+        let sol_a = Solution::new(100_i64, vec![bi(0), bi(0)], vec![10, 20]);
+        let mut mem = SearchMemory::preallocated(2);
+        mem.initialize(&sol_a);
+
+        // Verify state A
+        assert_eq!(mem.current.start_time_for_vessel(vi(0)), 10);
+        assert_eq!(mem.queue.buffer(), &[vi(0), vi(1)]);
+
+        // 2. Second run: Solution B (different values)
+        // Vessel 1 starts first now
+        let sol_b = Solution::new(200, vec![bi(1), bi(1)], vec![50, 5]);
+        mem.initialize(&sol_b);
+
+        // Verify state B: should be fully overwritten
+        assert_eq!(mem.current.objective_value(), 200);
+        assert_eq!(mem.current.start_time_for_vessel(vi(0)), 50);
+        // Queue should be re-sorted: vi(1) has start 5, so it comes first
+        assert_eq!(mem.queue.buffer(), &[vi(1), vi(0)]);
+    }
+
+    #[test]
+    fn test_search_memory_capacity_growth() {
+        // 1. Preallocate small
+        let mut mem = SearchMemory::preallocated(1);
+
+        // 2. Initialize with larger solution (size 3)
+        let sol = Solution::new(0_i64, vec![bi(0), bi(0), bi(0)], vec![0, 0, 0]);
+
+        // This should safely grow the internal vectors
+        mem.initialize(&sol);
+
+        assert_eq!(mem.num_vessels(), 3);
+        assert_eq!(mem.current.num_vessels(), 3);
+        // Ensure data is correct
+        assert_eq!(mem.queue.buffer().len(), 3);
+    }
+
+    #[test]
+    fn test_schedule_initialize_from_consistency() {
+        let sol = Solution::new(55_i64, vec![bi(9)], vec![88]);
+
+        let mut s1 = Schedule::new();
+        s1.initialize_from(&sol);
+
+        let s2 = Schedule::from(sol.clone());
+
+        assert_eq!(
+            s1, s2,
+            "initialize_from should produce identical state to from()"
+        );
     }
 }

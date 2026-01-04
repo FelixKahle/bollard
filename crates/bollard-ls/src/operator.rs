@@ -687,8 +687,12 @@ mod tests {
         crate::undo::UndoLog,
         MockTopology,
     ) {
-        // Minimal empty schedule (operators in these tests don't use its contents)
-        let sched = Schedule::new(0i64, Vec::new(), Vec::new());
+        // Minimal empty schedule constructed via Solution -> Schedule conversion
+        let sched = Schedule::from(bollard_model::solution::Solution::new(
+            0_i64,
+            Vec::new(),
+            Vec::new(),
+        ));
 
         // Owned queue and undo log to build a Mutator in each test
         let q_owned = VesselPriorityQueue::new();
