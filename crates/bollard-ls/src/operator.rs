@@ -18,12 +18,3 @@
 // LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-pub mod decoder;
-pub mod eval;
-pub mod memory;
-pub mod mutator;
-pub mod neighborhood;
-pub mod operator;
-pub mod queue;
-pub mod undo;

@@ -19,11 +19,16 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-pub mod decoder;
-pub mod eval;
-pub mod memory;
-pub mod mutator;
-pub mod neighborhood;
-pub mod operator;
-pub mod queue;
-pub mod undo;
+//! Neighborhood modeling for search-space connectivity.
+//!
+//! This module organizes the abstractions and implementations used to define which vessels
+//! can interact during local search. The `neighborhoods` submodule specifies a trait-focused
+//! interface for exposing neighbor relationships with minimal overhead, while the `topology`
+//! submodule provides a cache-friendly static representation derived from model feasibility.
+//!
+//! The design emphasizes predictable memory layout and fast slice-based access, enabling
+//! efficient rejection sampling and inner-loop heuristics where latency and cache locality
+//! have a measurable impact on solver performance.
+
+pub mod neighborhoods;
+pub mod topology;
