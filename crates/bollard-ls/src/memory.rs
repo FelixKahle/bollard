@@ -52,7 +52,7 @@ use bollard_search::num::SolverNumeric;
 /// This struct mirrors the `Solution` struct from `bollard-model`.
 /// Similarly, it represents a full valid schedule with assigned berths and start times
 /// for each vessel, along with the total objective value.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Schedule<T> {
     berths: Vec<BerthIndex>,
     start_times: Vec<T>,

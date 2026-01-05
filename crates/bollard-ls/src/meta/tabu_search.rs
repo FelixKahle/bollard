@@ -90,9 +90,7 @@ where
     #[inline]
     fn hash_schedule(&self, schedule: &Schedule<T>) -> u64 {
         let mut hasher = FxHasher::default(); // Fast non-cryptographic hash
-        schedule.objective_value().hash(&mut hasher);
-        schedule.berths().hash(&mut hasher);
-        schedule.start_times().hash(&mut hasher);
+        schedule.hash(&mut hasher);
         hasher.finish()
     }
 
