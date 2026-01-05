@@ -67,17 +67,22 @@ A stochastic strategy inspired by thermodynamics. It escapes local optima by occ
 
 ### `TabuSearch`
 
-A deterministic, memory-based strategy that prevents cycling by forbidding recently visited solutions.
-
-
+A clean, deterministic strategy that prevents cycling by forbidding recently visited solutions. It implements a standard short-term memory mechanism to force the search to explore new regions of the solution space.
 
 * **Logic:**
-    It maintains a FIFO queue ("Tabu List") of solution signatures (hashes). A move to $S'$ is rejected if $S'$ is in the list, unless it satisfies the **Aspiration Criterion**.
+    It maintains a FIFO queue ("Tabu List") of solution signatures (hashes) with a fixed tenure. A move to a candidate solution $S'$ is decided based on three checks:
+    1.  **Tabu Check:** Is $S'$ in the Tabu List?
+    2.  **Improvement Check:** Is $f(S') < f(S)$?
+    3.  **Aspiration Criterion:** Is $f(S') < f(S_{best})$ (Global Best)?
+
+    The acceptance logic is:
+    $$\text{Accept if } \left( f(S') < f(S) \land S' \notin \text{Tabu} \right) \lor \left( f(S') < f(S_{best}) \right)$$
+
 * **Aspiration:**
-    A Tabu move is accepted if it is strictly better than the global best solution found so far ($S_{best}$).
-    $$\text{Accept if } (S' \notin \text{TabuList}) \lor (f(S') < f(S_{best}))$$
+    The "Golden Rule" of Tabu Search. If a candidate solution is forbidden (Tabu) but strictly better than the best solution ever found, the Tabu status is ignored, and the move is accepted.
+
 * **Hash-Based Memory:**
-    Instead of recording move attributes (which couples the metaheuristic to specific operators), this implementation hashes the **solution state** (objective + structure). This makes it operator-agnostic.
+    To remain operator-agnostic and memory-efficient, this implementation tracks the **Solution Signature** (a 64-bit hash of the objective and structure) rather than specific move attributes. This robustly prevents returning to the exact same state within $N$ iterations.
 
 ---
 

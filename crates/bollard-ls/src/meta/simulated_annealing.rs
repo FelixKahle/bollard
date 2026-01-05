@@ -208,6 +208,9 @@ where
     R: Rng,
     C: CoolingSchedule,
 {
+    /// Small epsilon to avoid division by zero in probability calculations.
+    const EPSILON: f64 = 1e-9;
+
     /// Creates a new Simulated Annealing instance.
     ///
     /// # Arguments
@@ -283,7 +286,7 @@ where
         // Safety: If cost_difference is negative (better), we should have caught it above.
         // If cost_difference is 0 (equal), exp(0) = 1.0 -> 100% acceptance (random walk on plateau).
         let temperature = self.cooling_schedule.current();
-        if temperature <= 1e-9 {
+        if temperature <= Self::EPSILON {
             return false; // Prevent division by zero / extreme probabilities
         }
 

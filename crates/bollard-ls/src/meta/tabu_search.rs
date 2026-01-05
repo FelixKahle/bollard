@@ -21,75 +21,62 @@
 
 //! Tabu Search metaheuristic.
 //!
-//! This module implements a memory-based search strategy that guides the local search
-//! out of local optima by forbidding recently visited solutions. It maintains a
-//! "Tabu List" of solution signatures (hashes) with a fixed tenure. If a candidate
-//! solution matches an entry in the Tabu List, it is rejected unless it satisfies
-//! the **Aspiration Criterion** (i.e., it is better than the global best solution found so far).
+//! A clean, literature-standard implementation of Tabu Search designed for
+//! "First-Improvement" engines. It uses short-term memory to prevent the
+//! search from cycling back to recently visited solutions.
 //!
-//! # Architecture
+//! # Mechanisms
 //!
-//! The `TabuSearch<T>` struct implements the `Metaheuristic` trait. It uses a
-//! `VecDeque` as a ring buffer to efficiently manage the Tabu List (FIFO). To
-//! avoid tight coupling with specific neighborhood operators (e.g., Swap, Relocate),
-//! this implementation defines "Tabu" based on the **Solution State** (via hashing)
-//! rather than the move attributes. This makes the metaheuristic operator-agnostic
-//! and robust across different problem formulations.
+//! 1.  **Tabu List:** A FIFO queue of solution signatures (hashes) with a fixed
+//!     `tenure`. Prevents returning to specific states for $N$ iterations.
+//! 2.  **Aspiration Criterion:** A "Golden Rule" that overrides the Tabu status
+//!     if a candidate solution is better than the global best found so far.
 //!
-//! # Mechanics
+//! # Configuration
 //!
-//! 1.  **Short-Term Memory:** Recently visited solutions are stored in the Tabu List.
-//! 2.  **Tabu Check:** Before accepting a move, the search checks if the candidate's
-//!     hash exists in the list.
-//! 3.  **Aspiration:** If a candidate is Tabu but its objective value is strictly
-//!     better than the global best, the Tabu status is overridden, and the move is accepted.
-//! 4.  **Tenure:** The list has a fixed capacity (`tenure`). When full, the oldest
-//!     entry is removed to make room for the new one.
-//!
-//! This strategy is deterministic and pairs well with deterministic operators. It effectively
-//! prevents short-term cycling (returning to the same local optimum immediately) and forces
-//! the search to explore new regions of the solution space.
+//! * **`tenure`:** The length of the memory. A value of $\sqrt{N}$ (where $N$
+//!   is the number of vessels) is a common rule of thumb.
 
 use crate::eval::WeightedFlowTimeEvaluator;
 use crate::memory::Schedule;
 use crate::meta::metaheuristic::Metaheuristic;
 use bollard_model::model::Model;
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
+use rustc_hash::FxHasher;
 use std::collections::{HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 
-/// A Tabu Search metaheuristic with fixed tenure and solution-hash memory.
+/// A Tabu Search metaheuristic with fixed tenure and lightweight solution signatures.
 ///
-/// Use `TabuSearch::new(tenure)` to create an instance. A tenure of `7-20` is often
-/// a good starting point for scheduling problems.
+/// This variant stores hashes of visited schedules in a short‑term memory to
+/// discourage immediate cycling. A candidate that matches a stored signature is
+/// rejected unless it satisfies the aspiration criterion (strictly better than
+/// the global best). The memory is managed as a FIFO queue with a bounded
+/// `tenure`, expiring the oldest entries as new ones arrive. The evaluator
+/// remains standard (`WeightedFlowTimeEvaluator`), keeping scoring consistent
+/// across metaheuristics.
 #[derive(Debug, Clone)]
 pub struct TabuSearch<T>
 where
     T: SolverNumeric,
 {
-    evaluator: WeightedFlowTimeEvaluator<T>, // Standard evaluator
-    tenure: usize,                           // Maximum size of the tabu list
-    tabu_queue: VecDeque<u64>,               // FIFO queue for tenure management
-    tabu_set: HashSet<u64>,                  // Hash set for O(1) lookups
+    evaluator: WeightedFlowTimeEvaluator<T>, // Evaluator for the objective
+    tenure: usize,                           // Size of the Tabu memory
+    tabu_queue: VecDeque<u64>,               // FIFO for expiring old entries
+    tabu_set: HashSet<u64>,                  // HashSet for O(1) lookups
 }
 
 impl<T> TabuSearch<T>
 where
     T: SolverNumeric,
 {
-    /// Creates a new `TabuSearch` instance with the specified tabu tenure.
+    /// Creates a new Tabu Search with the specified memory size (tenure).
     ///
     /// # Panics
     ///
     /// Panics if `tenure` is 0.
-    #[inline]
     pub fn new(tenure: usize) -> Self {
-        assert!(
-            tenure > 0,
-            "called `TabuSearch::new()` with tenure {}, but tenure must be greater than 0",
-            tenure
-        );
-
+        assert!(tenure > 0, "called `TabuSearch::new()` with zero tenure");
         Self {
             evaluator: WeightedFlowTimeEvaluator::new(),
             tenure,
@@ -98,34 +85,26 @@ where
         }
     }
 
-    /// Computes a lightweight hash of the schedule to serve as its signature.
-    ///
-    /// We hash the objective value and the start times sequence. This is generally
-    /// sufficient to distinguish solutions in the local search landscape without
-    /// the cost of deep structural hashing.
+    /// Generates a lightweight signature for the schedule.
+    /// We hash the Objective and the Structure (Berths + Start Times).
     #[inline]
     fn hash_schedule(&self, schedule: &Schedule<T>) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        // Hash the objective value (primary discriminator)
+        let mut hasher = FxHasher::default(); // Fast non-cryptographic hash
         schedule.objective_value().hash(&mut hasher);
-        // Hash the berth assignments (structural discriminator)
         schedule.berths().hash(&mut hasher);
-        // Hash the start times (temporal discriminator)
         schedule.start_times().hash(&mut hasher);
         hasher.finish()
     }
 
-    /// Adds a solution signature to the tabu list, managing tenure.
+    /// Records a solution in the Tabu list, handling tenure expiration.
     #[inline]
     fn make_tabu(&mut self, hash: u64) {
-        // If the list is full, expire the oldest entry
         if self.tabu_queue.len() >= self.tenure
             && let Some(oldest) = self.tabu_queue.pop_front()
         {
             self.tabu_set.remove(&oldest);
         }
 
-        // Add the new entry
         if self.tabu_set.insert(hash) {
             self.tabu_queue.push_back(hash);
         }
@@ -141,27 +120,19 @@ where
     fn name(&self) -> &str {
         "TabuSearch"
     }
-
     fn evaluator(&self) -> &WeightedFlowTimeEvaluator<T> {
         &self.evaluator
     }
 
     fn on_start(&mut self, _model: &Model<T>, initial_solution: &Schedule<T>) {
-        // Clear history on restart
         self.tabu_queue.clear();
         self.tabu_set.clear();
 
-        // Mark initial solution as visited
         let hash = self.hash_schedule(initial_solution);
         self.make_tabu(hash);
     }
 
-    fn search_command(
-        &mut self,
-        _iteration: u64,
-        _model: &Model<T>,
-        _best_solution: &Schedule<T>,
-    ) -> SearchCommand {
+    fn search_command(&mut self, _: u64, _: &Model<T>, _: &Schedule<T>) -> SearchCommand {
         SearchCommand::Continue
     }
 
@@ -172,44 +143,29 @@ where
         candidate: &Schedule<T>,
         best: &Schedule<T>,
     ) -> bool {
-        // Basic Improvement Check: Is it better than current?
-        // Tabu Search is generally a Best-Improvement method, but in a First-Improvement
-        // engine, we accept any improving move that isn't Tabu.
         let is_improvement = candidate.objective_value() < current.objective_value();
-
-        // Tabu Check
-        let candidate_hash = self.hash_schedule(candidate);
-        let is_tabu = self.tabu_set.contains(&candidate_hash);
-
-        // Aspiration Criterion:
-        // Ideally, we accept if it beats the GLOBAL best.
         let is_global_best = candidate.objective_value() < best.objective_value();
 
+        let hash = self.hash_schedule(candidate);
+        let is_tabu = self.tabu_set.contains(&hash);
+
         if is_tabu {
-            // Only accept a Tabu move if it's a new global best (Aspiration)
             is_global_best
         } else {
-            // Accept non-Tabu moves if they improve the current solution
-            // (Standard Descent behavior)
             is_improvement
         }
     }
 
     fn on_accept(&mut self, _model: &Model<T>, new_current: &Schedule<T>) {
-        // Record the new current solution in the Tabu list to prevent returning to it
+        // We moved to a new solution. Mark it as Tabu so we don't
+        // cycle back to it immediately.
         let hash = self.hash_schedule(new_current);
         self.make_tabu(hash);
     }
 
-    fn on_reject(&mut self, _model: &Model<T>, _rejected_candidate: &Schedule<T>) {
-        // No state update on rejection.
-        // Some variations add visited candidates to Tabu, but standard TS
-        // only tabus the trajectory taken.
-    }
-
-    fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Schedule<T>) {
-        // No specific action needed; Aspiration is handled in `should_accept`.
-    }
+    // No-ops for these hooks in standard Tabu Search
+    fn on_reject(&mut self, _model: &Model<T>, _rejected: &Schedule<T>) {}
+    fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Schedule<T>) {}
 }
 
 #[cfg(test)]
@@ -229,102 +185,219 @@ mod tests {
         assert_eq!(ts.name(), "TabuSearch");
         assert_eq!(ts.tenure, 5);
         assert!(ts.tabu_queue.is_empty());
+        assert!(ts.tabu_set.is_empty());
     }
 
     #[test]
-    #[should_panic(
-        expected = "called `TabuSearch::new()` with tenure 0, but tenure must be greater than 0"
-    )]
+    #[should_panic(expected = "called `TabuSearch::new()` with zero tenure")]
     fn test_zero_tenure_panics() {
         let _ts: TabuSearch<i64> = TabuSearch::new(0);
     }
 
     #[test]
-    fn test_hashing_and_tabu_logic() {
+    fn test_search_command_continue() {
+        let mut ts: TabuSearch<i64> = TabuSearch::new(3);
+        let model = ModelBuilder::<i64>::new(1, 1).build();
+        let best = sched(0_i64, vec![BerthIndex::new(0)], vec![0_i64]);
+        assert_eq!(ts.search_command(0, &model, &best), SearchCommand::Continue);
+    }
+
+    #[test]
+    fn test_on_start_clears_and_marks_initial() {
+        let mut ts: TabuSearch<i64> = TabuSearch::new(3);
+        let model = ModelBuilder::<i64>::new(1, 1).build();
+
+        // Pre-populate with some junk
+        ts.tabu_queue.push_back(111);
+        ts.tabu_set.insert(111);
+        ts.tabu_queue.push_back(222);
+        ts.tabu_set.insert(222);
+
+        let init = sched(100_i64, vec![BerthIndex::new(0)], vec![0_i64]);
+        let h_init = ts.hash_schedule(&init);
+
+        ts.on_start(&model, &init);
+
+        // Cleared previous and added initial
+        assert_eq!(ts.tabu_queue.len(), 1);
+        assert_eq!(ts.tabu_set.len(), 1);
+        assert_eq!(ts.tabu_queue.back().copied(), Some(h_init));
+        assert!(ts.tabu_set.contains(&h_init));
+        assert!(!ts.tabu_set.contains(&111));
+        assert!(!ts.tabu_set.contains(&222));
+    }
+
+    #[test]
+    fn test_should_accept_rules_non_tabu() {
+        let mut ts: TabuSearch<i64> = TabuSearch::new(5);
+        let model = ModelBuilder::<i64>::new(1, 1).build();
+
+        let current = sched(100_i64, vec![BerthIndex::new(0)], vec![0_i64]);
+        let better = sched(90_i64, vec![BerthIndex::new(0)], vec![1_i64]);
+        let equal = sched(100_i64, vec![BerthIndex::new(0)], vec![2_i64]);
+        let worse = sched(110_i64, vec![BerthIndex::new(0)], vec![3_i64]);
+        let best = current.clone();
+
+        ts.on_start(&model, &current);
+
+        assert!(
+            ts.should_accept(&model, &current, &better, &best),
+            "Non‑tabu strict improvement should be accepted"
+        );
+        assert!(
+            !ts.should_accept(&model, &current, &equal, &best),
+            "Equal objective is not a strict improvement"
+        );
+        assert!(
+            !ts.should_accept(&model, &current, &worse, &best),
+            "Worse objective should be rejected when not tabu and not an improvement"
+        );
+    }
+
+    #[test]
+    fn test_make_tabu_eviction_fifo() {
+        // Tenure 2 forces FIFO behavior
         let mut ts: TabuSearch<i64> = TabuSearch::new(2);
-        let model = ModelBuilder::<i64>::new(0, 0).build();
 
-        // S1: Obj 100
-        let s1 = sched(100_i64, vec![BerthIndex::new(0)], vec![10]);
-        // S2: Obj 90 (Better)
-        let s2 = sched(90_i64, vec![BerthIndex::new(0)], vec![20]);
-        // S3: Obj 100 (Same as S1 but different time -> different hash)
-        let s3 = sched(100_i64, vec![BerthIndex::new(0)], vec![30]);
+        let s1 = sched(100_i64, vec![BerthIndex::new(0)], vec![10_i64]);
+        let s2 = sched(90_i64, vec![BerthIndex::new(0)], vec![20_i64]);
+        let s3 = sched(80_i64, vec![BerthIndex::new(0)], vec![30_i64]);
 
-        // Start with S1
-        ts.on_start(&model, &s1);
-
-        // S1 should be in tabu list now
         let h1 = ts.hash_schedule(&s1);
-        assert!(ts.tabu_set.contains(&h1));
-
-        // Accept S2 (Normal move)
-        assert!(ts.should_accept(&model, &s1, &s2, &s1));
-        ts.on_accept(&model, &s2);
-
-        // S2 should be in tabu list
         let h2 = ts.hash_schedule(&s2);
+        let h3 = ts.hash_schedule(&s3);
+
+        ts.make_tabu(h1);
+        ts.make_tabu(h2);
+        assert!(ts.tabu_set.contains(&h1));
         assert!(ts.tabu_set.contains(&h2));
-        assert!(ts.tabu_set.contains(&h1)); // Tenure is 2, so S1 still there
+        assert_eq!(ts.tabu_queue.len(), 2);
 
-        // Accept S3
-        ts.on_accept(&model, &s3);
-
-        // Now tenure (2) is full: [S2, S3]. S1 should be evicted.
+        // Adding a third should evict h1
+        ts.make_tabu(h3);
         assert!(!ts.tabu_set.contains(&h1));
         assert!(ts.tabu_set.contains(&h2));
-        let h3 = ts.hash_schedule(&s3);
         assert!(ts.tabu_set.contains(&h3));
+        assert_eq!(ts.tabu_queue.len(), 2);
+        assert_eq!(ts.tabu_queue.front().copied(), Some(h2));
+        assert_eq!(ts.tabu_queue.back().copied(), Some(h3));
     }
 
     #[test]
-    fn test_aspiration_criterion() {
-        let mut ts: TabuSearch<i64> = TabuSearch::new(10);
-        // Model dimensions match the schedules (1 vessel, 1 berth)
-        let model = ModelBuilder::<i64>::new(1, 1).build();
+    fn test_readding_same_hash_does_not_duplicate() {
+        let mut ts: TabuSearch<i64> = TabuSearch::new(3);
 
-        // Consistent 1-vessel schedules
-        let current = sched(100_i64, vec![BerthIndex::new(0)], vec![0]);
-        let best = sched(50_i64, vec![BerthIndex::new(0)], vec![0]); // Global best is 50
-        // Candidate strictly better than global best (40)
-        let candidate_awesome = sched(40_i64, vec![BerthIndex::new(0)], vec![1]);
+        let s = sched(100_i64, vec![BerthIndex::new(0)], vec![10_i64]);
+        let h = ts.hash_schedule(&s);
 
-        // Initialize lifecycle
-        ts.on_start(&model, &current);
+        ts.make_tabu(h);
+        ts.make_tabu(h); // re-add same
+        ts.make_tabu(h); // again
 
-        // Force candidate to be Tabu
-        let h_awesome = ts.hash_schedule(&candidate_awesome);
-        ts.make_tabu(h_awesome);
-        assert!(ts.tabu_set.contains(&h_awesome));
-
-        // Candidate is Tabu, BUT it beats global best (40 < 50) -> Aspiration accept
-        let accept = ts.should_accept(&model, &current, &candidate_awesome, &best);
-        assert!(accept, "Aspiration criterion should override Tabu status");
+        // Only inserted once
+        assert!(ts.tabu_set.contains(&h));
+        assert_eq!(ts.tabu_set.len(), 1);
+        assert_eq!(ts.tabu_queue.len(), 1);
+        assert_eq!(ts.tabu_queue.front().copied(), Some(h));
     }
 
     #[test]
-    fn test_tabu_blocks_non_aspiration_move() {
-        let mut ts: TabuSearch<i64> = TabuSearch::new(10);
-        // Model dimensions match the schedules (1 vessel, 1 berth)
+    fn test_on_accept_marks_new_current_as_tabu() {
+        let mut ts: TabuSearch<i64> = TabuSearch::new(3);
         let model = ModelBuilder::<i64>::new(1, 1).build();
 
-        let current = sched(100_i64, vec![BerthIndex::new(0)], vec![0]);
-        let best = sched(50_i64, vec![BerthIndex::new(0)], vec![0]);
-        // Candidate is better than current (90 < 100), but worse than best (90 > 50).
-        let candidate_ok = sched(90_i64, vec![BerthIndex::new(0)], vec![1]);
+        let current = sched(100_i64, vec![BerthIndex::new(0)], vec![0_i64]);
+        let next = sched(90_i64, vec![BerthIndex::new(0)], vec![1_i64]);
 
-        // Initialize lifecycle
         ts.on_start(&model, &current);
+        let h_current = ts.hash_schedule(&current);
+        assert!(ts.tabu_set.contains(&h_current));
 
-        // Force candidate to be Tabu
-        let h_ok = ts.hash_schedule(&candidate_ok);
-        ts.make_tabu(h_ok);
+        ts.on_accept(&model, &next);
+        let h_next = ts.hash_schedule(&next);
+        assert!(ts.tabu_set.contains(&h_next));
+        assert_eq!(ts.tabu_queue.back().copied(), Some(h_next));
+    }
 
-        // Candidate is Tabu and does NOT beat the global best -> Reject
-        let accept = ts.should_accept(&model, &current, &candidate_ok, &best);
+    #[test]
+    fn test_hash_schedule_sensitivity() {
+        let ts: TabuSearch<i64> = TabuSearch::new(3);
+
+        // Base
+        let s_base = sched(100_i64, vec![BerthIndex::new(0)], vec![10_i64]);
+        let h_base = ts.hash_schedule(&s_base);
+
+        // Same contents -> same hash
+        let s_same = sched(100_i64, vec![BerthIndex::new(0)], vec![10_i64]);
+        let h_same = ts.hash_schedule(&s_same);
+        assert_eq!(h_base, h_same, "identical schedules must hash the same");
+
+        // Different objective -> different hash
+        let s_obj = sched(101_i64, vec![BerthIndex::new(0)], vec![10_i64]);
+        let h_obj = ts.hash_schedule(&s_obj);
+        assert_ne!(h_base, h_obj, "objective value should affect the hash");
+
+        // Different berth assignment -> different hash
+        // Note: With a single vessel, varying berth index changes structure.
+        let s_berth = sched(100_i64, vec![BerthIndex::new(1)], vec![10_i64]);
+        let h_berth = ts.hash_schedule(&s_berth);
+        assert_ne!(h_base, h_berth, "berths should affect the hash");
+
+        // Different start time -> different hash
+        let s_start = sched(100_i64, vec![BerthIndex::new(0)], vec![11_i64]);
+        let h_start = ts.hash_schedule(&s_start);
+        assert_ne!(h_base, h_start, "start times should affect the hash");
+    }
+
+    // Existing tests from earlier conversations (kept and validated)
+
+    #[test]
+    fn test_tabu_prevents_cycling() {
+        // Tenure = 10
+        let mut ts: TabuSearch<i64> = TabuSearch::new(10);
+        let model = ModelBuilder::<i64>::new(0, 0).build();
+
+        // Solution A (Cost 100)
+        let s_a = sched(100, vec![BerthIndex::new(0)], vec![10]);
+        // Solution B (Cost 90)
+        let s_b = sched(90, vec![BerthIndex::new(0)], vec![20]);
+
+        let best = s_a.clone();
+
+        // Start at A
+        ts.on_start(&model, &s_a);
+
+        // A is now Tabu. Move to B.
+        assert!(ts.should_accept(&model, &s_a, &s_b, &best));
+        ts.on_accept(&model, &s_b);
+
+        // B is now Tabu.
+        // Try to move BACK to A (Cycling).
+        // A is in the Tabu List (from start). A is NOT better than Global Best (100 !< 100).
+        // Result: REJECT.
+        let accept_back = ts.should_accept(&model, &s_b, &s_a, &best);
         assert!(
-            !accept,
-            "Tabu should block moves that do not meet aspiration"
+            !accept_back,
+            "Tabu Search should prevent returning to Solution A"
         );
+    }
+
+    #[test]
+    fn test_aspiration_overrides_tabu() {
+        let mut ts: TabuSearch<i64> = TabuSearch::new(10);
+        let model = ModelBuilder::<i64>::new(0, 0).build();
+
+        let s_current = sched(100, vec![], vec![]);
+        let s_best = sched(50, vec![], vec![]); // Global best is 50
+
+        // Candidate is Tabu (we force it)
+        let s_candidate = sched(40, vec![BerthIndex::new(0)], vec![1]);
+        let h = ts.hash_schedule(&s_candidate);
+        ts.make_tabu(h);
+
+        // But Candidate (40) is better than Best (50).
+        // Result: ACCEPT (Aspiration).
+        let accept = ts.should_accept(&model, &s_current, &s_candidate, &s_best);
+        assert!(accept, "Aspiration should override Tabu status");
     }
 }
