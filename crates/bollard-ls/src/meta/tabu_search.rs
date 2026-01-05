@@ -120,9 +120,10 @@ where
     fn make_tabu(&mut self, hash: u64) {
         // If the list is full, expire the oldest entry
         if self.tabu_queue.len() >= self.tenure
-            && let Some(oldest) = self.tabu_queue.pop_front() {
-                self.tabu_set.remove(&oldest);
-            }
+            && let Some(oldest) = self.tabu_queue.pop_front()
+        {
+            self.tabu_set.remove(&oldest);
+        }
 
         // Add the new entry
         if self.tabu_set.insert(hash) {
