@@ -153,6 +153,28 @@ where
         self.start_times[index]
     }
 
+    /// Returns the assigned start time for a specific vessel.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `vessel_index` is out of bounds.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `vessel_index` is within bounds.
+    #[inline]
+    pub unsafe fn start_time_for_vessel_unchecked(&self, vessel_index: VesselIndex) -> T {
+        let index = vessel_index.get();
+        debug_assert!(
+            index < self.num_vessels(),
+            "called `Schedule::start_time_for_vessel_unched` with vessel index out of bounds: the len is {} but the index is {}",
+            index,
+            self.num_vessels()
+        );
+
+        *unsafe { self.start_times.get_unchecked(index) }
+    }
+
     /// Returns the number of vessels in this schedule.
     #[inline]
     pub fn num_vessels(&self) -> usize {

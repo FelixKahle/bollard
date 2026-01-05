@@ -114,7 +114,7 @@ where
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WeightedFlowTimeEvaluator<T>
 where
     T: SolverNumeric,

@@ -82,6 +82,7 @@ dependencies = [
  "criterion",
  "num-traits",
  "rand",
+ "rand_chacha",
  "regex",
 ]
 

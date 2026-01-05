@@ -32,12 +32,11 @@
 
 use crate::{
     decoder::Decoder,
-    eval::AssignmentEvaluator,
     memory::SearchMemory,
-    metaheuristic::Metaheuristic,
+    meta::metaheuristic::Metaheuristic,
     monitor::local_search_monitor::LocalSearchMonitor,
     neighborhood::neighborhoods::Neighborhoods,
-    operator::LocalSearchOperator,
+    operator::local_search_operator::LocalSearchOperator,
     result::{LocalSearchEngineOutcome, LocalSearchTerminationReason},
     stats::LocalSearchStatistics,
 };
@@ -113,7 +112,6 @@ where
     /// - `operator`: Applies mutations to the queue (genotype) with an undo log for rollback.
     /// - `metaheuristic`: Governs acceptance decisions and termination policy.
     /// - `monitor`: Observes iterations, solutions, and can request early termination.
-    /// - `evaluator`: Computes per‑assignment score and objective delta.
     /// - `initial_solution`: Starting point for the search; also seeds memory/queue ordering.
     ///
     /// # Notes:
@@ -121,7 +119,7 @@ where
     /// - Uses `decode_unchecked` for speed under the assumption that inputs are validated elsewhere.
     ///   In debug builds, assertions help catch inconsistencies early.
     #[allow(clippy::too_many_arguments)]
-    pub fn run<E, N, M, D, O, SM>(
+    pub fn run<N, M, D, O, SM>(
         &mut self,
         model: &Model<T>,
         decoder: &mut D,
@@ -129,14 +127,12 @@ where
         operator: &mut O,
         metaheuristic: &mut M,
         monitor: &mut SM,
-        evaluator: &E,
         initial_solution: &Solution<T>,
     ) -> LocalSearchEngineOutcome<T>
     where
-        E: AssignmentEvaluator<T>,
         N: Neighborhoods,
         M: Metaheuristic<T>,
-        D: Decoder<T, E>,
+        D: Decoder<T, M::Evaluator>,
         O: LocalSearchOperator<T, N>,
         SM: LocalSearchMonitor<T>,
     {
@@ -162,7 +158,7 @@ where
         decoder.initialize(model);
 
         monitor.on_start(self.memory.current_schedule());
-        metaheuristic.on_start(self.memory.current_schedule());
+        metaheuristic.on_start(model, self.memory.current_schedule());
 
         // Prepare for the first iteration
         operator.prepare(
@@ -176,9 +172,11 @@ where
                 break LocalSearchTerminationReason::Aborted(reason);
             }
 
-            if let SearchCommand::Terminate(reason) =
-                metaheuristic.search_command(stats.iterations, self.memory.current_schedule())
-            {
+            if let SearchCommand::Terminate(reason) = metaheuristic.search_command(
+                stats.iterations,
+                model,
+                self.memory.current_schedule(),
+            ) {
                 break LocalSearchTerminationReason::Metaheuristic(reason);
             }
 
@@ -195,6 +193,7 @@ where
 
             let decoded = unsafe {
                 let (queue, candidate) = self.memory.evaluation_target();
+                let evaluator = metaheuristic.evaluator();
                 decoder.decode_unchecked(model, queue, candidate, evaluator)
             };
 
@@ -215,6 +214,7 @@ where
             stats.on_found_solution();
 
             let accept = metaheuristic.should_accept(
+                model,
                 self.memory.current_schedule(),
                 self.memory.candidate_schedule(),
                 &best_solution,
@@ -231,7 +231,7 @@ where
                     self.memory.num_vessels()
                 );
 
-                metaheuristic.on_accept(self.memory.current_schedule());
+                metaheuristic.on_accept(model, self.memory.current_schedule());
                 monitor.on_solution_accepted(self.memory.current_schedule(), &stats);
 
                 if self.memory.current_schedule().objective_value()
@@ -247,7 +247,7 @@ where
                         self.memory.current_schedule().objective_value()
                     );
 
-                    metaheuristic.on_new_best(&best_solution);
+                    metaheuristic.on_new_best(model, &best_solution);
                     monitor.on_solution_found(&best_solution, &stats);
                 }
 
@@ -268,7 +268,7 @@ where
                     self.memory.num_vessels()
                 );
 
-                metaheuristic.on_reject(self.memory.candidate_schedule());
+                metaheuristic.on_reject(model, self.memory.candidate_schedule());
                 monitor.on_solution_rejected(self.memory.candidate_schedule(), &stats);
             }
 
@@ -289,6 +289,188 @@ where
             LocalSearchTerminationReason::Aborted(msg) => {
                 LocalSearchEngineOutcome::aborted(final_solution, msg, stats)
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::decoder::GreedyDecoder;
+    use crate::meta::greedy_descent::GreedyDescent;
+    use crate::neighborhood::topology::StaticTopology;
+    use crate::operator::swap::SwapOperator;
+    use bollard_model::index::{BerthIndex, VesselIndex};
+    use bollard_model::model::ModelBuilder;
+    use bollard_model::solution::Solution;
+
+    // A monitor that records calls and never terminates early.
+    #[derive(Default)]
+    struct NoopMonitor {
+        started: bool,
+        ended: bool,
+        iterations: u64,
+        found: u64,
+        accepted: u64,
+        rejected: u64,
+    }
+
+    impl<T> LocalSearchMonitor<T> for NoopMonitor
+    where
+        T: SolverNumeric,
+    {
+        fn name(&self) -> &str {
+            "NoopMonitor"
+        }
+
+        fn on_start(&mut self, _initial_solution: &crate::memory::Schedule<T>) {
+            self.started = true;
+        }
+
+        fn on_end(
+            &mut self,
+            _best_solution: &crate::memory::Schedule<T>,
+            _statistics: &crate::stats::LocalSearchStatistics,
+        ) {
+            self.ended = true;
+        }
+
+        fn on_iteration(
+            &mut self,
+            _current_solution: &crate::memory::Schedule<T>,
+            _statistics: &crate::stats::LocalSearchStatistics,
+        ) {
+            self.iterations += 1;
+        }
+
+        fn on_solution_found(
+            &mut self,
+            _solution: &crate::memory::Schedule<T>,
+            _statistics: &crate::stats::LocalSearchStatistics,
+        ) {
+            self.found += 1;
+        }
+
+        fn on_solution_accepted(
+            &mut self,
+            _solution: &crate::memory::Schedule<T>,
+            _statistics: &crate::stats::LocalSearchStatistics,
+        ) {
+            self.accepted += 1;
+        }
+
+        fn on_solution_rejected(
+            &mut self,
+            _solution: &crate::memory::Schedule<T>,
+            _statistics: &crate::stats::LocalSearchStatistics,
+        ) {
+            self.rejected += 1;
+        }
+    }
+
+    // Build a small model where vessels contend so SwapOperator has work.
+    // Two vessels, one berth, overlapping windows, simple weights and processing times.
+    fn build_model() -> bollard_model::model::Model<i64> {
+        let mut builder = ModelBuilder::<i64>::new(1, 2);
+
+        // Allow both vessels on berth 0 with processing time 5
+        builder.set_vessel_processing_time(
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            bollard_model::time::ProcessingTime::from_option(Some(5)),
+        );
+        builder.set_vessel_processing_time(
+            VesselIndex::new(1),
+            BerthIndex::new(0),
+            bollard_model::time::ProcessingTime::from_option(Some(5)),
+        );
+
+        // Overlapping windows
+        builder.set_vessel_arrival_time(VesselIndex::new(0), 0);
+        builder.set_vessel_latest_departure_time(VesselIndex::new(0), 20);
+        builder.set_vessel_arrival_time(VesselIndex::new(1), 0);
+        builder.set_vessel_latest_departure_time(VesselIndex::new(1), 20);
+
+        // Weights
+        builder.set_vessel_weight(VesselIndex::new(0), 1);
+        builder.set_vessel_weight(VesselIndex::new(1), 2);
+
+        builder.build()
+    }
+
+    // Construct an initial solution with queue order [1, 0] via start times,
+    // and berths assigned to the only berth 0 for both vessels.
+    fn initial_solution() -> Solution<i64> {
+        let berths = vec![BerthIndex::new(0), BerthIndex::new(0)];
+        // Start times encode queue order in SearchMemory.initialize via sorting.
+        // Using [10, 0] gives queue [1, 0] initially.
+        let start_times = vec![10, 0];
+        Solution::new(0, berths, start_times)
+    }
+
+    #[test]
+    fn test_engine_run_hill_climber_with_swap_and_greedy_decoder() {
+        // Assemble components
+        let model = build_model();
+        let topology = StaticTopology::from_model(&model);
+
+        let mut decoder = GreedyDecoder::<i64, _>::new();
+        decoder.initialize(&model);
+
+        let mut meta = GreedyDescent::default();
+        let mut monitor = NoopMonitor::default();
+
+        // Operator must specify Neighborhood type parameter when using SwapOperator<T, N>
+        let mut op = SwapOperator::<i64, StaticTopology>::new();
+
+        // Use the engine with default memory
+        let mut engine = LocalSearchEngine::<i64>::new();
+        let init = initial_solution();
+
+        // Run
+        let outcome = engine.run(
+            &model,
+            &mut decoder,
+            &topology,
+            &mut op,
+            &mut meta,
+            &mut monitor,
+            &init,
+        );
+
+        // Outcome validity
+        assert!(
+            outcome.statistics().iterations >= 1,
+            "engine should perform at least one iteration"
+        );
+        // Termination should be Local Optimum or Metaheuristic; hill climber tends to reach local optimum
+        match outcome.termination_reason() {
+            crate::result::LocalSearchTerminationReason::LocalOptimum => {}
+            crate::result::LocalSearchTerminationReason::Metaheuristic(_) => {}
+            other => panic!("unexpected termination reason: {:?}", other),
+        }
+
+        // The solution returned by outcome must have the same number of vessels as model
+        assert_eq!(
+            outcome.solution().num_vessels(),
+            model.num_vessels(),
+            "solution vessel count mismatch"
+        );
+
+        // Monitor lifecycle reached end
+        assert!(monitor.started, "monitor should be started");
+        assert!(monitor.ended, "monitor should be ended");
+
+        // Decoder name and metaheuristic name available
+        assert_eq!(decoder.name(), "GreedyDecoder");
+        assert_eq!(meta.name(), "GreedyDescent");
+
+        // Topology has 2 vessels and reports neighbor relationship
+        assert_eq!(topology.num_vessels(), 2);
+        // Unsafe neighbor check (safe here due to fixed indices)
+        unsafe {
+            let n = topology.are_neighbors_unchecked(VesselIndex::new(0), VesselIndex::new(1));
+            assert!(n, "vessels should be neighbors in this model");
         }
     }
 }

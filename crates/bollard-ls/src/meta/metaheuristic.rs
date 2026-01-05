@@ -30,7 +30,8 @@
 //! best. The design aims to keep the hot path cheap and predictable so that
 //! metaheuristics can inject guidance without disrupting tight inner loops.
 
-use crate::memory::Schedule;
+use crate::{eval::AssignmentEvaluator, memory::Schedule};
+use bollard_model::model::Model;
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 
 /// A trait governing the acceptance logic and termination of the local search.
@@ -41,14 +42,25 @@ pub trait Metaheuristic<T>: Send + Sync
 where
     T: SolverNumeric,
 {
+    /// The type of assignment evaluator used by the metaheuristic.
+    type Evaluator: AssignmentEvaluator<T>;
+
     /// Returns the name of the metaheuristic.
     fn name(&self) -> &str;
 
+    /// Provides mutable access to the assignment evaluator used by the search.
+    fn evaluator(&self) -> &Self::Evaluator;
+
     /// Called at the start of the search.
-    fn on_start(&mut self, initial_solution: &Schedule<T>);
+    fn on_start(&mut self, model: &Model<T>, initial_solution: &Schedule<T>);
 
     /// Determines if the search should proceed to the next iteration.
-    fn search_command(&mut self, iteration: u64, best_solution: &Schedule<T>) -> SearchCommand;
+    fn search_command(
+        &mut self,
+        iteration: u64,
+        model: &Model<T>,
+        best_solution: &Schedule<T>,
+    ) -> SearchCommand;
 
     /// Decides whether to accept the `candidate` solution over the `current` one.
     ///
@@ -56,33 +68,36 @@ where
     /// The `best` solution found so far is also provided for context (e.g., aspiration criteria).
     fn should_accept(
         &mut self,
+        model: &Model<T>,
         current: &Schedule<T>,
         candidate: &Schedule<T>,
         best: &Schedule<T>,
     ) -> bool;
 
     /// Called when a move is accepted.
-    fn on_accept(&mut self, new_current: &Schedule<T>);
+    fn on_accept(&mut self, model: &Model<T>, new_current: &Schedule<T>);
 
     /// Called when a move is rejected.
-    fn on_reject(&mut self, rejected_candidate: &Schedule<T>);
+    fn on_reject(&mut self, model: &Model<T>, rejected_candidate: &Schedule<T>);
 
     /// Called when a new global best solution is found.
-    fn on_new_best(&mut self, new_best: &Schedule<T>);
+    fn on_new_best(&mut self, model: &Model<T>, new_best: &Schedule<T>);
 }
 
-impl<T> std::fmt::Debug for dyn Metaheuristic<T>
+impl<T, E> std::fmt::Debug for dyn Metaheuristic<T, Evaluator = E>
 where
     T: SolverNumeric,
+    E: AssignmentEvaluator<T>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Metaheuristic {{ name: {} }}", self.name())
     }
 }
 
-impl<T> std::fmt::Display for dyn Metaheuristic<T>
+impl<T, E> std::fmt::Display for dyn Metaheuristic<T, Evaluator = E>
 where
     T: SolverNumeric,
+    E: AssignmentEvaluator<T>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Metaheuristic: {}", self.name())
