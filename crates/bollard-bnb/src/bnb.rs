@@ -44,7 +44,7 @@ use crate::{
     fixed::FixedAssignment,
     incumbent::{IncumbentStore, NoSharedIncumbent, SharedIncumbentAdapter},
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
-    result::BnbSolverOutcome,
+    result::{BnbSolverOutcome, BnbTerminationReason},
     stack::SearchStack,
     state::SearchState,
     stats::BnbSolverStatistics,
@@ -54,7 +54,6 @@ use bollard_model::index::{BerthIndex, VesselIndex};
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{
     incumbent::SharedIncumbent, monitor::search_monitor::SearchCommand, num::SolverNumeric,
-    result::TerminationReason,
 };
 use num_traits::{PrimInt, Signed};
 
@@ -413,10 +412,10 @@ where
         if !self.initialize() {
             self.stats.set_total_time(self.start_time.elapsed());
             self.monitor.on_exit_search(&self.stats);
-            return self.finalize_result(TerminationReason::InfeasibilityProven);
+            return self.finalize_result(BnbTerminationReason::InfeasibilityProven);
         }
 
-        let termination_reason: TerminationReason = loop {
+        let termination_reason: BnbTerminationReason = loop {
             self.best_objective = self.incumbent.tighten(self.best_objective);
             self.monitor.on_step(&self.state, &self.stats);
             self.stats.on_step();
@@ -424,16 +423,16 @@ where
             if let SearchCommand::Terminate(msg) =
                 self.monitor.search_command(&self.state, &self.stats)
             {
-                break TerminationReason::Aborted(msg);
+                break BnbTerminationReason::Aborted(msg);
             }
 
             // Logic originally in step()
             if self.solver.stack.is_current_level_empty() {
                 if self.solver.stack.depth() <= 1 {
                     break if self.best_solution.is_some() {
-                        TerminationReason::OptimalityProven
+                        BnbTerminationReason::OptimalityProven
                     } else {
-                        TerminationReason::InfeasibilityProven
+                        BnbTerminationReason::InfeasibilityProven
                     };
                 }
                 self.backtrack_step();
@@ -456,17 +455,17 @@ where
     ///
     /// This consumes self.
     #[inline]
-    fn finalize_result(self, reason: TerminationReason) -> BnbSolverOutcome<T> {
+    fn finalize_result(self, reason: BnbTerminationReason) -> BnbSolverOutcome<T> {
         match reason {
-            TerminationReason::OptimalityProven => {
+            BnbTerminationReason::OptimalityProven => {
                 // Must have a solution when optimality is proven
                 let solution = self
                     .best_solution
                     .expect("expected an incumbent solution when termination is OptimalityProven");
                 BnbSolverOutcome::optimal(solution, self.stats)
             }
-            TerminationReason::InfeasibilityProven => BnbSolverOutcome::infeasible(self.stats),
-            TerminationReason::Aborted(msg) => {
+            BnbTerminationReason::InfeasibilityProven => BnbSolverOutcome::infeasible(self.stats),
+            BnbTerminationReason::Aborted(msg) => {
                 BnbSolverOutcome::aborted(self.best_solution, msg, self.stats)
             }
         }

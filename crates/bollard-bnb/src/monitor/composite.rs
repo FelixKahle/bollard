@@ -215,7 +215,7 @@ where
         statistics: &BnbSolverStatistics,
     ) {
         for monitor in &mut self.monitors {
-            monitor.on_prune(state, reason.clone(), statistics);
+            monitor.on_prune(state, reason, statistics);
         }
     }
 

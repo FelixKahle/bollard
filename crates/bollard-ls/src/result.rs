@@ -59,7 +59,7 @@ impl std::fmt::Display for LocalSearchTerminationReason {
 }
 
 /// Result of the solver after termination.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalSearchEngineOutcome<T> {
     termination_reason: LocalSearchTerminationReason,
     solution: Solution<T>,

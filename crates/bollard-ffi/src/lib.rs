@@ -41,3 +41,5 @@
 
 pub mod bnb;
 pub mod model;
+pub mod result;
+pub mod solution;

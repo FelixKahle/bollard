@@ -481,6 +481,40 @@ pub unsafe extern "C" fn bollard_model_vessel_weight(
     model.vessel_weight(VesselIndex::new(vessel_index))
 }
 
+/// Returns a pointer to the processing times array for a specific vessel in the Bollard model.
+///
+/// # Panics
+///
+/// This function will panic if `vessel_index` is out of bounds,
+/// or if the pointer is null.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_builder_build`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_model_vessel_processing_times(
+    ptr: *const Model<i64>,
+    vessel_index: usize,
+) -> *const i64 {
+    assert!(
+        !ptr.is_null(),
+        "called `bollard_model_vessel_processing_times_ptr` with null pointer"
+    );
+
+    let model = &*ptr;
+
+    assert!(vessel_index < model.num_vessels(),
+        "called `bollard_model_vessel_processing_times_ptr` with vessel index out of bounds: the len is {} but the index is {}",
+        model.num_vessels(),
+        vessel_index
+    );
+
+    let processing_times = model.vessel_processing_times(VesselIndex::new(vessel_index));
+    processing_times.as_ptr() as *const i64
+}
+
 /// Returns the processing time for a specific vessel-berth pair in the Bollard model.
 /// If the vessel cannot be processed at the berth, returns -1.
 ///
@@ -562,6 +596,29 @@ pub unsafe extern "C" fn bollard_model_vessel_arrival_time(
     model.vessel_arrival_time(VesselIndex::new(vessel_index))
 }
 
+/// Returns a pointer to the array of arrival times for all vessels in the Bollard model.
+///
+/// # Panics
+///
+/// This function will panic if the pointer is null.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_builder_build`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_model_vessel_arrival_times(ptr: *const Model<i64>) -> *const i64 {
+    assert!(
+        !ptr.is_null(),
+        "called `bollard_model_vessel_arrival_times` with null pointer"
+    );
+
+    let model = &*ptr;
+
+    model.vessel_arrival_times().as_ptr()
+}
+
 /// Returns the latest departure time of a specific vessel in the Bollard model.
 ///
 /// # Panics
@@ -593,6 +650,31 @@ pub unsafe extern "C" fn bollard_model_vessel_latest_departure_time(
     );
 
     model.vessel_latest_departure_time(VesselIndex::new(vessel_index))
+}
+
+/// Returns a pointer to the array of latest departure times for all vessels in the Bollard model.
+///
+/// # Panics
+///
+/// This function will panic if the pointer is null.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_builder_build`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_model_vessel_latest_departure_times(
+    ptr: *const Model<i64>,
+) -> *const i64 {
+    assert!(
+        !ptr.is_null(),
+        "called `bollard_model_vessel_latest_departure_times` with null pointer"
+    );
+
+    let model = &*ptr;
+
+    model.vessel_latest_departure_times().as_ptr()
 }
 
 /// Returns the number of closing time intervals for a specific berth in the Bollard model.
@@ -708,6 +790,46 @@ pub unsafe extern "C" fn bollard_model_berth_closing_time(
     FfiOpenClosedInterval::from(*interval)
 }
 
+/// Returns a pointer to the array of closing time intervals for a specific berth in the Bollard model.
+///
+/// # Panics
+///
+/// This function will panic if `berth_index` is out of bounds,
+/// or if the pointer is null.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_builder_build`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_model_berth_closing_times(
+    ptr: *const Model<i64>,
+    berth_index: usize,
+) -> *const FfiOpenClosedInterval {
+    assert!(
+        !ptr.is_null(),
+        "called `bollard_model_berth_closing_times` with null pointer"
+    );
+
+    let model = &*ptr;
+
+    assert!(berth_index < model.num_berths(),
+        "called `bollard_model_berth_closing_times` with berth index out of bounds: the len is {} but the index is {}",
+        model.num_berths(),
+        berth_index
+    );
+
+    let intervals = model.berth_closing_times(BerthIndex::new(berth_index));
+
+    debug_assert!(
+        std::mem::size_of::<FfiOpenClosedInterval>()
+            == std::mem::size_of::<ClosedOpenInterval<i64>>()
+    );
+
+    intervals.as_ptr() as *const FfiOpenClosedInterval
+}
+
 /// Retrieves a specific opening time interval for a berth in the Bollard model.
 ///
 /// # Panics
@@ -749,6 +871,46 @@ pub unsafe extern "C" fn bollard_model_berth_opening_time(
 
     let interval = &intervals[interval_index];
     FfiOpenClosedInterval::from(*interval)
+}
+
+/// Returns a pointer to the array of opening time intervals for a specific berth in the Bollard model.
+///
+/// # Panics
+///
+/// This function will panic if `berth_index` is out of bounds,
+/// or if the pointer is null.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that the pointer is valid and was
+/// allocated by `bollard_model_builder_build`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_model_berth_opening_times(
+    ptr: *const Model<i64>,
+    berth_index: usize,
+) -> *const FfiOpenClosedInterval {
+    assert!(
+        !ptr.is_null(),
+        "called `bollard_model_berth_opening_times` with null pointer"
+    );
+
+    let model = &*ptr;
+
+    assert!(berth_index < model.num_berths(),
+        "called `bollard_model_berth_opening_times` with berth index out of bounds: the len is {} but the index is {}",
+        model.num_berths(),
+        berth_index
+    );
+
+    let intervals = model.berth_opening_times(BerthIndex::new(berth_index));
+
+    debug_assert!(
+        std::mem::size_of::<FfiOpenClosedInterval>()
+            == std::mem::size_of::<ClosedOpenInterval<i64>>()
+    );
+
+    intervals.as_ptr() as *const FfiOpenClosedInterval
 }
 
 /// Checks if a specific vessel-berth assignment is forbidden in the Bollard model.

@@ -310,12 +310,36 @@ where
     ///
     /// let builder = ModelBuilder::<i64>::new(2, 3);
     /// let model = builder.build();
-    /// let processing_times = model.vessel_processing_times();
+    /// let processing_times = model.vessel_processing_times_matrix();
     /// assert_eq!(processing_times.len(), 6); // 2 berths * 3 vessels
     /// ```
     #[inline]
-    pub fn vessel_processing_times(&self) -> &[ProcessingTime<T>] {
+    pub fn vessel_processing_times_matrix(&self) -> &[ProcessingTime<T>] {
         &self.processing_times
+    }
+
+    /// Returns a slice of processing times for the specified vessel.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `vessel_index` is not in `0..num_vessels()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    ///
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let builder = ModelBuilder::<i64>::new(2, 3);
+    /// let model = builder.build();
+    /// let vessel_0_times = model.vessel_processing_times(bollard_model::index::VesselIndex::new(0));
+    /// assert_eq!(vessel_0_times.len(), 2); // 2 berths
+    /// ```
+    #[inline]
+    pub fn vessel_processing_times(&self, vessel_index: VesselIndex) -> &[ProcessingTime<T>] {
+        let start = vessel_index.get() * self.num_berths();
+        let end = start + self.num_berths();
+        &self.processing_times[start..end]
     }
 
     /// Returns a slice of all opening times.
@@ -327,12 +351,29 @@ where
     ///
     /// let builder = ModelBuilder::<i64>::new(4, 2);
     /// let model = builder.build();
-    /// let opening_times = model.vessel_opening_times();
+    /// let opening_times = model.vessel_opening_times_matrix();
     /// assert_eq!(opening_times.len(), 4);
     /// ```
     #[inline]
-    pub fn vessel_opening_times(&self) -> &[Vec<ClosedOpenInterval<T>>] {
+    pub fn vessel_opening_times_matrix(&self) -> &[Vec<ClosedOpenInterval<T>>] {
         &self.opening_times
+    }
+
+    /// Returns a slice of all closing times.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let builder = ModelBuilder::<i64>::new(4, 2);
+    /// let model = builder.build();
+    /// let closing_times = model.vessel_closing_times_matrix();
+    /// assert_eq!(closing_times.len(), 4);
+    /// ```
+    #[inline]
+    pub fn vessel_closing_times_matrix(&self) -> &[Vec<ClosedOpenInterval<T>>] {
+        &self.closing_times
     }
 
     /// Returns a slice of all shortest processing times.
@@ -1786,8 +1827,8 @@ mod tests {
         assert_eq!(m.vessel_arrival_times().len(), 3);
         assert_eq!(m.vessel_latest_departure_times().len(), 3);
         assert_eq!(m.vessel_weights().len(), 3);
-        assert_eq!(m.vessel_processing_times().len(), 6);
-        assert_eq!(m.vessel_opening_times().len(), 2);
+        assert_eq!(m.vessel_processing_times_matrix().len(), 6);
+        assert_eq!(m.vessel_opening_times_matrix().len(), 2);
         assert_eq!(m.vessel_shortest_processing_times().len(), 3);
     }
 
@@ -1905,7 +1946,7 @@ mod tests {
         for vi in 0..4 {
             for bi in 0..3 {
                 let flat = flatten_index(3, v(vi), b(bi));
-                let pt = m.vessel_processing_times()[flat];
+                let pt = m.vessel_processing_times_matrix()[flat];
                 assert_eq!(opt(pt), Some(vi as i64 * 100 + bi as i64));
             }
         }
@@ -2149,7 +2190,7 @@ mod tests {
         for vi in 0..3 {
             for bi in 0..4 {
                 let flat = flatten_index(4, v(vi), b(bi));
-                let pt = m.vessel_processing_times()[flat];
+                let pt = m.vessel_processing_times_matrix()[flat];
                 let expected = (vi as i64) * (i64::MAX / 4) + bi as i64;
                 assert_eq!(Option::<i64>::from(pt), Some(expected));
             }
@@ -2179,8 +2220,8 @@ mod tests {
         assert!(model.vessel_arrival_times().is_empty());
         assert!(model.vessel_latest_departure_times().is_empty());
         assert!(model.vessel_weights().is_empty());
-        assert!(model.vessel_processing_times().is_empty());
-        assert!(model.vessel_opening_times().is_empty());
+        assert!(model.vessel_processing_times_matrix().is_empty());
+        assert!(model.vessel_opening_times_matrix().is_empty());
         assert!(model.vessel_shortest_processing_times().is_empty());
     }
 

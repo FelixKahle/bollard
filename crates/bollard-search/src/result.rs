@@ -114,6 +114,8 @@ pub enum TerminationReason {
     OptimalityProven,
     /// The solver proved that the problem is infeasible.
     InfeasibilityProven,
+    /// The solver converged to a point without global proof (e.g., local optimum or stationary point).
+    Converged(String),
     /// The solver aborted due to a search limit (time, iterations, etc.).
     /// The string contains information about the reason for abortion.
     Aborted(String),
@@ -124,6 +126,7 @@ impl std::fmt::Display for TerminationReason {
         match self {
             TerminationReason::OptimalityProven => write!(f, "Optimality Proven"),
             TerminationReason::InfeasibilityProven => write!(f, "Infeasibility Proven"),
+            TerminationReason::Converged(msg) => write!(f, "Converged: {}", msg),
             TerminationReason::Aborted(msg) => write!(f, "Aborted: {}", msg),
         }
     }

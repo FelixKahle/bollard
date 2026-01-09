@@ -64,6 +64,7 @@ version = "0.1.0"
 dependencies = [
  "bollard_bnb",
  "bollard_core",
+ "bollard_ls",
  "bollard_model",
  "bollard_search",
  "libc",

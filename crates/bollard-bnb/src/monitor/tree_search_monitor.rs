@@ -44,7 +44,7 @@ use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
 
 /// Reasons for pruning a search state.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PruneReason {
     /// The subtree is infeasible.
     Infeasible,
