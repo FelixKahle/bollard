@@ -1433,16 +1433,17 @@ mod tests {
 
     #[test]
     fn test_stats_from_bnb_stats_maps_all_fields() {
-        let mut s = BnbSolverStatistics::default();
-        s.nodes_explored = 11;
-        s.backtracks = 12;
-        s.decisions_generated = 13;
-        s.max_depth = 14;
-        s.prunings_infeasible = 15;
-        s.prunings_bound = 16;
-        s.solutions_found = 17;
-        s.steps = 18;
-        s.set_total_time(Duration::from_millis(19));
+        let s = BnbSolverStatistics {
+            nodes_explored: 11,
+            backtracks: 12,
+            decisions_generated: 13,
+            max_depth: 14,
+            prunings_infeasible: 15,
+            prunings_bound: 16,
+            solutions_found: 17,
+            steps: 18,
+            ..Default::default()
+        };
 
         let ffi = BnbSolverFfiStatistics::from(&s);
         assert_eq!(ffi.nodes_explored, 11);
