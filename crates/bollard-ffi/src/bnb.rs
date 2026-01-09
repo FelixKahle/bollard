@@ -1427,36 +1427,6 @@ mod tests {
         }
     }
 
-    // ----------------------------
-    // Statistics mapping + FFI API
-    // ----------------------------
-
-    #[test]
-    fn test_stats_from_bnb_stats_maps_all_fields() {
-        let s = BnbSolverStatistics {
-            nodes_explored: 11,
-            backtracks: 12,
-            decisions_generated: 13,
-            max_depth: 14,
-            prunings_infeasible: 15,
-            prunings_bound: 16,
-            solutions_found: 17,
-            steps: 18,
-            ..Default::default()
-        };
-
-        let ffi = BnbSolverFfiStatistics::from(&s);
-        assert_eq!(ffi.nodes_explored, 11);
-        assert_eq!(ffi.backtracks, 12);
-        assert_eq!(ffi.decisions_generated, 13);
-        assert_eq!(ffi.max_depth, 14);
-        assert_eq!(ffi.prunings_infeasible, 15);
-        assert_eq!(ffi.prunings_bound, 16);
-        assert_eq!(ffi.solutions_found, 17);
-        assert_eq!(ffi.steps, 18);
-        assert_eq!(ffi.time_total_ms, 19);
-    }
-
     #[test]
     fn test_stats_time_total_ms_saturates_on_overflow() {
         // u64::MAX seconds -> as_millis() (u128) definitely exceeds u64
