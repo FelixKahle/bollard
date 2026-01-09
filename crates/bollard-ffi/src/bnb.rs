@@ -69,7 +69,9 @@ pub enum BnbSolverFfiTerminationReason {
 /// including reason and message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BnbSolverFfiTermination {
+    /// The reason for termination.
     pub reason: BnbSolverFfiTerminationReason,
+    /// The termination message.
     pub message: CString,
 }
 
@@ -428,8 +430,11 @@ pub unsafe extern "C" fn bollard_bnb_status_time_total_ms(
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BnbSolverFfiOutcome {
+    /// The termination information.
     pub termination: *mut BnbSolverFfiTermination,
+    /// The solver result.
     pub result: *mut BollardFfiSolverResult,
+    /// The solver statistics.
     pub statistics: *mut BnbSolverFfiStatistics,
 }
 
@@ -535,8 +540,11 @@ pub unsafe extern "C" fn bollard_bnb_outcome_statistics(
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BnbFfiFixedAssignment {
+    /// The start time of the assignment.
     pub start_time: i64,
+    /// The index of the berth.
     pub berth_index: usize,
+    /// The index of the vessel.
     pub vessel_index: usize,
 }
 
@@ -578,13 +586,14 @@ impl From<BnbFfiFixedAssignment> for FixedAssignment<i64> {
 
 /// The type of decision builder to use in the BnB solver.
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum BnbSolverFfiDecisionBuilderType {
     ChronologicalExhaustive = 0,
     FcfsHeuristic = 1,
     RegretHeuristic = 2,
     SlackHeuristic = 3,
-    WsptHeuristic = 4,
+    #[default]
+    WsptHeuristic = 4, // We default to WSPT. Its generally the best performing sorting heuristic.
     SptHeuristic = 5,
     LptHeuristic = 6,
     EarliestDeadlineFirst = 7,
@@ -608,9 +617,10 @@ impl std::fmt::Display for BnbSolverFfiDecisionBuilderType {
 
 /// The type of objective evaluator to use in the BnB solver.
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum BnbSolverFfiObjectiveEvaluatorType {
-    Hybrid = 0,
+    #[default]
+    Hybrid = 0, // Basically the union of Workload and WeightedFlowTime. Just better overall.
     Workload = 1,
     WeightedFlowTime = 2,
 }
