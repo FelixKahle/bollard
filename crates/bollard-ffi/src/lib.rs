@@ -40,6 +40,7 @@
 //!     immediate process abort (panic) rather than undefined behavior or stack unwinding.
 
 pub mod bnb;
+pub mod ls;
 pub mod model;
 pub mod result;
 pub mod solution;

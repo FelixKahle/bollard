@@ -44,9 +44,11 @@ use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
 };
-use libc::c_schar;
 use num_traits::ToPrimitive;
-use std::{ffi::CString, time::Duration};
+use std::{
+    ffi::{c_char, CString},
+    time::Duration,
+};
 
 // ----------------------------------------------------------------
 // Termination reason
@@ -116,40 +118,40 @@ pub unsafe extern "C" fn bollard_bnb_termination_free(ptr: *mut BnbSolverFfiTerm
 ///
 /// # Panics
 ///
-/// This function will panic if `termination` is a null pointer.
+/// This function will panic if `ptr` is a null pointer.
 ///
 /// # Safety
 ///
-/// The caller must ensure that `termination` is a valid pointer to a `BnbSolverFfiTermination`.
+/// The caller must ensure that `ptr` is a valid pointer to a `BnbSolverFfiTermination`.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_termination_reason(
-    termination: *const BnbSolverFfiTermination,
+    ptr: *const BnbSolverFfiTermination,
 ) -> BnbSolverFfiTerminationReason {
     assert!(
-        !termination.is_null(),
+        !ptr.is_null(),
         "called `bollard_bnb_termination_message` with `ptr` as null pointer"
     );
-    (*termination).reason
+    (*ptr).reason
 }
 
 /// Returns the termination message.
 ///
 /// # Panics
 ///
-/// This function will panic if `termination` is a null pointer.
+/// This function will panic if `ptr` is a null pointer.
 ///
 /// # Safety
 ///
-/// The caller must ensure that `termination` is a valid pointer to a `BnbSolverFfiTermination`.
+/// The caller must ensure that `ptr` is a valid pointer to a `BnbSolverFfiTermination`.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_bnb_termination_message(
-    termination: *const BnbSolverFfiTermination,
-) -> *const c_schar {
+    ptr: *const BnbSolverFfiTermination,
+) -> *const c_char {
     assert!(
-        !termination.is_null(),
+        !ptr.is_null(),
         "called `bollard_bnb_termination_message` with `ptr` as null pointer"
     );
-    (*termination).message.as_ptr()
+    (*ptr).message.as_ptr()
 }
 
 // ----------------------------------------------------------------

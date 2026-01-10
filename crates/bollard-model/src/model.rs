@@ -1323,6 +1323,32 @@ where
         self
     }
 
+    /// Returns an iterator over all berth closing times in the model.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
+    /// builder.add_berth_closing_time(
+    ///     bollard_model::index::BerthIndex::new(0),
+    ///     bollard_core::math::interval::ClosedOpenInterval::new(50, 100),
+    /// );
+    /// assert_eq!(
+    ///     builder.berth_closing_times().collect::<Vec<_>>(),
+    ///     vec![
+    ///         bollard_core::math::interval::ClosedOpenInterval::new(50, 100),
+    ///  ]
+    /// );
+    /// ```
+    #[inline]
+    pub fn berth_closing_times(&self) -> impl Iterator<Item = ClosedOpenInterval<T>> + '_ {
+        self.closing_times
+            .iter()
+            .flat_map(|set| set.iter().map(|r| ClosedOpenInterval::from(r.clone())))
+    }
+
     /// Adds an opening time interval to the specified berth.
     ///
     /// # Panics
@@ -1417,6 +1443,34 @@ where
         self
     }
 
+    /// Returns an iterator over all berth opening times in the model.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
+    /// builder.add_berth_closing_time(
+    ///     bollard_model::index::BerthIndex::new(0),
+    ///     bollard_core::math::interval::ClosedOpenInterval::new(50, 100),
+    /// );
+    /// assert_eq!(
+    ///     builder.berth_opening_times().collect::<Vec<_>>(),
+    ///     vec![
+    ///         bollard_core::math::interval::ClosedOpenInterval::new(0, 50),
+    ///         bollard_core::math::interval::ClosedOpenInterval::new(100, i64::MAX),
+    ///         bollard_core::math::interval::ClosedOpenInterval::new(0, i64::MAX),
+    ///     ]
+    /// );
+    /// ```
+    #[inline]
+    pub fn berth_opening_times(&self) -> impl Iterator<Item = ClosedOpenInterval<T>> + '_ {
+        self.opening_times
+            .iter()
+            .flat_map(|set| set.iter().map(|r| ClosedOpenInterval::from(r.clone())))
+    }
+
     /// Sets the arrival time for the specified vessel.
     ///
     /// # Panics
@@ -1449,6 +1503,34 @@ where
 
         self.arrival_times[index] = vessel_arrival_time;
         self
+    }
+
+    /// Returns the arrival time for the specified vessel.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `vessel_index` is not in `0..num_vessels()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
+    /// builder.set_vessel_arrival_time(bollard_model::index::VesselIndex::new(0), 100);
+    /// assert_eq!(builder.vessel_arrival_time(bollard_model::index::VesselIndex::new(0)), 100);
+    /// ```
+    #[inline]
+    pub fn vessel_arrival_time(&self, vessel_index: VesselIndex) -> T {
+        let index = vessel_index.get();
+        debug_assert!(
+            index < self.num_vessels(),
+            "called `Model::vessel_arrival_time` with vessel index out of bounds: the len is {} but the index is {}",
+            index,
+            self.num_vessels()
+        );
+
+        self.arrival_times[index]
     }
 
     /// Sets the latest departure time for the specified vessel.
@@ -1485,6 +1567,34 @@ where
         self
     }
 
+    /// Returns the latest departure time for the specified vessel.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `vessel_index` is not in `0..num_vessels()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
+    /// builder.set_vessel_latest_departure_time(bollard_model::index::VesselIndex::new(0), 500);
+    /// assert_eq!(builder.vessel_latest_departure_time(bollard_model::index::VesselIndex::new(0)), 500);
+    /// ```
+    #[inline]
+    pub fn vessel_latest_departure_time(&self, vessel_index: VesselIndex) -> T {
+        let index = vessel_index.get();
+        debug_assert!(
+            index < self.num_vessels(),
+            "called `Model::vessel_latest_departure_time` with vessel index out of bounds: the len is {} but the index is {}",
+            index,
+            self.num_vessels()
+        );
+
+        self.latest_departure_times[index]
+    }
+
     /// Sets the weight for the specified vessel.
     ///
     /// # Panics
@@ -1513,6 +1623,34 @@ where
 
         self.vessel_weights[index] = weight;
         self
+    }
+
+    /// Returns the weight for the specified vessel.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `vessel_index` is not in `0..num_vessels()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
+    /// builder.set_vessel_weight(bollard_model::index::VesselIndex::new(0), 10);
+    /// assert_eq!(builder.vessel_weight(bollard_model::index::VesselIndex::new(0)), 10);
+    /// ```
+    #[inline]
+    pub fn vessel_weight(&self, vessel_index: VesselIndex) -> T {
+        let index = vessel_index.get();
+        debug_assert!(
+            index < self.num_vessels(),
+            "called `Model::vessel_weight` with vessel index out of bounds: the len is {} but the index is {}",
+            index,
+            self.num_vessels()
+        );
+
+        self.vessel_weights[index]
     }
 
     /// Sets the processing time for the specified (vessel, berth) pair.
@@ -1574,6 +1712,63 @@ where
 
         self.processing_times[flat_index] = processing_time;
         self
+    }
+
+    /// Returns the processing time for the specified (vessel, berth) pair.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `vessel_index` is not in `0..num_vessels()` or
+    /// if `berth_index` is not in `0..num_berths()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bollard_model::model::ModelBuilder;
+    ///
+    /// let mut builder = ModelBuilder::<i64>::new(2, 2);
+    /// builder.set_vessel_processing_time(
+    ///     bollard_model::index::VesselIndex::new(0),
+    ///     bollard_model::index::BerthIndex::new(0),
+    ///     bollard_model::time::ProcessingTime::from_option(Some(50)),
+    /// );
+    /// assert_eq!(
+    ///     builder.vessel_processing_time(
+    ///         bollard_model::index::VesselIndex::new(0),
+    ///         bollard_model::index::BerthIndex::new(0)
+    ///     ),
+    ///     bollard_model::time::ProcessingTime::from_option(Some(50))
+    /// );
+    /// ```
+    #[inline]
+    pub fn vessel_processing_time(
+        &self,
+        vessel_index: VesselIndex,
+        berth_index: BerthIndex,
+    ) -> ProcessingTime<T> {
+        debug_assert!(
+            vessel_index.get() < self.num_vessels(),
+            "called `ModelBuilder::vessel_processing_time` with vessel index out of bounds: the len is {} but the index is {}",
+            vessel_index.get(),
+            self.num_vessels()
+        );
+
+        debug_assert!(
+            berth_index.get() < self.num_berths(),
+            "called `ModelBuilder::vessel_processing_time` with berth index out of bounds: the len is {} but the index is {}",
+            berth_index.get(),
+            self.num_berths()
+        );
+
+        let flat_index = flatten_index(self.num_berths, vessel_index, berth_index);
+        debug_assert!(
+            flat_index < self.processing_times.len(),
+            "called `Model::vessel_processing_time` with flat index out of bounds: the len is {} but the index is {}",
+            self.processing_times.len(),
+            flat_index
+        );
+
+        self.processing_times[flat_index]
     }
 
     /// Builds the `Model` from the current state of the `ModelBuilder`.

@@ -124,4 +124,16 @@ impl<T> LocalSearchEngineOutcome<T> {
     pub fn statistics(&self) -> &LocalSearchStatistics {
         &self.statistics
     }
+
+    /// Decomposes the outcome into its components.
+    #[inline]
+    pub fn into_inner(
+        self,
+    ) -> (
+        LocalSearchTerminationReason,
+        Solution<T>,
+        LocalSearchStatistics,
+    ) {
+        (self.termination_reason, self.solution, self.statistics)
+    }
 }

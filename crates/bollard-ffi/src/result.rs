@@ -21,7 +21,7 @@
 
 use crate::solution::BollardFfiSolution;
 use bollard_search::result::SolverResult;
-use std::ffi::{c_schar, CString};
+use std::ffi::{c_char, CString};
 
 /// The status of the solver result.
 #[repr(C)]
@@ -120,7 +120,7 @@ pub unsafe extern "C" fn bollard_ffi_solver_result_status(
 #[no_mangle]
 pub unsafe extern "C" fn bollard_ffi_solver_result_status_string(
     result: *const BollardFfiSolverResult,
-) -> *const c_schar {
+) -> *const c_char {
     assert!(
         !result.is_null(),
         "called `bollard_ffi_solver_result_status_string` with `ptr` as null pointer"
@@ -266,7 +266,7 @@ pub unsafe extern "C" fn bollard_ffi_termination_reason(
 #[no_mangle]
 pub unsafe extern "C" fn bollard_ffi_termination_message(
     termination: *const BollardFfiTermination,
-) -> *const c_schar {
+) -> *const c_char {
     assert!(
         !termination.is_null(),
         "called `bollard_ffi_termination_message` with `ptr` as null pointer"

@@ -58,6 +58,12 @@ where
     /// Called when a solution is rejected.
     fn on_solution_rejected(&mut self, solution: &Schedule<T>, statistics: &LocalSearchStatistics);
 
+    fn on_best_solution_updated(
+        &mut self,
+        solution: &Schedule<T>,
+        statistics: &LocalSearchStatistics,
+    );
+
     /// Determines the command for the next step of the local search.
     fn search_command(&mut self, _statistics: &LocalSearchStatistics) -> SearchCommand {
         SearchCommand::Continue

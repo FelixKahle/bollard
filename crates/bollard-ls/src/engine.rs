@@ -212,6 +212,7 @@ where
             );
 
             stats.on_found_solution();
+            monitor.on_solution_found(self.memory.candidate_schedule(), &stats);
 
             let accept = metaheuristic.should_accept(
                 model,
@@ -248,7 +249,7 @@ where
                     );
 
                     metaheuristic.on_new_best(model, &best_solution);
-                    monitor.on_solution_found(&best_solution, &stats);
+                    monitor.on_best_solution_updated(&best_solution, &stats);
                 }
 
                 // Prepare for the next iteration
@@ -290,6 +291,105 @@ where
                 LocalSearchEngineOutcome::aborted(final_solution, msg, stats)
             }
         }
+    }
+}
+
+/// Wrapper combining a metaheuristic and decoder with a local search engine.
+///
+/// This struct simplifies the usage of the local search engine by bundling
+/// a specific metaheuristic and decoder together. It provides a convenient
+/// interface to solve problems without needing to manage the engine separately.
+/// This is also beneficial where the same combination of metaheuristic and decoder
+/// is reused across multiple problem instances, because memory allocations for
+/// the engine are amortized.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalSearchSolver<T, D, M>
+where
+    T: SolverNumeric,
+    M: Metaheuristic<T>,
+    D: Decoder<T, M::Evaluator>,
+{
+    metaheuristic: M,
+    decoder: D,
+    engine: LocalSearchEngine<T>,
+}
+
+impl<T, D, M> LocalSearchSolver<T, D, M>
+where
+    T: SolverNumeric,
+    M: Metaheuristic<T>,
+    D: Decoder<T, M::Evaluator>,
+{
+    /// Creates a new solver with the given metaheuristic and decoder.
+    #[inline]
+    pub fn new(metaheuristic: M, decoder: D) -> Self {
+        Self {
+            metaheuristic,
+            decoder,
+            engine: LocalSearchEngine::new(),
+        }
+    }
+
+    /// Creates a new solver with pre‑allocated memory for a specific problem size.
+    #[inline]
+    pub fn preallocated(metaheuristic: M, decoder: D, num_vessels: usize) -> Self {
+        Self {
+            metaheuristic,
+            decoder,
+            engine: LocalSearchEngine::preallocated(num_vessels),
+        }
+    }
+
+    /// Creates a new solver with pre‑allocated memory for a specific problem size.
+    #[inline]
+    pub fn from_model(model: &Model<T>, metaheuristic: M, mut decoder: D) -> Self {
+        decoder.initialize(model);
+        Self {
+            metaheuristic,
+            decoder,
+            engine: LocalSearchEngine::preallocated(model.num_vessels()),
+        }
+    }
+
+    /// Solves the given model using the internal engine, decoder, and metaheuristic.
+    #[inline]
+    pub fn solve<N, O, SM>(
+        &mut self,
+        model: &Model<T>,
+        neighborhood: &N,
+        operator: &mut O,
+        monitor: &mut SM,
+        initial_solution: &Solution<T>,
+    ) -> LocalSearchEngineOutcome<T>
+    where
+        N: Neighborhoods,
+        O: LocalSearchOperator<T, N>,
+        SM: LocalSearchMonitor<T>,
+    {
+        self.engine.run(
+            model,
+            &mut self.decoder,
+            neighborhood,
+            operator,
+            &mut self.metaheuristic,
+            monitor,
+            initial_solution,
+        )
+    }
+
+    #[inline]
+    pub fn metaheuristic(&self) -> &M {
+        &self.metaheuristic
+    }
+
+    #[inline]
+    pub fn decoder(&self) -> &D {
+        &self.decoder
+    }
+
+    #[inline]
+    pub fn engine(&self) -> &LocalSearchEngine<T> {
+        &self.engine
     }
 }
 
@@ -365,6 +465,14 @@ mod tests {
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
             self.rejected += 1;
+        }
+
+        fn on_best_solution_updated(
+            &mut self,
+            _solution: &crate::memory::Schedule<T>,
+            _statistics: &crate::stats::LocalSearchStatistics,
+        ) {
+            // No-op
         }
     }
 

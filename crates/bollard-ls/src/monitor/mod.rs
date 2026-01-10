@@ -27,5 +27,7 @@
 //! after a configured duration, enabling lightweight progress reporting
 //! and practical stopping criteria without burdening the hot path.
 
+pub mod composite;
 pub mod local_search_monitor;
+pub mod solution;
 pub mod time;

@@ -119,6 +119,13 @@ where
     ) {
     }
 
+    fn on_best_solution_updated(
+        &mut self,
+        _solution: &Schedule<T>,
+        _statistics: &LocalSearchStatistics,
+    ) {
+    }
+
     fn search_command(&mut self, statistics: &LocalSearchStatistics) -> SearchCommand {
         if (statistics.iterations & self.clock_check_mask) == 0 {
             let elapsed = self.start_time.elapsed();

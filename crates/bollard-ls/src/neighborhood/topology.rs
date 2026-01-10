@@ -101,7 +101,7 @@ impl Neighborhoods for StaticTopology {
         let index = vessel_index.get();
         debug_assert!(
             index < self.offsets.len() - 1,
-            "called `Neighborhoods::neighbors_of` with vessel index out of bounds: the len is {} but the index is {}",
+            "called `Neighborhoods::neighbors_of_unchecked` with vessel index out of bounds: the len is {} but the index is {}",
             index,
             self.offsets.len() - 1
         );
