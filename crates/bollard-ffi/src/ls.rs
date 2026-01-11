@@ -24,9 +24,28 @@
 // ----------------------------------------------------------------
 
 use crate::solution::BollardFfiSolution;
-use bollard_ls::{engine::LocalSearchEngine, stats::LocalSearchStatistics};
+use bollard_ls::{
+    decoder::GreedyDecoder,
+    engine::LocalSearchEngine,
+    meta::metaheuristic::Metaheuristic,
+    monitor::{
+        composite::CompositeLocalSearchMonitor, solution::SolutionLimitMonitor,
+        time::TimeLimitMonitor,
+    },
+    neighborhood::{
+        dynamic::DynamicNeighborhoods,
+        neighborhoods::{FullNeighborhoods, Neighborhoods},
+        topology::StaticTopology,
+    },
+    operator::local_search_operator::LocalSearchOperator,
+    stats::LocalSearchStatistics,
+};
+use bollard_model::{model::Model, solution::Solution};
 use num_traits::ToPrimitive;
-use std::ffi::{c_char, CString};
+use std::{
+    ffi::{c_char, CString},
+    time::Duration,
+};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -425,457 +444,73 @@ pub unsafe extern "C" fn bollard_ls_outcome_statistics(
 }
 
 // ----------------------------------------------------------------
-// Cooling Schedule
+// Neighboorhoods
 // ----------------------------------------------------------------
 
-/// Parameters for a geometric cooling schedule.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LocalSearchFfiGeometricCoolingScheduleParameters {
-    initial: f64,
-    current: f64,
-    alpha: f64,
-    min_temp: f64,
-}
-
-/// Creates a new `LocalSearchFfiGeometricCoolingScheduleParameters` and returns a pointer to it.
+/// Creates a new `DynamicNeighborhoods` instance using the Full Neighborhoods strategy
+/// from the given model.
+///
+/// # Panics
+///
+/// This function will panic if `model` is a null pointer.
 ///
 /// # Safety
 ///
 /// The caller is responsible for freeing the allocated memory using
-/// `bollard_ls_geometric_cooling_schedule_parameters_free` when it is no longer needed.
+/// `bollard_ls_neighborhoods_free` when it is no longer needed.
 #[no_mangle]
-pub extern "C" fn bollard_ls_geometric_cooling_schedule_parameters_new(
-    initial: f64,
-    alpha: f64,
-    min_temp: f64,
-) -> *mut LocalSearchFfiGeometricCoolingScheduleParameters {
-    let schedule = LocalSearchFfiGeometricCoolingScheduleParameters {
-        initial,
-        current: initial,
-        alpha,
-        min_temp,
-    };
-    Box::into_raw(Box::new(schedule))
+pub unsafe extern "C" fn bollard_ls_full_neighborhoods_new(
+    model: *const Model<i64>,
+) -> *mut DynamicNeighborhoods<'static> {
+    assert!(
+        !model.is_null(),
+        "called `bollard_ls_full_neighborhoods_new` with `model` as null pointer"
+    );
+
+    let model_ref = unsafe { &*model };
+    let full_neighborhoods = FullNeighborhoods::from(model_ref);
+    let dynamic_neighborhoods = DynamicNeighborhoods::from_neighborhood(full_neighborhoods);
+    Box::into_raw(Box::new(dynamic_neighborhoods))
 }
 
-/// Frees a `LocalSearchFfiGeometricCoolingScheduleParameters` previously allocated by Bollard.
-///
-/// # Safety
-///
-/// The caller must ensure that `schedule` is a valid pointer to a `LocalSearchFfiGeometricCoolingScheduleParameters`
-/// allocated by Bollard.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_geometric_cooling_schedule_parameters_free(
-    schedule: *mut LocalSearchFfiGeometricCoolingScheduleParameters,
-) {
-    if !schedule.is_null() {
-        drop(Box::from_raw(schedule));
-    }
-}
-
-/// Returns the initial temperature.
+/// Creates a new `DynamicNeighborhoods` instance using the Static Topology strategy
+/// from the given model.
 ///
 /// # Panics
 ///
-/// Panics if `schedule` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `schedule` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_geometric_cooling_schedule_parameters_intial(
-    schedule: *const LocalSearchFfiGeometricCoolingScheduleParameters,
-) -> f64 {
-    assert!(
-        !schedule.is_null(),
-        "called `bollard_ls_geometric_cooling_schedule_parameters_initial` with `schedule` as null pointer"
-    );
-    unsafe { (*schedule).initial }
-}
-
-/// Returns the current temperature.
-///
-/// # Panics
-///
-/// Panics if `schedule` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `schedule` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_geometric_cooling_schedule_parameters_current(
-    schedule: *const LocalSearchFfiGeometricCoolingScheduleParameters,
-) -> f64 {
-    assert!(
-        !schedule.is_null(),
-        "called `bollard_ls_geometric_cooling_schedule_parameters_current` with `schedule` as null pointer"
-    );
-    unsafe { (*schedule).current }
-}
-
-/// Returns the alpha parameter.
-///
-/// # Panics
-///
-/// Panics if `schedule` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `schedule` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_geometric_cooling_schedule_parameters_alpha(
-    schedule: *const LocalSearchFfiGeometricCoolingScheduleParameters,
-) -> f64 {
-    assert!(
-        !schedule.is_null(),
-        "called `bollard_ls_geometric_cooling_schedule_parameters_alpha` with `schedule` as null pointer"
-    );
-    unsafe { (*schedule).alpha }
-}
-
-/// Returns the minimum temperature threshold.
-///
-/// # Panics
-///
-/// Panics if `schedule` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `schedule` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_geometric_cooling_schedule_parameters_min_temp(
-    schedule: *const LocalSearchFfiGeometricCoolingScheduleParameters,
-) -> f64 {
-    assert!(
-        !schedule.is_null(),
-        "called `bollard_ls_geometric_cooling_schedule_parameters_min_temp` with `schedule` as null pointer"
-    );
-    unsafe { (*schedule).min_temp }
-}
-
-/// Sets the current temperature.
-///
-/// # Panics
-///
-/// Panics if `schedule` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `schedule` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_geometric_cooling_schedule_parameters_set_current(
-    schedule: *mut LocalSearchFfiGeometricCoolingScheduleParameters,
-    current: f64,
-) {
-    assert!(
-        !schedule.is_null(),
-        "called `bollard_ls_geometric_cooling_schedule_parameters_set_current` with `schedule` as null pointer"
-    );
-
-    unsafe {
-        (*schedule).current = current;
-    }
-}
-
-/// Sets the alpha parameter.
-///
-/// # Panics
-///
-/// Panics if `schedule` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `schedule` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_geometric_cooling_schedule_parameters_set_alpha(
-    schedule: *mut LocalSearchFfiGeometricCoolingScheduleParameters,
-    alpha: f64,
-) {
-    assert!(
-        !schedule.is_null(),
-        "called `bollard_ls_geometric_cooling_schedule_parameters_set_alpha` with `schedule` as null pointer"
-    );
-
-    unsafe {
-        (*schedule).alpha = alpha;
-    }
-}
-
-/// Sets the minimum temperature threshold.
-///
-/// # Panics
-///
-/// Panics if `schedule` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `schedule` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_geometric_cooling_schedule_parameters_set_min_temp(
-    schedule: *mut LocalSearchFfiGeometricCoolingScheduleParameters,
-    min_temp: f64,
-) {
-    assert!(
-        !schedule.is_null(),
-        "called `bollard_ls_geometric_cooling_schedule_parameters_set_min_temp` with `schedule` as null pointer"
-    );
-    unsafe {
-        (*schedule).min_temp = min_temp;
-    }
-}
-
-/// Sets the initial temperature.
-///
-/// # Panics
-///
-/// Panics if `schedule` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `schedule` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_geometric_cooling_schedule_parameters_set_initial(
-    schedule: *mut LocalSearchFfiGeometricCoolingScheduleParameters,
-    initial: f64,
-) {
-    assert!(
-        !schedule.is_null(),
-        "called `bollard_ls_geometric_cooling_schedule_parameters_set_initial` with `schedule` as null pointer"
-    );
-    unsafe {
-        (*schedule).initial = initial;
-    }
-}
-
-/// Parameters for a linear cooling schedule.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LocalSearchFfiLinearCoolingScheduleParameters {
-    initial: f64,   // The initial temperature
-    current: f64,   // The current temperature
-    decrement: f64, // The delta to subtract
-    min_temp: f64,  // The minimum temperature threshold
-}
-
-/// Creates a new `LocalSearchFfiLinearCoolingScheduleParameters` and returns a pointer to it.
+/// This function will panic if `model` is a null pointer.
 ///
 /// # Safety
 ///
 /// The caller is responsible for freeing the allocated memory using
-/// `bollard_ls_linear_cooling_schedule_parameters_free` when it is no longer needed.
+/// `bollard_ls_neighborhoods_free` when it is no longer needed.
 #[no_mangle]
-pub extern "C" fn bollard_ls_linear_cooling_schedule_parameters_new(
-    initial: f64,
-    current: f64,
-    decrement: f64,
-    min_temp: f64,
-) -> *mut LocalSearchFfiLinearCoolingScheduleParameters {
-    let params = LocalSearchFfiLinearCoolingScheduleParameters {
-        initial,
-        current,
-        decrement,
-        min_temp,
-    };
-    Box::into_raw(Box::new(params))
+pub unsafe extern "C" fn bollard_ls_static_topology_neighborhoods_new(
+    model: *const Model<i64>,
+) -> *mut DynamicNeighborhoods<'static> {
+    assert!(
+        !model.is_null(),
+        "called `bollard_ls_static_topology_neighborhoods_new` with `model` as null pointer"
+    );
+
+    let model_ref = unsafe { &*model };
+    let static_topology = StaticTopology::from(model_ref);
+    let dynamic_neighborhoods = DynamicNeighborhoods::from_neighborhood(static_topology);
+    Box::into_raw(Box::new(dynamic_neighborhoods))
 }
 
-/// Frees a `LocalSearchFfiLinearCoolingScheduleParameters` previously allocated by Bollard.
+/// Frees a `DynamicNeighborhoods` previously allocated by Bollard.
 ///
 /// # Safety
 ///
-/// The caller must ensure that `ptr` is a valid pointer to a `LocalSearchFfiLinearCoolingScheduleParameters`
+/// The caller must ensure that `neighborhoods` is a valid pointer to a `DynamicNeighborhoods`
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_ls_linear_cooling_schedule_parameters_free(
-    ptr: *mut LocalSearchFfiLinearCoolingScheduleParameters,
+pub unsafe extern "C" fn bollard_ls_neighborhoods_free(
+    neighborhoods: *mut DynamicNeighborhoods<'static>,
 ) {
-    if !ptr.is_null() {
-        drop(Box::from_raw(ptr));
-    }
-}
-
-/// Returns the initial temperature.
-///
-/// # Panics
-///
-/// Panics if `ptr` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `ptr` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_linear_cooling_schedule_parameters_initial(
-    ptr: *const LocalSearchFfiLinearCoolingScheduleParameters,
-) -> f64 {
-    assert!(
-        !ptr.is_null(),
-        "called `bollard_ls_linear_cooling_schedule_parameters_initial` with `ptr` as null pointer"
-    );
-    (*ptr).initial
-}
-
-/// Returns the current temperature.
-///
-/// # Panics
-///
-/// Panics if `ptr` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `ptr` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_linear_cooling_schedule_parameters_current(
-    ptr: *const LocalSearchFfiLinearCoolingScheduleParameters,
-) -> f64 {
-    assert!(
-        !ptr.is_null(),
-        "called `bollard_ls_linear_cooling_schedule_parameters_current` with `ptr` as null pointer"
-    );
-    (*ptr).current
-}
-
-/// Returns the decrement per iteration.
-///
-/// # Panics
-///
-/// Panics if `ptr` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `ptr` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_linear_cooling_schedule_parameters_decrement(
-    ptr: *const LocalSearchFfiLinearCoolingScheduleParameters,
-) -> f64 {
-    assert!(
-        !ptr.is_null(),
-        "called `bollard_ls_linear_cooling_schedule_parameters_decrement` with `ptr` as null pointer"
-    );
-    (*ptr).decrement
-}
-
-/// Returns the minimum temperature threshold (frozen regime).
-///
-/// # Panics
-///
-/// Panics if `ptr` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `ptr` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_linear_cooling_schedule_parameters_min_temp(
-    ptr: *const LocalSearchFfiLinearCoolingScheduleParameters,
-) -> f64 {
-    assert!(
-        !ptr.is_null(),
-        "called `bollard_ls_linear_cooling_schedule_parameters_min_temp` with `ptr` as null pointer"
-    );
-    (*ptr).min_temp
-}
-
-/// Sets the current temperature.
-///
-/// # Panics
-///
-/// Panics if `ptr` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `ptr` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_linear_cooling_schedule_parameters_set_current(
-    ptr: *mut LocalSearchFfiLinearCoolingScheduleParameters,
-    value: f64,
-) {
-    assert!(
-        !ptr.is_null(),
-        "called `bollard_ls_linear_cooling_schedule_parameters_set_current` with `ptr` as null pointer"
-    );
-    (*ptr).current = value;
-}
-
-/// Sets the decrement.
-///
-/// # Panics
-///
-/// Panics if `ptr` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `ptr` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_linear_cooling_schedule_parameters_set_decrement(
-    ptr: *mut LocalSearchFfiLinearCoolingScheduleParameters,
-    value: f64,
-) {
-    assert!(
-        !ptr.is_null(),
-        "called `bollard_ls_linear_cooling_schedule_parameters_set_decrement` with `ptr` as null pointer"
-    );
-    (*ptr).decrement = value;
-}
-
-/// Sets the minimum temperature threshold.
-///
-/// # Panics
-///
-/// Panics if `ptr` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `ptr` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_linear_cooling_schedule_parameters_set_min_temp(
-    ptr: *mut LocalSearchFfiLinearCoolingScheduleParameters,
-    value: f64,
-) {
-    assert!(
-        !ptr.is_null(),
-        "called `bollard_ls_linear_cooling_schedule_parameters_set_min_temp` with `ptr` as null pointer"
-    );
-    (*ptr).min_temp = value;
-}
-
-/// Sets the initial temperature.
-///
-/// # Panics
-///
-/// Panics if `ptr` is null.
-///
-/// # Safety
-///
-/// The caller must ensure `ptr` is valid.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_linear_cooling_schedule_parameters_set_initial(
-    ptr: *mut LocalSearchFfiLinearCoolingScheduleParameters,
-    value: f64,
-) {
-    assert!(
-        !ptr.is_null(),
-        "called `bollard_ls_linear_cooling_schedule_parameters_set_initial` with `ptr` as null pointer"
-    );
-    (*ptr).initial = value;
-}
-
-// ----------------------------------------------------------------
-// Neighboorhood Config
-// ----------------------------------------------------------------
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LocalSearchFfiNeighborhoodConfig {
-    FullNeighborhood = 0, // Every ship n in N is a neighbor for every other ship m in N with n != m
-    FullTopology = 1, // Only neighbors that are connected in the topology graph are considered as neighbors
-}
-
-impl std::fmt::Display for LocalSearchFfiNeighborhoodConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LocalSearchFfiNeighborhoodConfig::FullNeighborhood => {
-                write!(f, "Full Neighborhood")
-            }
-            LocalSearchFfiNeighborhoodConfig::FullTopology => write!(f, "Full Topology"),
-        }
+    if !neighborhoods.is_null() {
+        drop(Box::from_raw(neighborhoods));
     }
 }
 
@@ -934,4 +569,53 @@ pub unsafe extern "C" fn bollard_ls_engine_free(engine: *mut LocalSearchFfiEngin
     if !engine.is_null() {
         drop(Box::from_raw(engine));
     }
+}
+
+/// Solver runner function.
+#[allow(clippy::too_many_arguments, dead_code)] // TODO: Remove dead_code when used
+#[inline(always)]
+fn run<N, M, O>(
+    engine: &mut LocalSearchEngine<i64>,
+    model: &Model<i64>,
+    neighborhoods: &N,
+    metaheuristic: &mut M,
+    initial_solution: &Solution<i64>,
+    operator: &mut O,
+    solution_limit: u64, // 0 means no limit
+    time_limit_ms: u64,  // 0 means no limit
+    enable_log: bool,
+) -> bollard_ls::result::LocalSearchEngineOutcome<i64>
+where
+    N: Neighborhoods,
+    M: Metaheuristic<i64>,
+    O: LocalSearchOperator<i64, N>,
+{
+    let capacity =
+        (solution_limit > 0) as usize + (time_limit_ms > 0) as usize + (enable_log as usize);
+
+    let mut monitor = CompositeLocalSearchMonitor::with_capacity(capacity);
+
+    if solution_limit > 0 {
+        monitor.add_monitor(SolutionLimitMonitor::new(solution_limit));
+    }
+
+    if time_limit_ms > 0 {
+        monitor.add_monitor(TimeLimitMonitor::new(Duration::from_millis(time_limit_ms)));
+    }
+
+    if enable_log {
+        // TODO: Add a proper logger monitor
+    }
+
+    let mut decoder = GreedyDecoder::preallocated(model.num_berths());
+
+    engine.run(
+        model,
+        &mut decoder,
+        neighborhoods,
+        operator,
+        metaheuristic,
+        monitor,
+        initial_solution,
+    )
 }

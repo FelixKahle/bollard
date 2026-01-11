@@ -20,6 +20,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 pub mod compound;
+pub mod dynamic;
 pub mod local_search_operator;
 pub mod shift;
 pub mod swap;

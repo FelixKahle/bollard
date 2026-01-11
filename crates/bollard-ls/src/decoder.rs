@@ -37,7 +37,7 @@
 //! ordering into a complete schedule suitable for iterative improvement in local
 //! search.
 
-use crate::{eval::AssignmentEvaluator, memory::Schedule, queue::VesselPriorityQueue};
+use crate::{eval::evaluator::AssignmentEvaluator, memory::Schedule, queue::VesselPriorityQueue};
 use bollard_model::{index::BerthIndex, model::Model};
 use bollard_search::num::SolverNumeric;
 
@@ -530,8 +530,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::WeightedFlowTimeEvaluator;
-    use crate::memory::SearchMemory;
+    use crate::{eval::wft::WeightedFlowTimeEvaluator, memory::SearchMemory};
     use bollard_core::math::interval::ClosedOpenInterval;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},

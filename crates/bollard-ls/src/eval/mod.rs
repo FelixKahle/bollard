@@ -19,17 +19,8 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-//! Neighborhood modeling for search-space connectivity.
-//!
-//! This module organizes the abstractions and implementations used to define which vessels
-//! can interact during local search. The `neighborhoods` submodule specifies a trait-focused
-//! interface for exposing neighbor relationships with minimal overhead, while the `topology`
-//! submodule provides a cache-friendly static representation derived from model feasibility.
-//!
-//! The design emphasizes predictable memory layout and fast slice-based access, enabling
-//! efficient rejection sampling and inner-loop heuristics where latency and cache locality
-//! have a measurable impact on solver performance.
-
 pub mod dynamic;
-pub mod neighborhoods;
-pub mod topology;
+pub mod evaluator;
+pub mod wft;
+
+pub type DefaultAssignmentEvaluator<T> = wft::WeightedFlowTimeEvaluator<T>;

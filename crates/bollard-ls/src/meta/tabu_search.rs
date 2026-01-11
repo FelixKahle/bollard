@@ -37,7 +37,7 @@
 //! * **`tenure`:** The length of the memory. A value of $\sqrt{N}$ (where $N$
 //!   is the number of vessels) is a common rule of thumb.
 
-use crate::eval::WeightedFlowTimeEvaluator;
+use crate::eval::DefaultAssignmentEvaluator;
 use crate::memory::Schedule;
 use crate::meta::metaheuristic::Metaheuristic;
 use bollard_model::model::Model;
@@ -60,10 +60,10 @@ pub struct TabuSearch<T>
 where
     T: SolverNumeric,
 {
-    evaluator: WeightedFlowTimeEvaluator<T>, // Evaluator for the objective
-    tenure: usize,                           // Size of the Tabu memory
-    tabu_queue: VecDeque<u64>,               // FIFO for expiring old entries
-    tabu_set: HashSet<u64>,                  // HashSet for O(1) lookups
+    evaluator: DefaultAssignmentEvaluator<T>, // Evaluator for the objective
+    tenure: usize,                            // Size of the Tabu memory
+    tabu_queue: VecDeque<u64>,                // FIFO for expiring old entries
+    tabu_set: HashSet<u64>,                   // HashSet for O(1) lookups
 }
 
 impl<T> TabuSearch<T>
@@ -78,7 +78,7 @@ where
     pub fn new(tenure: usize) -> Self {
         assert!(tenure > 0, "called `TabuSearch::new()` with zero tenure");
         Self {
-            evaluator: WeightedFlowTimeEvaluator::new(),
+            evaluator: DefaultAssignmentEvaluator::new(),
             tenure,
             tabu_queue: VecDeque::with_capacity(tenure),
             tabu_set: HashSet::with_capacity(tenure),
@@ -113,12 +113,12 @@ impl<T> Metaheuristic<T> for TabuSearch<T>
 where
     T: SolverNumeric + Hash,
 {
-    type Evaluator = WeightedFlowTimeEvaluator<T>;
+    type Evaluator = DefaultAssignmentEvaluator<T>;
 
     fn name(&self) -> &str {
         "TabuSearch"
     }
-    fn evaluator(&self) -> &WeightedFlowTimeEvaluator<T> {
+    fn evaluator(&self) -> &Self::Evaluator {
         &self.evaluator
     }
 

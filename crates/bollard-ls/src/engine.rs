@@ -119,22 +119,22 @@ where
     /// - Uses `decode_unchecked` for speed under the assumption that inputs are validated elsewhere.
     ///   In debug builds, assertions help catch inconsistencies early.
     #[allow(clippy::too_many_arguments)]
-    pub fn run<N, M, D, O, SM>(
+    pub fn run<N, H, D, O, M>(
         &mut self,
         model: &Model<T>,
         decoder: &mut D,
         neighborhood: &N,
         operator: &mut O,
-        metaheuristic: &mut M,
-        monitor: &mut SM,
+        metaheuristic: &mut H,
+        mut monitor: M,
         initial_solution: &Solution<T>,
     ) -> LocalSearchEngineOutcome<T>
     where
         N: Neighborhoods,
-        M: Metaheuristic<T>,
-        D: Decoder<T, M::Evaluator>,
+        H: Metaheuristic<T>,
+        D: Decoder<T, H::Evaluator>,
         O: LocalSearchOperator<T, N>,
-        SM: LocalSearchMonitor<T>,
+        M: LocalSearchMonitor<T>,
     {
         let start_time = Instant::now();
         let mut stats = LocalSearchStatistics::default();
@@ -303,26 +303,26 @@ where
 /// is reused across multiple problem instances, because memory allocations for
 /// the engine are amortized.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalSearchSolver<T, D, M>
+pub struct LocalSearchSolver<T, D, H>
 where
     T: SolverNumeric,
-    M: Metaheuristic<T>,
-    D: Decoder<T, M::Evaluator>,
+    H: Metaheuristic<T>,
+    D: Decoder<T, H::Evaluator>,
 {
-    metaheuristic: M,
+    metaheuristic: H,
     decoder: D,
     engine: LocalSearchEngine<T>,
 }
 
-impl<T, D, M> LocalSearchSolver<T, D, M>
+impl<T, D, H> LocalSearchSolver<T, D, H>
 where
     T: SolverNumeric,
-    M: Metaheuristic<T>,
-    D: Decoder<T, M::Evaluator>,
+    H: Metaheuristic<T>,
+    D: Decoder<T, H::Evaluator>,
 {
     /// Creates a new solver with the given metaheuristic and decoder.
     #[inline]
-    pub fn new(metaheuristic: M, decoder: D) -> Self {
+    pub fn new(metaheuristic: H, decoder: D) -> Self {
         Self {
             metaheuristic,
             decoder,
@@ -332,7 +332,7 @@ where
 
     /// Creates a new solver with pre‑allocated memory for a specific problem size.
     #[inline]
-    pub fn preallocated(metaheuristic: M, decoder: D, num_vessels: usize) -> Self {
+    pub fn preallocated(metaheuristic: H, decoder: D, num_vessels: usize) -> Self {
         Self {
             metaheuristic,
             decoder,
@@ -342,7 +342,7 @@ where
 
     /// Creates a new solver with pre‑allocated memory for a specific problem size.
     #[inline]
-    pub fn from_model(model: &Model<T>, metaheuristic: M, mut decoder: D) -> Self {
+    pub fn from_model(model: &Model<T>, metaheuristic: H, mut decoder: D) -> Self {
         decoder.initialize(model);
         Self {
             metaheuristic,
@@ -353,18 +353,18 @@ where
 
     /// Solves the given model using the internal engine, decoder, and metaheuristic.
     #[inline]
-    pub fn solve<N, O, SM>(
+    pub fn solve<N, O, M>(
         &mut self,
         model: &Model<T>,
         neighborhood: &N,
         operator: &mut O,
-        monitor: &mut SM,
+        monitor: M,
         initial_solution: &Solution<T>,
     ) -> LocalSearchEngineOutcome<T>
     where
         N: Neighborhoods,
         O: LocalSearchOperator<T, N>,
-        SM: LocalSearchMonitor<T>,
+        M: LocalSearchMonitor<T>,
     {
         self.engine.run(
             model,
@@ -378,7 +378,7 @@ where
     }
 
     #[inline]
-    pub fn metaheuristic(&self) -> &M {
+    pub fn metaheuristic(&self) -> &H {
         &self.metaheuristic
     }
 
@@ -526,7 +526,7 @@ mod tests {
         decoder.initialize(&model);
 
         let mut meta = GreedyDescent::default();
-        let mut monitor = NoopMonitor::default();
+        let monitor = NoopMonitor::default();
 
         // Operator must specify Neighborhood type parameter when using SwapOperator<T, N>
         let mut op = SwapOperator::<i64, StaticTopology>::new();
@@ -542,7 +542,7 @@ mod tests {
             &topology,
             &mut op,
             &mut meta,
-            &mut monitor,
+            monitor,
             &init,
         );
 
@@ -564,10 +564,6 @@ mod tests {
             model.num_vessels(),
             "solution vessel count mismatch"
         );
-
-        // Monitor lifecycle reached end
-        assert!(monitor.started, "monitor should be started");
-        assert!(monitor.ended, "monitor should be ended");
 
         // Decoder name and metaheuristic name available
         assert_eq!(decoder.name(), "GreedyDecoder");

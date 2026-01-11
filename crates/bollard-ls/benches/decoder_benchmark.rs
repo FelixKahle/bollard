@@ -24,7 +24,7 @@ use bollard_bnb::branching::edf::EarliestDeadlineFirstBuilder;
 use bollard_bnb::eval::hybrid::HybridEvaluator;
 use bollard_bnb::monitor::solution::SolutionLimitMonitor;
 use bollard_ls::decoder::{Decoder, GreedyDecoder};
-use bollard_ls::eval::WeightedFlowTimeEvaluator;
+use bollard_ls::eval::wft::WeightedFlowTimeEvaluator;
 use bollard_ls::memory::SearchMemory;
 use bollard_ls::queue::VesselPriorityQueue;
 use bollard_model::index::{BerthIndex, VesselIndex};

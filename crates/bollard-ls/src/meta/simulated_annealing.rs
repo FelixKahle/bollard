@@ -50,7 +50,7 @@
 //! metaheuristics in this crate.
 
 use crate::meta::metaheuristic::Metaheuristic;
-use crate::{eval::WeightedFlowTimeEvaluator, memory::Schedule};
+use crate::{eval::DefaultAssignmentEvaluator, memory::Schedule};
 use bollard_model::model::Model;
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 use rand::Rng;
@@ -76,6 +76,78 @@ pub trait CoolingSchedule: Send + Sync + std::fmt::Debug {
     /// When frozen, the metaheuristic effectively behaves like a Hill Climber,
     /// avoiding expensive floating-point math for probability calculations.
     fn is_frozen(&self) -> bool;
+}
+
+/// A type-erasing wrapper around any `CoolingSchedule`.
+///
+/// This enables selecting and composing cooling schedules at runtime
+/// without exposing their concrete types, while preserving a human-readable
+/// name for logging and diagnostics. The wrapper owns the cooling schedule
+/// as a boxed trait object and forwards all orchestration and temperature
+/// management to the inner implementation.
+pub struct DynamicCoolingSchedule {
+    inner: Box<dyn CoolingSchedule>,
+}
+
+impl DynamicCoolingSchedule {
+    /// Creates a new DynamicCoolingSchedule from a boxed CoolingSchedule.
+    #[inline]
+    pub fn new(inner: Box<dyn CoolingSchedule>) -> Self {
+        Self { inner }
+    }
+
+    /// Creates a new DynamicCoolingSchedule from any CoolingSchedule implementation.
+    #[inline]
+    pub fn from_schedule<S>(schedule: S) -> Self
+    where
+        S: CoolingSchedule + 'static,
+    {
+        Self {
+            inner: Box::new(schedule),
+        }
+    }
+
+    /// Returns a reference to the inner CoolingSchedule.
+    #[inline]
+    pub fn inner(&self) -> &dyn CoolingSchedule {
+        self.inner.as_ref()
+    }
+}
+
+impl std::fmt::Debug for DynamicCoolingSchedule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DynamicCoolingSchedule")
+            .field("inner", &self.inner)
+            .finish()
+    }
+}
+
+impl std::fmt::Display for DynamicCoolingSchedule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DynamicCoolingSchedule")
+    }
+}
+
+impl CoolingSchedule for DynamicCoolingSchedule {
+    #[inline]
+    fn on_start(&mut self) {
+        self.inner.on_start();
+    }
+
+    #[inline]
+    fn update(&mut self) {
+        self.inner.update();
+    }
+
+    #[inline]
+    fn current(&self) -> f64 {
+        self.inner.current()
+    }
+
+    #[inline]
+    fn is_frozen(&self) -> bool {
+        self.inner.is_frozen()
+    }
 }
 
 /// A standard geometric cooling schedule: $T_{k+1} = T_k \times \alpha$.
@@ -199,7 +271,7 @@ where
 {
     cooling_schedule: C, // The cooling schedule managing temperature decay
     rng: R,              // Random number generator for stochastic acceptance
-    evaluator: WeightedFlowTimeEvaluator<T>, // Evaluator for objective calculation
+    evaluator: DefaultAssignmentEvaluator<T>, // Evaluator for objective calculation
 }
 
 impl<T, R, C> SimulatedAnnealing<T, R, C>
@@ -221,7 +293,7 @@ where
         Self {
             cooling_schedule,
             rng,
-            evaluator: WeightedFlowTimeEvaluator::new(),
+            evaluator: DefaultAssignmentEvaluator::new(),
         }
     }
 }
@@ -232,7 +304,7 @@ where
     R: Rng + Send + Sync,
     C: CoolingSchedule,
 {
-    type Evaluator = WeightedFlowTimeEvaluator<T>;
+    type Evaluator = DefaultAssignmentEvaluator<T>;
 
     fn name(&self) -> &str {
         "SimulatedAnnealing"
@@ -310,7 +382,7 @@ where
         // Adaptive variants could implement reheating here.
     }
 
-    fn evaluator(&self) -> &WeightedFlowTimeEvaluator<T> {
+    fn evaluator(&self) -> &DefaultAssignmentEvaluator<T> {
         &self.evaluator
     }
 }

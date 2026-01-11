@@ -54,9 +54,9 @@
 //! throughout. The guided evaluator uses `T: FromPrimitive` to convert penalty costs back
 //! into `T`, and the metaheuristic layer also uses `ToPrimitive` for inspecting objectives.
 
-use crate::eval::{AssignmentEvaluator, Evaluation, WeightedFlowTimeEvaluator};
-use crate::memory::Schedule;
+use crate::eval::evaluator::{AssignmentEvaluator, Evaluation};
 use crate::meta::metaheuristic::Metaheuristic;
+use crate::{eval::DefaultAssignmentEvaluator, memory::Schedule};
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
@@ -286,7 +286,7 @@ where
 
 /// Augmented evaluator that adds GLS penalties to the base score.
 ///
-/// This wrapper delegates base scoring to `WeightedFlowTimeEvaluator` and adds a
+/// This wrapper delegates base scoring to `DefaultAssignmentEvaluator` and adds a
 /// penalty term scaled by `lambda` for the specific `(vessel, berth)` assignment
 /// being evaluated. When `lambda` is zero or the penalty is zero, the inner score
 /// is returned unchanged. Conversions to and from `f64` are handled defensively;
@@ -299,9 +299,9 @@ where
     T: SolverNumeric,
     B: Unsigned + PrimInt,
 {
-    inner: WeightedFlowTimeEvaluator<T>, // Base evaluator
-    penalties: PenaltyMatrix<B>,         // Penalty counts
-    lambda: f64,                         // Penalty scaling factor
+    inner: DefaultAssignmentEvaluator<T>, // Base evaluator
+    penalties: PenaltyMatrix<B>,          // Penalty counts
+    lambda: f64,                          // Penalty scaling factor
 }
 
 impl<T> GuidedEvaluator<T>
@@ -312,7 +312,7 @@ where
     #[inline]
     fn new(num_vessels: usize, num_berths: usize, lambda: f64) -> Self {
         Self {
-            inner: WeightedFlowTimeEvaluator::default(),
+            inner: DefaultAssignmentEvaluator::default(),
             penalties: PenaltyMatrix::new(num_vessels, num_berths),
             lambda,
         }

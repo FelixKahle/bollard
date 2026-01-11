@@ -30,7 +30,7 @@
 //! best. The design aims to keep the hot path cheap and predictable so that
 //! metaheuristics can inject guidance without disrupting tight inner loops.
 
-use crate::{eval::AssignmentEvaluator, memory::Schedule};
+use crate::{eval::evaluator::AssignmentEvaluator, memory::Schedule};
 use bollard_model::model::Model;
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 

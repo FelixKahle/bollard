@@ -49,7 +49,7 @@
 //! fallback when diversification is not required.
 
 use crate::meta::metaheuristic::Metaheuristic;
-use crate::{eval::WeightedFlowTimeEvaluator, memory::Schedule};
+use crate::{eval::DefaultAssignmentEvaluator, memory::Schedule};
 use bollard_model::model::Model;
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 
@@ -68,7 +68,7 @@ pub struct GreedyDescent<T>
 where
     T: SolverNumeric,
 {
-    evaluator: WeightedFlowTimeEvaluator<T>,
+    evaluator: DefaultAssignmentEvaluator<T>,
 }
 
 impl<T> Default for GreedyDescent<T>
@@ -87,7 +87,7 @@ where
     /// Creates a new `GreedyDescent` that runs until a local optimum is reached.
     pub fn new() -> Self {
         Self {
-            evaluator: WeightedFlowTimeEvaluator::new(),
+            evaluator: DefaultAssignmentEvaluator::new(),
         }
     }
 }
@@ -96,7 +96,7 @@ impl<T> Metaheuristic<T> for GreedyDescent<T>
 where
     T: SolverNumeric,
 {
-    type Evaluator = WeightedFlowTimeEvaluator<T>;
+    type Evaluator = DefaultAssignmentEvaluator<T>;
 
     fn name(&self) -> &str {
         "GreedyDescent"
@@ -140,7 +140,7 @@ where
         // No internal state to update.
     }
 
-    fn evaluator(&self) -> &WeightedFlowTimeEvaluator<T> {
+    fn evaluator(&self) -> &DefaultAssignmentEvaluator<T> {
         &self.evaluator
     }
 }

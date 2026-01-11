@@ -38,6 +38,7 @@
 //! swapped or combined in portfolios. They are designed to be deterministic
 //! given fixed neighborhoods and RNG seeds (where applicable).
 
+pub mod dynamic;
 pub mod greedy_descent;
 pub mod guided_local_search;
 pub mod metaheuristic;
