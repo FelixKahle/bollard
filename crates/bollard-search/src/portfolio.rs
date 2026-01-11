@@ -32,38 +32,11 @@
 //! launches several solvers—possibly in parallel—and lets them compete to
 //! install the best incumbent. This module standardizes how strategies are
 //! invoked and report outcomes.
-//!
-//! ## Core Types
-//!
-//! - `PortfolioSolverContext<'a, T>`: Shared references to the `Model<T>`,
-//!   `SharedIncumbent<T>`, and a `SearchMonitor<T>` used during solving.
-//! - `PortfolioSolverResult<T>`: Wraps a `SolverResult<T>` (Optimal/Feasible/Infeasible)
-//!   with a `TerminationReason` (OptimalityProven/InfeasibilityProven/Aborted).
-//! - `PortofolioSolver<T>`: Trait for portfolio-capable solvers with `invoke(...)`
-//!   and `name()`.
-//!
-//! ## Usage
-//!
-//! ```rust
-//! use bollard_search::portfolio::{PortfolioSolverContext, PortfolioSolverResult, PortofolioSolver};
-//! use bollard_search::incumbent::SharedIncumbent;
-//! use bollard_search::monitor::search_monitor::SearchMonitor;
-//! use bollard_model::model::Model;
-//! use num_traits::{PrimInt, Signed};
-//!
-//! struct MyStrategy;
-//! impl<T: PrimInt + Signed + Send + Sync> PortofolioSolver<T> for MyStrategy {
-//!     fn invoke<'a>(&mut self, ctx: PortfolioSolverContext<'a, T>) -> PortfolioSolverResult<T> {
-//!         // ... run strategy, possibly update ctx.incumbent, call ctx.monitor hooks ...
-//!         PortfolioSolverResult::infeasible()
-//!     }
-//!     fn name(&self) -> &str { "MyStrategy" }
-//! }
-//! ```
 
 use crate::{
     incumbent::SharedIncumbent,
     monitor::search_monitor::SearchMonitor,
+    neighborhood::neighborhoods::Neighborhoods,
     result::{SolverResult, TerminationReason},
 };
 use bollard_core::num::constants::MinusOne;
@@ -71,53 +44,62 @@ use bollard_model::{model::Model, solution::Solution};
 use num_traits::{PrimInt, Signed};
 
 /// Context provided to a portfolio solver during its `solve` method.
-pub struct PortfolioSolverContext<'a, T>
+pub struct PortfolioSolverContext<'a, T, N>
 where
     T: PrimInt + Signed,
+    N: Neighborhoods,
 {
     /// The model to be solved.
     pub model: &'a Model<T>,
+    /// The neighborhoods available for local search.
+    pub neighborhoods: &'a N,
     /// The shared incumbent solution.
     pub incumbent: &'a SharedIncumbent<T>,
     /// The search monitor for reporting progress.
     pub monitor: &'a mut dyn SearchMonitor<T>,
 }
 
-impl<'a, T> PortfolioSolverContext<'a, T>
+impl<'a, T, N> PortfolioSolverContext<'a, T, N>
 where
     T: PrimInt + Signed,
+    N: Neighborhoods,
 {
     /// Creates a new `PortfolioSolverContext`.
     #[inline(always)]
     pub fn new(
         model: &'a Model<T>,
+        neighborhoods: &'a N,
         incumbent: &'a SharedIncumbent<T>,
         monitor: &'a mut dyn SearchMonitor<T>,
     ) -> Self {
         Self {
             model,
+            neighborhoods,
             incumbent,
             monitor,
         }
     }
 }
 
-impl<'a, T> std::fmt::Debug for PortfolioSolverContext<'a, T>
+impl<'a, T, N> std::fmt::Debug for PortfolioSolverContext<'a, T, N>
 where
     T: PrimInt + Signed + Copy + MinusOne + std::fmt::Debug,
+    N: Neighborhoods,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PortfolioSolverContext")
             .field("model", &self.model)
+            .field("neighborhoods", &self.neighborhoods)
             .field("incumbent", &self.incumbent)
             .field("monitor", &self.monitor.name())
             .finish()
     }
 }
 
-impl<'a, T> std::fmt::Display for PortfolioSolverContext<'a, T>
+impl<'a, T, N> std::fmt::Display for PortfolioSolverContext<'a, T, N>
 where
     T: PrimInt + Signed + Copy + MinusOne + std::fmt::Display,
+    N: Neighborhoods,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -210,12 +192,14 @@ where
 /// A trait representing a portfolio solver.
 /// Such solvers can be runned in parallel as part
 /// of a portfolio approach to solving the Berth Allocation Problem.
-pub trait PortofolioSolver<T>: Send + Sync
+pub trait PortofolioSolver<T, N>: Send + Sync
 where
     T: PrimInt + Signed + Send + Sync,
+    N: Neighborhoods + Send + Sync,
 {
     /// Solves the given model within the provided context.
-    fn invoke<'a>(&mut self, context: PortfolioSolverContext<'a, T>) -> PortfolioSolverResult<T>;
+    fn invoke<'a>(&mut self, context: PortfolioSolverContext<'a, T, N>)
+    -> PortfolioSolverResult<T>;
     /// Returns the name of the portfolio solver.
     fn name(&self) -> &str;
 }

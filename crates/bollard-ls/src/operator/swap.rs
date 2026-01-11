@@ -31,10 +31,10 @@
 //! or heuristics (e.g., only swapping vessels that share a resource conflict).
 
 use crate::{
-    memory::Schedule, mutator::Mutator, neighborhood::neighborhoods::Neighborhoods,
-    operator::local_search_operator::LocalSearchOperator, queue::VesselPriorityQueue,
+    memory::Schedule, mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
+    queue::VesselPriorityQueue,
 };
-use bollard_search::num::SolverNumeric;
+use bollard_search::{neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric};
 
 /// An operator that explores swaps between pairs of vessels in the priority queue.
 ///
@@ -144,11 +144,11 @@ where
 mod tests {
     use super::*;
     use crate::memory::SearchMemory;
-    use crate::neighborhood::topology::StaticTopology;
     use bollard_model::index::{BerthIndex, VesselIndex};
     use bollard_model::model::ModelBuilder;
     use bollard_model::solution::Solution;
     use bollard_model::time::ProcessingTime;
+    use bollard_search::neighborhood::topology::StaticTopology;
 
     fn build_model(num_berths: usize, num_vessels: usize) -> bollard_model::model::Model<i64> {
         ModelBuilder::<i64>::new(num_berths, num_vessels).build()

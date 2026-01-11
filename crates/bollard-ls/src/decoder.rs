@@ -44,7 +44,7 @@ use bollard_search::num::SolverNumeric;
 /// A decoder that transforms a priority queue into a schedule.
 ///
 /// Provides both checked and unchecked decoding methods.
-pub trait Decoder<T, E>
+pub trait Decoder<T, E>: Send + Sync
 where
     T: SolverNumeric,
     E: AssignmentEvaluator<T>,

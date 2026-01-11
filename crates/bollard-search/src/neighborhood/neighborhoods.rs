@@ -33,7 +33,8 @@
 //! heuristics where latency and memory layout are critical.
 
 use bollard_model::{index::VesselIndex, model::Model};
-use bollard_search::num::SolverNumeric;
+
+use crate::num::SolverNumeric;
 
 /// A trait for defining search space connectivity (neighborhoods) between vessels.
 ///

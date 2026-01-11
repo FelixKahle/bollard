@@ -36,7 +36,6 @@ pub mod memory;
 pub mod meta;
 pub mod monitor;
 pub mod mutator;
-pub mod neighborhood;
 pub mod operator;
 pub mod queue;
 pub mod result;

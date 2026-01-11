@@ -33,7 +33,7 @@ use crate::{memory::Schedule, stats::LocalSearchStatistics};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 
 /// A monitor for local search algorithms.
-pub trait LocalSearchMonitor<T>
+pub trait LocalSearchMonitor<T>: Send + Sync
 where
     T: SolverNumeric,
 {

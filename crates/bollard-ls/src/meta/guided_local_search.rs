@@ -328,7 +328,7 @@ where
 impl<T, B> AssignmentEvaluator<T> for GuidedEvaluator<T, B>
 where
     T: SolverNumeric + num_traits::FromPrimitive,
-    B: Unsigned + PrimInt,
+    B: Unsigned + PrimInt + Send + Sync,
 {
     fn name(&self) -> &str {
         "GuidedEvaluator"

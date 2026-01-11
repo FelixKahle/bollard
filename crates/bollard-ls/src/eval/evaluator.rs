@@ -82,7 +82,7 @@ impl<T> Evaluation<T> {
 }
 
 /// A trait for evaluating the cost and score of assigning a vessel to a berth.
-pub trait AssignmentEvaluator<T>
+pub trait AssignmentEvaluator<T>: Send + Sync
 where
     T: SolverNumeric,
 {

@@ -37,8 +37,8 @@
 //! iteration while preserving memory safety under the trait’s checked and unchecked APIs.
 
 use crate::neighborhood::neighborhoods::Neighborhoods;
+use crate::num::SolverNumeric;
 use bollard_model::{index::VesselIndex, model::Model};
-use bollard_search::num::SolverNumeric;
 
 /// A static, immutable topology using a Compressed Sparse Row (CSR) layout.
 ///

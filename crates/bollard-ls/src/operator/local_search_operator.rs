@@ -42,11 +42,8 @@
 //! and use `reset` to restore the starting position of the exploration sequence without
 //! re-analyzing the schedule.
 
-use crate::{
-    memory::Schedule, mutator::Mutator, neighborhood::neighborhoods::Neighborhoods,
-    queue::VesselPriorityQueue,
-};
-use bollard_search::num::SolverNumeric;
+use crate::{memory::Schedule, mutator::Mutator, queue::VesselPriorityQueue};
+use bollard_search::{neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric};
 
 /// A stateful operator that explores a specific neighborhood in a local search.
 ///
@@ -63,7 +60,7 @@ use bollard_search::num::SolverNumeric;
 ///    If it returns `false`, the neighborhood is exhausted.
 /// 3. **`reset`**: Reverts the operator's internal cursor or counters to the start of the
 ///    current neighborhood without re-analyzing the schedule.
-pub trait LocalSearchOperator<T, N>
+pub trait LocalSearchOperator<T, N>: Send + Sync
 where
     T: SolverNumeric,
     N: Neighborhoods,

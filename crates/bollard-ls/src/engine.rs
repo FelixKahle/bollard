@@ -35,13 +35,15 @@ use crate::{
     memory::SearchMemory,
     meta::metaheuristic::Metaheuristic,
     monitor::local_search_monitor::LocalSearchMonitor,
-    neighborhood::neighborhoods::Neighborhoods,
     operator::local_search_operator::LocalSearchOperator,
     result::{LocalSearchEngineOutcome, LocalSearchTerminationReason},
     stats::LocalSearchStatistics,
 };
 use bollard_model::{model::Model, solution::Solution};
-use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
+use bollard_search::{
+    monitor::search_monitor::SearchCommand, neighborhood::neighborhoods::Neighborhoods,
+    num::SolverNumeric,
+};
 use std::time::Instant;
 
 /// Local search engine for berth scheduling.
@@ -398,11 +400,11 @@ mod tests {
     use super::*;
     use crate::decoder::GreedyDecoder;
     use crate::meta::greedy_descent::GreedyDescent;
-    use crate::neighborhood::topology::StaticTopology;
     use crate::operator::swap::SwapOperator;
     use bollard_model::index::{BerthIndex, VesselIndex};
     use bollard_model::model::ModelBuilder;
     use bollard_model::solution::Solution;
+    use bollard_search::neighborhood::topology::StaticTopology;
 
     // A monitor that records calls and never terminates early.
     #[derive(Default)]

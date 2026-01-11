@@ -32,15 +32,15 @@ use bollard_ls::{
         composite::CompositeLocalSearchMonitor, solution::SolutionLimitMonitor,
         time::TimeLimitMonitor,
     },
-    neighborhood::{
-        dynamic::DynamicNeighborhoods,
-        neighborhoods::{FullNeighborhoods, Neighborhoods},
-        topology::StaticTopology,
-    },
     operator::local_search_operator::LocalSearchOperator,
     stats::LocalSearchStatistics,
 };
 use bollard_model::{model::Model, solution::Solution};
+use bollard_search::neighborhood::{
+    dynamic::DynamicNeighborhoods,
+    neighborhoods::{FullNeighborhoods, Neighborhoods},
+    topology::StaticTopology,
+};
 use num_traits::ToPrimitive;
 use std::{
     ffi::{c_char, CString},

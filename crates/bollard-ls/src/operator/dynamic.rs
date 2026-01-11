@@ -32,10 +32,10 @@
 //! boilerplate when lifting existing operators into a dynamic form.
 
 use crate::{
-    memory::Schedule, mutator::Mutator, neighborhood::neighborhoods::Neighborhoods,
-    operator::local_search_operator::LocalSearchOperator, queue::VesselPriorityQueue,
+    memory::Schedule, mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
+    queue::VesselPriorityQueue,
 };
-use bollard_search::num::SolverNumeric;
+use bollard_search::{neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric};
 
 /// A type-erasing wrapper around any `LocalSearchOperator`, enabling runtime selection and
 /// composition of operators without exposing their concrete types. The wrapper owns a boxed
