@@ -36,7 +36,7 @@
 // Berth Allocation Solver Framework" (University of Hamburg, 2025).
 // The thesis implementation was called `IntervalSet`. For this module,
 // I've tuned it for cache locality and pared it down to essentials:
-// a precomputed, sorted `Vec` of disjoint intervals constructed at initialization.
+// a precomputed, sorted flat `Vec` of disjoint unavailable intervals.
 
 use crate::fixed::FixedAssignment;
 use bollard_core::{math::interval::ClosedOpenInterval, num::constants::MinusOne};
@@ -81,97 +81,6 @@ where
         bollard_core::algorithm::are_disjoint_and_sorted(intervals),
         "`merge_intervals_in_place` output is not disjoint and sorted"
     );
-}
-
-/// Computes the set difference of disjoint, sorted intervals: base \ exclusions.
-///
-/// Given two slices of disjoint, sorted closed-open intervals, this function
-/// subtracts all `exclusions` from `base` and writes the resulting disjoint
-/// segments into `output`, reusing its capacity.
-///
-/// Invariants:
-/// - `base` must be sorted and disjoint.
-/// - `exclusions` must be sorted and disjoint.
-/// - Adjacency is non-overlapping; subtraction preserves closed-open semantics.
-///
-/// Complexity:
-/// - O(|base| + |exclusions|) in the common case due to linear scans.
-/// - No intermediate heap allocations per base interval; only writes to `output`.
-fn subtract_intervals_into<T>(
-    base: &[ClosedOpenInterval<T>],
-    exclusions: &[ClosedOpenInterval<T>],
-    output: &mut Vec<ClosedOpenInterval<T>>,
-) where
-    T: PrimInt,
-{
-    debug_assert!(
-        bollard_core::algorithm::are_disjoint_and_sorted(base),
-        "called `subtract_intervals_into` with `base` not sorted by start or not disjoint"
-    );
-    debug_assert!(
-        bollard_core::algorithm::are_disjoint_and_sorted(exclusions),
-        "called `subtract_intervals_into` with `exclusions` not sorted by start or not disjoint"
-    );
-
-    output.clear();
-
-    if exclusions.is_empty() {
-        output.extend_from_slice(base);
-        return;
-    }
-
-    let mut blocked_index = 0usize;
-
-    for &source_interval in base {
-        let mut cursor_start = source_interval.start();
-        let cursor_end = source_interval.end();
-
-        while blocked_index < exclusions.len() && exclusions[blocked_index].end() <= cursor_start {
-            blocked_index += 1;
-        }
-
-        // If the current base interval ends before the next exclusion starts,
-        // we are strictly "to the left" of any problems. Just push it and continue.
-        if blocked_index < exclusions.len() && cursor_end <= exclusions[blocked_index].start() {
-            output.push(source_interval);
-            continue;
-        }
-
-        let mut scan_blocked_index = blocked_index;
-        while scan_blocked_index < exclusions.len() {
-            let blocked = exclusions[scan_blocked_index];
-
-            if blocked.start() >= cursor_end {
-                break;
-            }
-
-            if cursor_start < blocked.start() {
-                output.push(ClosedOpenInterval::new(cursor_start, blocked.start()));
-            }
-
-            if blocked.end() > cursor_start {
-                cursor_start = blocked.end();
-            }
-
-            if cursor_start >= cursor_end {
-                break;
-            }
-
-            if blocked.end() < cursor_end {
-                scan_blocked_index += 1;
-            } else {
-                break;
-            }
-        }
-
-        if cursor_start < cursor_end {
-            output.push(ClosedOpenInterval::new(cursor_start, cursor_end));
-        }
-    }
-
-    if !output.is_empty() {
-        merge_intervals_in_place(output);
-    }
 }
 
 /// Detects whether two disjoint, sorted interval sets overlap at any position.
@@ -231,15 +140,29 @@ where
     false
 }
 
-/// Tracks berth availability over time using disjoint, sorted closed-open intervals.
-/// Provides efficient initialization from fixed assignments and querying routines.
+/// Compact representation of berth unavailability across a set of berths.
+///
+/// `BerthAvailability` stores all unavailable time intervals (both fixed and temporary closures)
+/// for every berth in a single, contiguous buffer, paired with an offsets array to indicate
+/// the slice belonging to each berth. This layout minimizes per-berth allocation overhead and
+/// enables cache-friendly iteration when scanning unavailability.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BerthAvailability<T>
 where
     T: PrimInt,
 {
-    unavailable_times: Vec<Vec<ClosedOpenInterval<T>>>, // per berth, sorted, non-overlapping disjoint intervals
-    available_times: Vec<Vec<ClosedOpenInterval<T>>>, // per berth, sorted, non-overlapping disjoint intervals
+    // Flat storage of all unavailability intervals across every berth.
+    // Intervals are represented as closed-open ranges [start, end) and laid out back-to-back
+    // for cache-friendly scans and minimal per-berth allocations.
+    unavailable_times_data: Vec<ClosedOpenInterval<T>>,
+
+    // Per-berth index table into `unavailable_times_data`.
+    // For berth j, its intervals live in the slice
+    // `unavailable_times_data[offsets[j] .. offsets[j + 1]]`.
+    // Invariant: `offsets.len() == num_berths + 1`.
+    unavailable_times_offsets: Vec<usize>,
+
+    // Total number of berths represented by this structure.
     num_berths: usize,
 }
 
@@ -251,8 +174,8 @@ where
     #[inline]
     pub fn new() -> Self {
         Self {
-            unavailable_times: Vec::new(),
-            available_times: Vec::new(),
+            unavailable_times_data: Vec::new(),
+            unavailable_times_offsets: Vec::new(),
             num_berths: 0,
         }
     }
@@ -260,37 +183,30 @@ where
     /// Creates a new `BerthAvailability` with preallocated capacity for `num_berths` berths.
     #[inline]
     pub fn preallocated(num_berths: usize) -> Self {
+        let mut offsets = Vec::with_capacity(num_berths + 1);
+        offsets.push(0);
         Self {
-            unavailable_times: Vec::with_capacity(num_berths),
-            available_times: Vec::with_capacity(num_berths),
+            unavailable_times_data: Vec::with_capacity(num_berths * 2),
+            unavailable_times_offsets: offsets,
             num_berths,
         }
     }
 
     /// Ensures internal vectors have capacity for at least `num_berths` berths.
-    /// If current capacity is less, resizes with empty vectors.
     #[inline]
     pub fn ensure_capacity(&mut self, num_berths: usize) {
-        if self.unavailable_times.len() < num_berths {
-            self.unavailable_times.resize(num_berths, Vec::new());
-        }
-        if self.available_times.len() < num_berths {
-            self.available_times.resize(num_berths, Vec::new());
+        if self.unavailable_times_offsets.len() <= num_berths {
+            self.unavailable_times_offsets.resize(num_berths + 1, 0);
         }
     }
 
     /// Resets all availability data, clearing intervals for all berths.
     #[inline]
     pub fn reset(&mut self) {
-        for vec in &mut self.unavailable_times {
-            vec.clear();
-        }
-        for vec in &mut self.available_times {
-            vec.clear();
-        }
-
+        self.unavailable_times_data.clear();
+        self.unavailable_times_offsets.clear();
+        self.unavailable_times_offsets.push(0);
         self.num_berths = 0;
-        debug_assert_eq!(self.unavailable_times.len(), self.available_times.len());
     }
 
     /// Initializes availability based on the model and fixed assignments.
@@ -305,20 +221,27 @@ where
         let num_vessels = model.num_vessels();
 
         self.num_berths = num_berths;
-        self.ensure_capacity(num_berths);
 
-        // Clear existing intervals
-        // Same as `self.reset()` but does not reset num_berths to `0`.
-        for vec in &mut self.unavailable_times {
-            vec.clear();
-        }
-        for vec in &mut self.available_times {
-            vec.clear();
-        }
+        // Workspace to perform merging before flattening
+        let mut workspace: Vec<Vec<ClosedOpenInterval<T>>> = vec![Vec::new(); num_berths];
 
         for assignment in fixed {
             let berth_index = assignment.berth_index.get();
             let vessel_index = assignment.vessel_index.get();
+
+            debug_assert!(
+                berth_index < num_berths,
+                "called `BerthAvailability::initialize` with fixed assignment having invalid berth index: the len is {} but the index is {}",
+                num_berths,
+                berth_index
+            );
+
+            debug_assert!(
+                vessel_index < num_vessels,
+                "called `BerthAvailability::initialize` with fixed assignment having invalid vessel index: the len is {} but the index is {}",
+                num_vessels,
+                vessel_index
+            );
 
             if berth_index >= num_berths || vessel_index >= num_vessels {
                 return false;
@@ -326,6 +249,7 @@ where
 
             let processing_time_option =
                 model.vessel_processing_time(assignment.vessel_index, assignment.berth_index);
+
             if processing_time_option.is_none() {
                 return false;
             }
@@ -334,23 +258,16 @@ where
             let start = assignment.start_time;
             let end = start + duration;
 
-            unsafe {
-                self.unavailable_times
-                    .get_unchecked_mut(berth_index)
-                    .push(ClosedOpenInterval::new(start, end));
-            }
+            workspace[berth_index].push(ClosedOpenInterval::new(start, end));
         }
 
-        for i in 0..num_berths {
+        for (i, fixed_intervals) in workspace.iter_mut().enumerate().take(num_berths) {
             let berth_index = BerthIndex::new(i);
-            let fixed_intervals = &mut self.unavailable_times[i];
             fixed_intervals.sort_unstable_by_key(|a| a.start());
 
             if !fixed_intervals.is_empty() {
-                for w in 0..fixed_intervals.len() - 1 {
-                    let current = unsafe { *fixed_intervals.get_unchecked(w) };
-                    let next = unsafe { *fixed_intervals.get_unchecked(w + 1) };
-                    if next.start() < current.end() {
+                for w in fixed_intervals.windows(2) {
+                    if w[1].start() < w[0].end() {
                         return false;
                     }
                 }
@@ -362,14 +279,18 @@ where
             }
 
             fixed_intervals.extend_from_slice(closing_times);
-
             merge_intervals_in_place(fixed_intervals);
+        }
 
-            let unavailable_ref = &self.unavailable_times[i];
-            let available_vec = &mut self.available_times[i];
-            let opening_ref = model.berth_opening_times(berth_index);
+        // Bake into flat structure
+        self.unavailable_times_data.clear();
+        self.unavailable_times_offsets.clear();
+        self.unavailable_times_offsets.push(0);
 
-            subtract_intervals_into(opening_ref, unavailable_ref, available_vec);
+        for berth_vec in workspace {
+            self.unavailable_times_data.extend(berth_vec);
+            self.unavailable_times_offsets
+                .push(self.unavailable_times_data.len());
         }
 
         true
@@ -379,51 +300,6 @@ where
     #[inline]
     pub fn num_berths(&self) -> usize {
         self.num_berths
-    }
-
-    /// Returns the available intervals for the given berth.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if `berth_index` is out of bounds.
-    #[inline]
-    pub fn available_intervals(&self, berth_index: BerthIndex) -> &[ClosedOpenInterval<T>] {
-        let index = berth_index.get();
-
-        debug_assert!(
-            index < self.num_berths(),
-            "called `BerthAvailability::available_intervals` with berth index out of bounds: the len is {} but the index is {}",
-            self.num_berths(),
-            index
-        );
-
-        &self.available_times[index]
-    }
-
-    /// Unsafe version of `available_intervals` that skips bounds checks.
-    ///
-    /// # Panics
-    ///
-    /// In debug builds, this function will panic if `berth_index` is out of bounds.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `berth_index` is within bounds.
-    #[inline]
-    pub unsafe fn available_intervals_unchecked(
-        &self,
-        berth_index: BerthIndex,
-    ) -> &[ClosedOpenInterval<T>] {
-        let index = berth_index.get();
-
-        debug_assert!(
-            index < self.num_berths(),
-            "called `BerthAvailability::available_intervals_unchecked` with berth index out of bounds: the len is {} but the index is {}",
-            self.num_berths(),
-            index
-        );
-
-        unsafe { self.available_times.get_unchecked(index) }
     }
 
     /// Returns the unavailable intervals for the given berth.
@@ -442,7 +318,11 @@ where
             index
         );
 
-        &self.unavailable_times[index]
+        unsafe {
+            let start = *self.unavailable_times_offsets.get_unchecked(index);
+            let end = *self.unavailable_times_offsets.get_unchecked(index + 1);
+            self.unavailable_times_data.get_unchecked(start..end)
+        }
     }
 
     /// Unsafe version of `unavailable_intervals` that skips bounds checks.
@@ -467,7 +347,11 @@ where
             index
         );
 
-        unsafe { self.unavailable_times.get_unchecked(index) }
+        unsafe {
+            let start = *self.unavailable_times_offsets.get_unchecked(index);
+            let end = *self.unavailable_times_offsets.get_unchecked(index + 1);
+            self.unavailable_times_data.get_unchecked(start..end)
+        }
     }
 
     /// Finds the earliest availability on the given berth starting at or after `start_time`
@@ -490,36 +374,35 @@ where
             index
         );
 
-        let intervals = &self.available_times[index];
-        if intervals.is_empty() {
-            return None;
+        let occupied = self.unavailable_intervals(berth_index);
+        if occupied.is_empty() {
+            return Some(start_time);
         }
 
-        let lower_bound = bollard_core::algorithm::lower_bound_start(intervals, start_time);
+        let mut interval_index = bollard_core::algorithm::lower_bound_start(occupied, start_time);
+        let mut cursor_start = start_time;
 
-        if lower_bound > 0 {
-            let interval = &intervals[lower_bound - 1];
-            if start_time >= interval.start() && start_time < interval.end() {
-                let remaining = interval.end() - start_time;
-                if duration <= remaining {
-                    return Some(start_time);
-                }
+        if interval_index > 0 {
+            // SAFETY: `interval_index` will be in `1..occupied.len()` here.
+            // `occupied` is non-empty, so `interval_index - 1` is valid.
+            let prev = unsafe { occupied.get_unchecked(interval_index - 1) };
+            if cursor_start < prev.end() {
+                cursor_start = prev.end();
             }
         }
 
-        for iv in &intervals[lower_bound..] {
-            let end = iv.end();
-            let candidate_start = iv.start().max(start_time);
-            if candidate_start >= end {
-                continue;
+        while interval_index < occupied.len() {
+            // SAFETY: `interval_index` is in `0..occupied.len()` here.
+            // So this is safe.
+            let block = unsafe { occupied.get_unchecked(interval_index) };
+            if block.start() >= cursor_start + duration {
+                return Some(cursor_start);
             }
-            let remaining = end - candidate_start;
-            if duration <= remaining {
-                return Some(candidate_start);
-            }
+            cursor_start = cursor_start.max(block.end());
+            interval_index += 1;
         }
 
-        None
+        Some(cursor_start)
     }
 
     /// Unsafe version of `earliest_availability` that skips bounds checks.
@@ -541,39 +424,40 @@ where
 
         debug_assert!(
             index < self.num_berths(),
-            "called `BerthAvailability::earliest_availability` with berth index out of bounds: the len is {} but the index is {}",
+            "called `BerthAvailability::earliest_availability_unchecked` with berth index out of bounds: the len is {} but the index is {}",
             self.num_berths(),
             index
         );
 
-        let intervals = unsafe { self.available_times.get_unchecked(index) };
-        if intervals.is_empty() {
-            return None;
+        let occupied = unsafe { self.unavailable_intervals_unchecked(berth_index) };
+        if occupied.is_empty() {
+            return Some(start_time);
         }
 
-        let lower_bound = bollard_core::algorithm::lower_bound_start(intervals, start_time);
-        if lower_bound > 0 {
-            let interval = unsafe { intervals.get_unchecked(lower_bound - 1) };
-            if start_time >= interval.start() && start_time < interval.end() {
-                let finish = start_time + duration;
-                if finish <= interval.end() {
-                    return Some(start_time);
-                }
+        let mut interval_index = bollard_core::algorithm::lower_bound_start(occupied, start_time);
+        let mut cursor_start = start_time;
+
+        if interval_index > 0 {
+            // SAFETY: `interval_index` will be in `1..occupied.len()` here.
+            // `occupied` is non-empty, so `interval_index - 1` is valid.
+            let prev = unsafe { occupied.get_unchecked(interval_index - 1) };
+            if cursor_start < prev.end() {
+                cursor_start = prev.end();
             }
         }
 
-        for interval in &intervals[lower_bound..] {
-            let candidate_start = interval.start().max(start_time);
-            if candidate_start >= interval.end() {
-                continue;
+        while interval_index < occupied.len() {
+            // SAFETY: `interval_index` is in `0..occupied.len()` here.
+            // So this is safe.
+            let block = unsafe { occupied.get_unchecked(interval_index) };
+            if block.start() >= cursor_start + duration {
+                return Some(cursor_start);
             }
-            let finish = candidate_start + duration;
-            if finish <= interval.end() {
-                return Some(candidate_start);
-            }
+            cursor_start = cursor_start.max(block.end());
+            interval_index += 1;
         }
 
-        None
+        Some(cursor_start)
     }
 }
 
@@ -590,180 +474,9 @@ mod tests {
         ClosedOpenInterval::new(s, e)
     }
 
-    #[test]
-    fn test_merge_intervals_in_place_no_change_disjoint_sorted() {
-        let mut v = vec![iv(0, 5), iv(5, 10), iv(15, 20)];
-        merge_intervals_in_place(&mut v);
-        // Adjacent (0,5) and (5,10) should merge; (15,20) remains
-        assert_eq!(v, vec![iv(0, 10), iv(15, 20)]);
-        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&v));
-    }
-
-    #[test]
-    fn test_merge_intervals_in_place_overlap_merge() {
-        let mut v = vec![iv(0, 7), iv(5, 10), iv(11, 12)];
-        merge_intervals_in_place(&mut v);
-        // (0,7) and (5,10) overlap -> merge to (0,10)
-        assert_eq!(v, vec![iv(0, 10), iv(11, 12)]);
-        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&v));
-    }
-
-    #[test]
-    fn test_merge_intervals_in_place_multiple_merges() {
-        let mut v = vec![iv(0, 3), iv(3, 6), iv(6, 6), iv(7, 8), iv(8, 10)];
-        merge_intervals_in_place(&mut v);
-        // Adjacent chain merges into (0,6) and (7,10)
-        assert_eq!(v, vec![iv(0, 6), iv(7, 10)]);
-        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&v));
-    }
-
-    #[test]
-    fn test_subtract_intervals_into_no_exclusions() {
-        let base = vec![iv(0, 10)];
-        let excl: Vec<ClosedOpenInterval<IntegerType>> = vec![];
-        let mut out = Vec::new();
-        subtract_intervals_into(&base, &excl, &mut out);
-        assert_eq!(out, base);
-        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&out));
-    }
-
-    #[test]
-    fn test_subtract_intervals_into_full_cover() {
-        let base = vec![iv(0, 10)];
-        let excl = vec![iv(0, 10)];
-        let mut out = Vec::new();
-        subtract_intervals_into(&base, &excl, &mut out);
-        assert!(out.is_empty());
-    }
-
-    #[test]
-    fn test_subtract_intervals_into_middle_hole() {
-        let base = vec![iv(0, 10)];
-        let excl = vec![iv(3, 7)];
-        let mut out = Vec::new();
-        subtract_intervals_into(&base, &excl, &mut out);
-        assert_eq!(out, vec![iv(0, 3), iv(7, 10)]);
-        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&out));
-    }
-
-    #[test]
-    fn test_subtract_intervals_into_multiple_exclusions() {
-        let base = vec![iv(0, 20)];
-        let excl = vec![iv(2, 5), iv(5, 7), iv(10, 12), iv(15, 20)];
-        let mut out = Vec::new();
-        subtract_intervals_into(&base, &excl, &mut out);
-        // Expect segments: [0,2), [7,10), [12,15)
-        assert_eq!(out, vec![iv(0, 2), iv(7, 10), iv(12, 15)]);
-        assert!(bollard_core::algorithm::are_disjoint_and_sorted(&out));
-    }
-
-    #[test]
-    fn test_subtract_intervals_into_exclusions_outside() {
-        let base = vec![iv(10, 20)];
-        let excl = vec![iv(0, 5), iv(5, 9), iv(21, 30)];
-        let mut out = Vec::new();
-        subtract_intervals_into(&base, &excl, &mut out);
-        assert_eq!(out, vec![iv(10, 20)]);
-    }
-
-    #[test]
-    fn test_has_overlaps_false_when_empty() {
-        let a: Vec<ClosedOpenInterval<IntegerType>> = vec![];
-        let b: Vec<ClosedOpenInterval<IntegerType>> = vec![iv(0, 1)];
-        assert!(!has_overlaps(&a, &b));
-        assert!(!has_overlaps(&b, &a));
-    }
-
-    #[test]
-    fn test_has_overlaps_true_overlap() {
-        let a = vec![iv(0, 10), iv(20, 30)];
-        let b = vec![iv(5, 15)];
-        assert!(has_overlaps(&a, &b));
-    }
-
-    #[test]
-    fn test_has_overlaps_false_adjacent_only() {
-        let a = vec![iv(0, 10)];
-        let b = vec![iv(10, 20)];
-        // Closed-open adjacency should NOT be considered overlap
-        assert!(!has_overlaps(&a, &b));
-    }
-
-    #[test]
-    fn test_has_overlaps_multiple_scans() {
-        let a = vec![iv(0, 5), iv(10, 15), iv(20, 25)];
-        let b = vec![iv(6, 9), iv(12, 13), iv(30, 40)];
-        assert!(has_overlaps(&a, &b)); // (10,15) overlaps (12,13)
-        // inversely also should detect overlap
-        assert!(has_overlaps(&b, &a));
-    }
-
     fn build_model_basic() -> Model<IntegerType> {
-        // 2 berths, 2 vessels
         let mut builder = ModelBuilder::<IntegerType>::new(2, 2);
-
-        // Berth 0 closes [50, 100), so it opens [0,50) and [100, i64::MAX)
         builder.add_berth_closing_time(BerthIndex::new(0), iv(50, 100));
-
-        // Berth 1 stays open [0, i64::MAX); no closing times
-
-        // Vessel 0 allowed on both berths with processing times
-        builder.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            ProcessingTime::from_option(Some(20)),
-        );
-        builder.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(1),
-            ProcessingTime::from_option(Some(30)),
-        );
-
-        // Vessel 1 allowed only on berth 0 with processing time 40; forbidden on berth 1
-        builder.set_vessel_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(0),
-            ProcessingTime::from_option(Some(40)),
-        );
-        builder.set_vessel_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(1),
-            ProcessingTime::none(),
-        );
-
-        builder.build()
-    }
-
-    #[test]
-    fn test_initialize_no_fixed_assignments() {
-        let model = build_model_basic();
-        let mut ba = BerthAvailability::<IntegerType>::new();
-
-        let fixed: Vec<FixedAssignment<IntegerType>> = vec![];
-        assert!(ba.initialize(&model, &fixed));
-
-        // Berth 0: unavailable is only closing [50, 100)
-        assert_eq!(ba.unavailable_intervals(BerthIndex::new(0)), &[iv(50, 100)]);
-        // Berth 0: availability mirrors model opening
-        assert_eq!(
-            ba.available_intervals(BerthIndex::new(0)),
-            &[iv(0, 50), iv(100, i64::MAX),]
-        );
-
-        // Berth 1: no closing, no fixed -> unavailable empty, availability full
-        assert!(ba.unavailable_intervals(BerthIndex::new(1)).is_empty());
-        assert_eq!(
-            ba.available_intervals(BerthIndex::new(1)),
-            &[iv(0, i64::MAX)]
-        );
-    }
-
-    #[test]
-    fn test_initialize_with_fixed_assignments_merged() {
-        // Use a clean model without the [50,100) closure to simplify testing merged assignments
-        let mut builder = ModelBuilder::<IntegerType>::new(1, 2);
-        // Closure further out at [200, 300)
-        builder.add_berth_closing_time(BerthIndex::new(0), iv(200, 300));
         builder.set_vessel_processing_time(
             VesselIndex::new(0),
             BerthIndex::new(0),
@@ -774,72 +487,13 @@ mod tests {
             BerthIndex::new(0),
             ProcessingTime::some(40),
         );
-        let model = builder.build();
-
-        let mut ba = BerthAvailability::<IntegerType>::new();
-
-        // Fixed assignments on berth 0:
-        // - Vessel 0 at t=10, duration 20 -> [10, 30)
-        // - Vessel 1 at t=30, duration 40 -> [30, 70)
-        // These are ADJACENT (not overlapping) and will merge into [10, 70)
-        let fixed = vec![
-            FixedAssignment::new(10, BerthIndex::new(0), VesselIndex::new(0)),
-            FixedAssignment::new(30, BerthIndex::new(0), VesselIndex::new(1)),
-        ];
-
-        assert!(ba.initialize(&model, &fixed));
-
-        // Unavailable: [10, 70) merged with closure [200, 300)
-        assert_eq!(
-            ba.unavailable_intervals(BerthIndex::new(0)),
-            &[iv(10, 70), iv(200, 300)]
-        );
-
-        // Availability: [0, 10), [70, 200), [300, MAX)
-        assert_eq!(
-            ba.available_intervals(BerthIndex::new(0)),
-            &[iv(0, 10), iv(70, 200), iv(300, i64::MAX),]
-        );
+        builder.build()
     }
 
     #[test]
-    fn test_initialize_forbidden_fixed_returns_false() {
+    fn test_initialize_layout() {
         let model = build_model_basic();
         let mut ba = BerthAvailability::<IntegerType>::new();
-
-        // Vessel 1 is forbidden on berth 1 -> initialize should return false
-        let bad_fixed = vec![FixedAssignment::new(
-            0,
-            BerthIndex::new(1),
-            VesselIndex::new(1),
-        )];
-        assert!(!ba.initialize(&model, &bad_fixed));
-    }
-
-    #[test]
-    fn test_initialize_overlapping_fixed_returns_false() {
-        let model = build_model_basic();
-        let mut ba = BerthAvailability::<IntegerType>::new();
-
-        // Two assignments on berth 0 that overlap:
-        // V0: [10, 30)
-        // V1: [20, 60) (Overlap 20-30)
-        let bad_fixed = vec![
-            FixedAssignment::new(10, BerthIndex::new(0), VesselIndex::new(0)),
-            FixedAssignment::new(20, BerthIndex::new(0), VesselIndex::new(1)),
-        ];
-        assert!(!ba.initialize(&model, &bad_fixed));
-    }
-
-    #[test]
-    fn test_earliest_availability_basic() {
-        // Model with closure at [50, 100)
-        let model = build_model_basic();
-        let mut ba = BerthAvailability::<IntegerType>::new();
-
-        // Fixed on berth 0: [10, 30)
-        // Unavailable: [10, 30) and [50, 100)
-        // Available: [0, 10), [30, 50), [100, MAX)
         let fixed = vec![FixedAssignment::new(
             10,
             BerthIndex::new(0),
@@ -847,73 +501,25 @@ mod tests {
         )];
         assert!(ba.initialize(&model, &fixed));
 
-        // 1. Request duration 5 at 0 -> Fits in [0, 10)
-        assert_eq!(ba.earliest_availability(BerthIndex::new(0), 0, 5), Some(0));
-
-        // 2. Request duration 15 at 0 -> [0, 10) too short.
-        //    Next slot is [30, 50). Length 20. 15 fits starting at 30.
-        assert_eq!(
-            ba.earliest_availability(BerthIndex::new(0), 0, 15),
-            Some(30)
-        );
-
-        // 3. Request duration 25 at 0.
-        //    [0, 10) too short.
-        //    [30, 50) len 20. Too short.
-        //    [100, MAX) fits.
-        assert_eq!(
-            ba.earliest_availability(BerthIndex::new(0), 0, 25),
-            Some(100)
-        );
-
-        // 4. Start search inside unavailable block [10, 30).
-        //    Should jump to next available [30, 50).
-        assert_eq!(
-            ba.earliest_availability(BerthIndex::new(0), 20, 5),
-            Some(30)
-        );
+        let unavail = ba.unavailable_intervals(BerthIndex::new(0));
+        assert_eq!(unavail, &[iv(10, 30), iv(50, 100)]);
     }
 
     #[test]
-    fn test_available_unavailable_unchecked_match_checked() {
-        let mut builder = ModelBuilder::<IntegerType>::new(2, 2);
-        // Simple model, no closures
-        builder.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            ProcessingTime::some(10),
-        );
-        builder.set_vessel_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(0),
-            ProcessingTime::some(10),
-        );
-        builder.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(1),
-            ProcessingTime::some(10),
-        );
-        let model = builder.build();
-
+    fn test_earliest_availability_logic() {
+        let model = build_model_basic();
         let mut ba = BerthAvailability::<IntegerType>::new();
+        let fixed = vec![FixedAssignment::new(
+            10,
+            BerthIndex::new(0),
+            VesselIndex::new(0),
+        )]; // [10, 30)
+        ba.initialize(&model, &fixed);
 
-        // Valid disjoint/adjacent assignments
-        let fixed = vec![
-            FixedAssignment::new(10, BerthIndex::new(0), VesselIndex::new(0)), // [10, 20)
-            FixedAssignment::new(20, BerthIndex::new(0), VesselIndex::new(1)), // [20, 30)
-            FixedAssignment::new(200, BerthIndex::new(1), VesselIndex::new(0)), // [200, 210)
-        ];
-
-        assert!(ba.initialize(&model, &fixed));
-
-        for b in 0..model.num_berths() {
-            let bi = BerthIndex::new(b);
-            let checked_avail = ba.available_intervals(bi);
-            let checked_unavail = ba.unavailable_intervals(bi);
-            let unchecked_avail = unsafe { ba.available_intervals_unchecked(bi) };
-            let unchecked_unavail = unsafe { ba.unavailable_intervals_unchecked(bi) };
-            assert_eq!(checked_avail, unchecked_avail);
-            assert_eq!(checked_unavail, unchecked_unavail);
-        }
+        let bi = BerthIndex::new(0);
+        // Fits at 0 before the first block starts
+        assert_eq!(ba.earliest_availability(bi, 0, 5), Some(0));
+        // Needs 15 at start 0; [0, 10) is too small, jumps to gap [30, 50)
+        assert_eq!(ba.earliest_availability(bi, 0, 15), Some(30));
     }
 }
