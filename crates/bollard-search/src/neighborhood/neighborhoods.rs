@@ -32,9 +32,8 @@
 //! predictable access patterns, making it suitable for rejection sampling and other inner-loop
 //! heuristics where latency and memory layout are critical.
 
-use bollard_model::{index::VesselIndex, model::Model};
-
 use crate::num::SolverNumeric;
+use bollard_model::{index::VesselIndex, model::Model};
 
 /// A trait for defining search space connectivity (neighborhoods) between vessels.
 ///

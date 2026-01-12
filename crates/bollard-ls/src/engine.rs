@@ -107,7 +107,12 @@ where
     /// - Aggregated run statistics.
     /// - A termination reason (local optimum, metaheuristic directive, or aborted).
     ///
-    /// # Parameters:
+    /// # Panics
+    ///
+    /// This method will panic if the number of vessels in `model`, `neighborhood`,
+    /// and `initial_solution` are inconsistent.
+    ///
+    /// # Parameters
     /// - `model`: Problem data (berths, vessels, opening times, processing times).
     /// - `decoder`: Responsible for building candidate schedules from the queue; must be initialized with `model`.
     /// - `neighborhood`: Defines neighborhoods explored by the operator.
@@ -116,7 +121,7 @@ where
     /// - `monitor`: Observes iterations, solutions, and can request early termination.
     /// - `initial_solution`: Starting point for the search; also seeds memory/queue ordering.
     ///
-    /// # Notes:
+    /// # Notes
     /// - Internally reuses memory buffers across runs for performance.
     /// - Uses `decode_unchecked` for speed under the assumption that inputs are validated elsewhere.
     ///   In debug builds, assertions help catch inconsistencies early.
@@ -138,6 +143,25 @@ where
         O: LocalSearchOperator<T, N>,
         M: LocalSearchMonitor<T>,
     {
+        assert!(
+            model.num_vessels() == neighborhood.num_vessels(),
+            "called `LocalSearchEngine::run` with inconsistent number of vessels: model has {}, neighborhood has {}",
+            model.num_vessels(),
+            neighborhood.num_vessels()
+        );
+        assert!(
+            model.num_vessels() == initial_solution.num_vessels(),
+            "called `LocalSearchEngine::run` with inconsistent number of vessels: model has {}, initial solution has {}",
+            model.num_vessels(),
+            initial_solution.num_vessels()
+        );
+        assert!(
+            neighborhood.num_vessels() == initial_solution.num_vessels(),
+            "called `LocalSearchEngine::run` with inconsistent number of vessels: neighborhood has {}, initial solution has {}",
+            neighborhood.num_vessels(),
+            initial_solution.num_vessels()
+        );
+
         let start_time = Instant::now();
         let mut stats = LocalSearchStatistics::default();
 
