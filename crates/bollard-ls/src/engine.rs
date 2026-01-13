@@ -41,7 +41,8 @@ use crate::{
 };
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{
-    monitor::search_monitor::SearchCommand, neighborhood::neighborhoods::Neighborhoods,
+    monitor::search_monitor::SearchCommand,
+    neighborhood::neighborhoods::{FullNeighborhoods, Neighborhoods},
     num::SolverNumeric,
 };
 use std::time::Instant;
@@ -318,6 +319,49 @@ where
             }
         }
     }
+
+    /// Runs the local search engine using full neighborhoods.
+    ///
+    /// # Note
+    ///
+    /// Prefer the `run` method with explicit neighborhoods for better performance
+    /// when possible. This method will allocate a temporary `FullNeighborhoods` instance
+    /// which takes `O(N^2)` time and memory, where `N` is the number of vessels.
+    /// This is fine when you want to call the engine once, but in many cases, where you
+    /// want to run the engine multiple times on the same model, it is better to create the
+    /// `FullNeighborhoods` instance once and reuse it across multiple runs.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the number of vessels in `model` and `initial_solution` are inconsistent.
+    #[inline(always)]
+    pub fn run_with_full_neighborhood<H, D, O, M>(
+        &mut self,
+        model: &Model<T>,
+        decoder: &mut D,
+        operator: &mut O,
+        metaheuristic: &mut H,
+        monitor: M,
+        initial_solution: &Solution<T>,
+    ) -> LocalSearchEngineOutcome<T>
+    where
+        H: Metaheuristic<T>,
+        D: Decoder<T, H::Evaluator>,
+        O: LocalSearchOperator<T, FullNeighborhoods>,
+        M: LocalSearchMonitor<T>,
+    {
+        let neighborhoods = FullNeighborhoods::from_model(model);
+
+        self.run(
+            model,
+            decoder,
+            &neighborhoods,
+            operator,
+            metaheuristic,
+            monitor,
+            initial_solution,
+        )
+    }
 }
 
 /// Wrapper combining a metaheuristic and decoder with a local search engine.
@@ -378,6 +422,11 @@ where
     }
 
     /// Solves the given model using the internal engine, decoder, and metaheuristic.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the number of vessels in `model`, `neighborhood`,
+    /// and `initial_solution` are inconsistent.
     #[inline]
     pub fn solve<N, O, M>(
         &mut self,
@@ -392,6 +441,27 @@ where
         O: LocalSearchOperator<T, N>,
         M: LocalSearchMonitor<T>,
     {
+        assert!(
+            model.num_vessels() == neighborhood.num_vessels(),
+            "called `LocalSearchSolver::solve` with inconsistent number of vessels: model has {}, neighborhood has {}",
+            model.num_vessels(),
+            neighborhood.num_vessels()
+        );
+
+        assert!(
+            model.num_vessels() == initial_solution.num_vessels(),
+            "called `LocalSearchSolver::solve` with inconsistent number of vessels: model has {}, initial solution has {}",
+            model.num_vessels(),
+            initial_solution.num_vessels()
+        );
+
+        assert!(
+            neighborhood.num_vessels() == initial_solution.num_vessels(),
+            "called `LocalSearchSolver::solve` with inconsistent number of vessels: neighborhood has {}, initial solution has {}",
+            neighborhood.num_vessels(),
+            initial_solution.num_vessels()
+        );
+
         self.engine.run(
             model,
             &mut self.decoder,
@@ -403,16 +473,55 @@ where
         )
     }
 
+    /// Solves the given model using full neighborhoods with the internal engine, decoder, and metaheuristic.
+    ///
+    /// # Note
+    ///
+    /// Prefer the `solve` method with explicit neighborhoods for better performance
+    /// when possible. This method will allocate a temporary `FullNeighborhoods` instance
+    /// which takes `O(N^2)` time and memory, where `N` is the number of vessels.
+    /// This is fine when you want to call the solver once, but in many cases, where you
+    /// want to run the solver multiple times on the same model, it is better to create the
+    /// `FullNeighborhoods` instance once and reuse it across multiple runs.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the number of vessels in `model` and `initial_solution` are inconsistent.
+    #[inline]
+    pub fn solve_with_full_neighborhood<O, M>(
+        &mut self,
+        model: &Model<T>,
+        operator: &mut O,
+        monitor: M,
+        initial_solution: &Solution<T>,
+    ) -> LocalSearchEngineOutcome<T>
+    where
+        O: LocalSearchOperator<T, FullNeighborhoods>,
+        M: LocalSearchMonitor<T>,
+    {
+        self.engine.run_with_full_neighborhood(
+            model,
+            &mut self.decoder,
+            operator,
+            &mut self.metaheuristic,
+            monitor,
+            initial_solution,
+        )
+    }
+
+    /// Accesses the internal metaheuristic.
     #[inline]
     pub fn metaheuristic(&self) -> &H {
         &self.metaheuristic
     }
 
+    /// Accesses the internal decoder.
     #[inline]
     pub fn decoder(&self) -> &D {
         &self.decoder
     }
 
+    /// Accesses the internal local search engine.
     #[inline]
     pub fn engine(&self) -> &LocalSearchEngine<T> {
         &self.engine

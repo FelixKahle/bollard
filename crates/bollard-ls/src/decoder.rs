@@ -216,7 +216,8 @@ where
         // cover min_start (i.e., end > min_start) and thus be feasible. If zero `saturating_sub`
         // prevents underflow.
         let search_start_index =
-            bollard_core::algorithm::lower_bound_start(intervals, min_start).saturating_sub(1);
+            bollard_core::algorithm::interval::lower_bound_start(intervals, min_start)
+                .saturating_sub(1);
         for interval in &intervals[search_start_index..] {
             let open_end = interval.end();
 

@@ -41,8 +41,6 @@
 //! guard against incorrect recording or consumption of stack entries, helping
 //! catch invariants early during development.
 
-#![allow(dead_code)]
-
 use crate::queue::VesselPriorityQueue;
 use bollard_model::index::VesselIndex;
 
@@ -53,7 +51,7 @@ use bollard_model::index::VesselIndex;
 /// - Shift: Record inverse shift operation (from, to).
 /// - Range: Record start and length of a backed-up range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
+#[repr(u8)] // Make sure we use the smallest possible representation to squeeze memory in L1 cache.
 pub enum UndoOperation {
     Set,   // Sets an element at an index to a new value, recording the old value.
     Swap,  // Swaps two elements at given indices, recording both indices.
@@ -72,6 +70,24 @@ impl std::fmt::Display for UndoOperation {
     }
 }
 
+impl From<u8> for UndoOperation {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => UndoOperation::Set,
+            1 => UndoOperation::Swap,
+            2 => UndoOperation::Shift,
+            3 => UndoOperation::Range,
+            _ => panic!("called `UndoOperation::from` with invalid value: {}", value),
+        }
+    }
+}
+
+/// A log of undoable operations on a `VesselPriorityQueue`.
+///
+/// This struct maintains stacks of operation tags, arguments, and
+/// data slices needed to rollback changes in reverse order.
+/// It is highly optimized for fast recording and rollback of
+/// local-search mutations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UndoLog {
     operations: Vec<UndoOperation>, // LIFO stack of recorded operations
@@ -81,12 +97,34 @@ pub struct UndoLog {
 }
 
 impl UndoLog {
+    /// Maximum number of arguments per operation.
+    ///
+    /// Used to preallocate the `args` buffer in `UndoLog::new` as
+    /// `capacity * MAX_ARGS_PER_OP`.
+    const MAX_ARGS_PER_OP: usize = 2;
+
+    /// Minimum capacity floor when preallocating internal vectors.
+    ///
+    /// Prevents tiny allocations that would otherwise reallocate frequently as they grow.
+    const MIN_CAP: usize = 16;
+
+    /// Heuristic: expected operations capacity per vessel for preallocation.
+    ///
+    /// Controls how `op_cap` is sized in `UndoLog::preallocated`. Tune based on profiling.
+    const OPS_PER_VESSEL: usize = 8;
+
+    /// Heuristic: expected data stack capacity per vessel for preallocation.
+    ///
+    /// Controls how `data_cap` is sized in `UndoLog::preallocated` (e.g., range backups during reverse/shuffle).
+    /// Tune based on profiling.
+    const DATA_PER_VESSEL: usize = 8;
+
     /// Creates a new `UndoLog` with specified initial capacities.
     #[inline(always)]
     pub fn new(capacity: usize, data_capacity: usize) -> Self {
         Self {
             operations: Vec::with_capacity(capacity),
-            args: Vec::with_capacity(capacity * 2),
+            args: Vec::with_capacity(capacity * Self::MAX_ARGS_PER_OP),
             values: Vec::with_capacity(capacity),
             data_stack: Vec::with_capacity(data_capacity),
         }
@@ -97,13 +135,20 @@ impl UndoLog {
     /// This uses heuristics to size the internal vectors to reduce reallocations during typical usage.
     #[inline(always)]
     pub fn preallocated(num_vessels: usize) -> Self {
-        // Heuristic capacities:
-        // - ops/args/values: proportional to the number of vessels (typical LS step touches a few ops per vessel)
-        // - data_stack: proportional as well (range backups during reverse/shuffle)
-        // Use a minimum floor to avoid tiny allocations that reallocate frequently.
-        let min_cap = 16;
-        let op_cap = num_vessels.saturating_mul(8).max(min_cap);
-        let data_cap = num_vessels.saturating_mul(8).max(min_cap);
+        // If you prefer no allocation for 0 vessels, keep the conditional;
+        // otherwise drop it and rely on the MIN_CAP floor.
+        if num_vessels == 0 {
+            return Self::new(0, 0);
+        }
+
+        let op_cap = num_vessels
+            .saturating_mul(Self::OPS_PER_VESSEL)
+            .max(Self::MIN_CAP);
+
+        let data_cap = num_vessels
+            .saturating_mul(Self::DATA_PER_VESSEL)
+            .max(Self::MIN_CAP);
+
         Self::new(op_cap, data_cap)
     }
 
@@ -129,6 +174,10 @@ impl UndoLog {
     }
 
     /// Records a Set operation with the index and old value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal stacks are unbalanced.
     #[inline(always)]
     pub fn push_set(&mut self, index: usize, old_value: VesselIndex) {
         debug_assert!(
@@ -145,6 +194,10 @@ impl UndoLog {
     }
 
     /// Records a Swap operation with the two indices.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal stacks are unbalanced.
     #[inline(always)]
     pub fn push_swap(&mut self, a: usize, b: usize) {
         debug_assert!(
@@ -161,6 +214,10 @@ impl UndoLog {
     }
 
     /// Records a Shift operation with the inverse from and to indices.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal stacks are unbalanced.
     #[inline(always)]
     pub fn push_shift_inverse(&mut self, inverse_from: usize, inverse_to: usize) {
         debug_assert!(
@@ -177,6 +234,10 @@ impl UndoLog {
     }
 
     /// Records a Range backup operation with the start index and data slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal stacks are unbalanced.
     #[inline(always)]
     pub fn push_range_backup(&mut self, start: usize, data: &[VesselIndex]) {
         debug_assert!(
@@ -194,6 +255,10 @@ impl UndoLog {
     }
 
     /// Applies the recorded operations in reverse order to rollback changes on the given queue.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal stacks are corrupted or if indices are out of bounds.
     #[inline(always)]
     pub fn apply_rollback(&mut self, queue: &mut VesselPriorityQueue) {
         let buf = queue.buffer_mut();

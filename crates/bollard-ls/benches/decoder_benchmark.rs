@@ -103,7 +103,7 @@ fn construct_queue(solution: &Solution<i64>) -> VesselPriorityQueue {
     q
 }
 
-fn bench_real_instances(c: &mut Criterion) {
+fn bench_instances(c: &mut Criterion) {
     let files = get_instance_files();
     if files.is_empty() {
         eprintln!("No instance files found in data/ matching pattern. Skipping benchmark.");
@@ -167,5 +167,5 @@ fn bench_real_instances(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_real_instances);
+criterion_group!(benches, bench_instances);
 criterion_main!(benches);

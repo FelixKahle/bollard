@@ -54,6 +54,7 @@ dependencies = [
 name = "bollard_core"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "num-traits",
  "smallvec",
 ]

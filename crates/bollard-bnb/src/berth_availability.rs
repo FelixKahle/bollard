@@ -78,7 +78,7 @@ where
     intervals.truncate(write_index + 1);
 
     debug_assert!(
-        bollard_core::algorithm::are_disjoint_and_sorted(intervals),
+        bollard_core::algorithm::interval::are_disjoint_and_sorted(intervals),
         "`merge_intervals_in_place` output is not disjoint and sorted"
     );
 }
@@ -108,11 +108,11 @@ where
     T: PrimInt,
 {
     debug_assert!(
-        bollard_core::algorithm::are_disjoint_and_sorted(left_intervals),
+        bollard_core::algorithm::interval::are_disjoint_and_sorted(left_intervals),
         "called `has_overlaps` with `left_intervals` not sorted by start or not disjoint"
     );
     debug_assert!(
-        bollard_core::algorithm::are_disjoint_and_sorted(right_intervals),
+        bollard_core::algorithm::interval::are_disjoint_and_sorted(right_intervals),
         "called `has_overlaps` with `right_intervals` not sorted by start or not disjoint"
     );
 
@@ -379,7 +379,8 @@ where
             return Some(start_time);
         }
 
-        let mut interval_index = bollard_core::algorithm::lower_bound_start(occupied, start_time);
+        let mut interval_index =
+            bollard_core::algorithm::interval::lower_bound_start(occupied, start_time);
         let mut cursor_start = start_time;
 
         if interval_index > 0 {
@@ -434,7 +435,8 @@ where
             return Some(start_time);
         }
 
-        let mut interval_index = bollard_core::algorithm::lower_bound_start(occupied, start_time);
+        let mut interval_index =
+            bollard_core::algorithm::interval::lower_bound_start(occupied, start_time);
         let mut cursor_start = start_time;
 
         if interval_index > 0 {

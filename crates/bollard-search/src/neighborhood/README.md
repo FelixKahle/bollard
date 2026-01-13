@@ -10,7 +10,7 @@ The trait-centric design allows solvers to query whether two entities can meanin
 
 The primary implementation, `StaticTopology`, uses a **Compressed Sparse Row (CSR)** layout. It stores all neighbor lists in a single flattened vector with a sentinel offsets array. Graph-wise, it represents a simple, undirected, loop-free vessel contention graph:
 * **Vertices**: Vessels.
-* **Edges**: An edge exists between two vessels if they share at least one berth where both are allowed to dock and their operating time windows overlap (closed-open intervals [start, end)).
+* **Edges**: An edge exists between two vessels if they share at least one berth where both are allowed to dock.
 * **Symmetry**: Adjacency is symmetric; if A is a neighbor of B, then B is a neighbor of A.
 * **No Self-Loops**: Vessels are never neighbors with themselves.
 * **Sparsity**: The graph is typically sparse due to berth compatibility and time-window pruning.

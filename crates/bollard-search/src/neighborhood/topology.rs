@@ -23,18 +23,25 @@
 //!
 //! This module provides a cache-friendly representation of vessel neighborhoods used by the solver.
 //! It derives connectivity from physical resource contention in the `Model`, identifying vessels as
-//! neighbors when they share at least one berth where both are allowed to dock and their operating
-//! time windows overlap. Time windows are treated as closed-open intervals [start, end).
-//! The resulting structure is immutable and optimized for fast iteration during the solve phase.
+//! neighbors when they share at least one berth where both are allowed to dock.
 //!
-//! Neighborhoods are stored in a compressed sparse row layout. All neighbor lists are flattened
+//! # Important: Time Window Independence
+//!
+//! Unlike standard scheduling problems where disjoint time windows imply independence, this topology
+//! **ignores time windows** and defines neighbors solely based on physical compatibility.
+//!
+//! This is necessary because the solver employs an **append-only greedy decoder** (SSGS). In such a
+//! decoder, the processing of a "late" vessel before an "early" vessel on the same berth advances
+//! the berth's availability pointer permanently, potentially blocking the early vessel. Therefore,
+//! the relative permutation order of *any* two vessels sharing a berth matters, even if their
+//! arrival times are disjoint.
+//!
+//! # Storage Layout
+//!
+//! Neighborhoods are stored in a compressed sparse row (CSR) layout. All neighbor lists are flattened
 //! into a single contiguous vector, and a sentinel offsets array maps each vessel to its slice of
 //! neighbors. This design minimizes pointer chasing and leverages CPU cache locality for linear
 //! scans, making rejection sampling and local search moves efficient.
-//!
-//! The construction performs a one-time analysis over vessels and berths to detect shared
-//! feasibility and overlapping time windows. Accessors expose slices directly, enabling zero-cost
-//! iteration while preserving memory safety under the trait’s checked and unchecked APIs.
 
 use crate::neighborhood::neighborhoods::Neighborhoods;
 use crate::num::SolverNumeric;
@@ -134,56 +141,25 @@ impl Neighborhoods for StaticTopology {
     }
 }
 
-/// Returns true if two operating windows are disjoint under closed-open semantics.
-///
-/// Semantics:
-/// - Intervals [s1, e1) and [s2, e2) overlap iff s1 < e2 && s2 < e1.
-/// - Therefore, they are disjoint iff s1 >= e2 || s2 >= e1.
-#[inline(always)]
-fn time_windows_are_disjoint<T>(
-    source_arrival_time: T,
-    source_latest_departure_time: T,
-    candidate_arrival_time: T,
-    candidate_latest_departure_time: T,
-) -> bool
-where
-    T: SolverNumeric,
-{
-    source_arrival_time >= candidate_latest_departure_time
-        || candidate_arrival_time >= source_latest_departure_time
-}
-
 impl StaticTopology {
     /// Constructs a `StaticTopology` by analyzing physical resource contention in a `Model`.
     ///
-    /// This constructor identifies vessels that are "neighbors" based on their compatibility
-    /// with the available berths and overlapping operating windows. Two vessels are considered
-    /// neighbors if, and only if, there exists at least one berth where both vessels are allowed
-    /// to dock and their time intervals overlap.
+    /// This constructor identifies vessels that are "neighbors" based strictly on their compatibility
+    /// with the available berths. Two vessels are considered neighbors if, and only if, there exists
+    /// at least one berth where both vessels are allowed to dock.
     ///
     /// # Logical Rationale
     ///
-    /// If two vessels share no common berths, or their time windows do not overlap, swapping their
-    /// positions in a priority queue or attempting to interact with them in a neighborhood move will
-    /// never result in a physical conflict or a change in the relative scheduling of those specific
-    /// vessels. By pruning these "disjoint" pairs—in time or berth compatibility—the search space is
-    /// significantly reduced, focusing the solver on vessels that actually contend for the same resources.
-    ///
-    /// Time-window overlap is evaluated under closed-open semantics: intervals [S1, E1) and [S2, E2)
-    /// overlap iff S1 < E2 && S2 < E1. If vessel A leaves at t and vessel B arrives at t, they do not
-    /// overlap.
-    ///
-    /// # Search Space Reduction
-    ///
-    /// This effectively transforms a complete graph (where any vessel can be swapped
-    /// with any other) into a sparse graph of physical dependencies.
+    /// The topology ignores time window disjointness. This is because the append-only greedy decoder
+    /// maintains a monotonically increasing "free time" pointer for each berth. If a late vessel is
+    /// scheduled before an early vessel on the same berth, the early vessel is blocked, regardless of
+    /// whether their original time windows overlapped. Therefore, any two vessels sharing a compatible
+    /// berth must be considered interacting neighbors to allow the local search to correct their ordering.
     ///
     /// # Performance
     ///
-    /// The constructor performs a one-time O(N^2 · M) analysis (where N is the number of vessels and
-    /// M is the number of berths). Early rejection by disjoint time windows prunes many pairs before
-    /// berth checks. The resulting topology is backed by a highly optimized CSR (Compressed Sparse Row)
-    /// structure for O(1) slice access during the solve phase.
+    /// The constructor performs a one-time O(N^2 · M) analysis. The resulting topology is backed by
+    /// a highly optimized CSR (Compressed Sparse Row) structure for O(1) slice access during the solve phase.
     pub fn from_model<T>(model: &Model<T>) -> Self
     where
         T: SolverNumeric,
@@ -192,7 +168,6 @@ impl StaticTopology {
         let number_of_berths = model.num_berths();
 
         // Heuristic capacity: N * (N-1) is worst case (dense).
-        // Sparse constraints usually reduce this significantly.
         let mut flattened_neighbor_list: Vec<VesselIndex> = Vec::with_capacity(
             number_of_vessels.saturating_mul(number_of_vessels.saturating_sub(1)),
         );
@@ -205,10 +180,6 @@ impl StaticTopology {
         for source_vessel_index in 0..number_of_vessels {
             let source_vessel = VesselIndex::new(source_vessel_index);
 
-            // Cache source vessel time window to avoid repeated model calls.
-            let source_arrival_time = model.vessel_arrival_time(source_vessel);
-            let source_latest_departure_time = model.vessel_latest_departure_time(source_vessel);
-
             // Inner loop over candidate neighbor vessels j.
             'candidate_neighbor: for candidate_vessel_index in 0..number_of_vessels {
                 // Exclude self from adjacency.
@@ -217,23 +188,9 @@ impl StaticTopology {
                 }
                 let candidate_vessel = VesselIndex::new(candidate_vessel_index);
 
-                // Determine whether the operating windows overlap.
-                // Closed-open semantics: [S1, E1) overlaps [S2, E2) iff S1 < E2 && S2 < E1.
-                let candidate_arrival_time = model.vessel_arrival_time(candidate_vessel);
-                let candidate_latest_departure_time =
-                    model.vessel_latest_departure_time(candidate_vessel);
-
-                let time_windows_are_disjoint = time_windows_are_disjoint(
-                    source_arrival_time,
-                    source_latest_departure_time,
-                    candidate_arrival_time,
-                    candidate_latest_departure_time,
-                );
-
-                // If disjoint in time, these vessels cannot physically compete at the same time.
-                if time_windows_are_disjoint {
-                    continue 'candidate_neighbor;
-                }
+                // Note: We do NOT check for time window overlap here.
+                // Due to the append-only nature of the decoder, physical resource sharing
+                // implies dependency regardless of time.
 
                 // Check if there exists a berth where both vessels are allowed to dock.
                 for berth_index in 0..number_of_berths {
@@ -322,6 +279,7 @@ mod tests {
     #[test]
     fn test_two_vessels_disjoint_berths_no_neighbors() {
         // 2 berths, 2 vessels
+        // Even with infinite time, if they can't use the same berth, they are independent.
         let mut builder = ModelBuilder::<Num>::new(2, 2);
 
         // Vessel 0 allowed only on berth 0
@@ -370,20 +328,13 @@ mod tests {
                 BerthIndex::new(0),
                 ProcessingTime::from_option(Some(10)),
             );
-            // Disallow berth 1 (to exercise filtering)
+            // Disallow berth 1
             builder.set_vessel_processing_time(
                 VesselIndex::new(vessel_id),
                 BerthIndex::new(1),
                 ProcessingTime::none(),
             );
         }
-
-        // If ModelBuilder exposes time setters, we could explicitly set overlapping windows here.
-        // For example:
-        // builder.set_vessel_arrival_time(VesselIndex::new(0), 0);
-        // builder.set_vessel_latest_departure_time(VesselIndex::new(0), 100);
-        // builder.set_vessel_arrival_time(VesselIndex::new(1), 50);
-        // builder.set_vessel_latest_departure_time(VesselIndex::new(1), 150);
 
         let model = builder.build();
         let topology = StaticTopology::from_model(&model);
@@ -501,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn test_shared_berth_but_disjoint_times_no_neighbors() {
+    fn test_shared_berth_but_disjoint_times_are_neighbors() {
         let mut builder = ModelBuilder::<Num>::new(1, 2);
 
         // Both vessels allowed on the same berth.
@@ -513,6 +464,7 @@ mod tests {
             );
         }
 
+        // Set completely disjoint time windows
         builder.set_vessel_arrival_time(VesselIndex::new(0), 0);
         builder.set_vessel_latest_departure_time(VesselIndex::new(0), 100);
         builder.set_vessel_arrival_time(VesselIndex::new(1), 100);
@@ -524,40 +476,10 @@ mod tests {
         let vessel_0 = VesselIndex::new(0);
         let vessel_1 = VesselIndex::new(1);
 
-        // Under closed-open semantics, touching at the boundary does not create overlap.
-        assert_eq!(topology.neighbors_of(vessel_0).len(), 0);
-        assert_eq!(topology.neighbors_of(vessel_1).len(), 0);
-        assert!(!topology.are_neighbors(vessel_0, vessel_1));
-        assert!(!topology.are_neighbors(vessel_1, vessel_0));
-    }
-
-    #[test]
-    fn test_shared_berth_with_minimal_overlap_are_neighbors() {
-        let mut builder = ModelBuilder::<Num>::new(1, 2);
-
-        // Both vessels allowed on the same berth.
-        for vessel_id in 0..2 {
-            builder.set_vessel_processing_time(
-                VesselIndex::new(vessel_id),
-                BerthIndex::new(0),
-                ProcessingTime::from_option(Some(10)),
-            );
-        }
-
-        builder.set_vessel_arrival_time(VesselIndex::new(0), 0);
-        builder.set_vessel_latest_departure_time(VesselIndex::new(0), 100);
-        builder.set_vessel_arrival_time(VesselIndex::new(1), 99);
-        builder.set_vessel_latest_departure_time(VesselIndex::new(1), 200);
-
-        let model = builder.build();
-        let topology = StaticTopology::from_model(&model);
-
-        let vessel_0 = VesselIndex::new(0);
-        let vessel_1 = VesselIndex::new(1);
-
+        // Because of the append-only decoder, these MUST be neighbors to allow
+        // the solver to swap them if they come in the wrong order.
         assert!(topology.are_neighbors(vessel_0, vessel_1));
         assert!(topology.are_neighbors(vessel_1, vessel_0));
         assert_eq!(topology.neighbors_of(vessel_0), &[vessel_1]);
-        assert_eq!(topology.neighbors_of(vessel_1), &[vessel_0]);
     }
 }
