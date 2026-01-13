@@ -21,35 +21,50 @@
 
 use crate::{monitor::local_search_monitor::LocalSearchMonitor, stats::LocalSearchStatistics};
 use bollard_model::{model::Model, solution::Solution};
-use bollard_search::monitor::search_monitor::SearchCommand;
+use bollard_search::{
+    monitor::search_monitor::{SearchCommand, SearchMonitor},
+    num::SolverNumeric,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SolutionLimitMonitor {
-    limit: u64,
-}
-
-impl SolutionLimitMonitor {
-    /// Create a new monitor that terminates once `total_solutions` >= `limit`.
-    pub fn new(limit: u64) -> Self {
-        Self { limit }
-    }
-
-    /// Returns the configured limit.
-    pub fn limit(&self) -> u64 {
-        self.limit
-    }
-}
-
-impl<T> LocalSearchMonitor<T> for SolutionLimitMonitor
+pub struct LocalSearchMonitorWrapper<T, M>
 where
     T: bollard_search::num::SolverNumeric,
+    M: SearchMonitor<T>,
 {
-    fn name(&self) -> &str {
-        "SolutionLimitMonitor"
+    inner: M,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T, M> LocalSearchMonitorWrapper<T, M>
+where
+    T: SolverNumeric,
+    M: SearchMonitor<T>,
+{
+    #[inline]
+    pub fn new(monitor: M) -> Self {
+        Self {
+            inner: monitor,
+            _phantom: std::marker::PhantomData,
+        }
     }
 
-    fn on_start(&mut self, _model: &Model<T>, _initial_solution: &Solution<T>) {
-        // No-op
+    #[inline]
+    pub fn inner(&self) -> &M {
+        &self.inner
+    }
+}
+
+impl<T, M> LocalSearchMonitor<T> for LocalSearchMonitorWrapper<T, M>
+where
+    T: SolverNumeric,
+    M: SearchMonitor<T> + Send + Sync,
+{
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn on_start(&mut self, model: &Model<T>, _initial_solution: &Solution<T>) {
+        self.inner.on_enter_search(model);
     }
 
     fn on_end(
@@ -58,7 +73,7 @@ where
         _best_solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
-        // No-op
+        self.inner.on_exit_search();
     }
 
     fn on_iteration(
@@ -67,16 +82,16 @@ where
         _current_solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
-        // No-op
+        self.inner.on_step();
     }
 
     fn on_solution_found(
         &mut self,
         _model: &Model<T>,
-        _solution: &Solution<T>,
+        solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
-        // No-op
+        self.inner.on_solution_found(solution);
     }
 
     fn on_solution_accepted(
@@ -85,7 +100,7 @@ where
         _solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
-        // No-op
+        // No op
     }
 
     fn on_solution_rejected(
@@ -94,7 +109,7 @@ where
         _solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
-        // No-op
+        // No op
     }
 
     fn on_best_solution_updated(
@@ -103,21 +118,14 @@ where
         _solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
-        // No-op
+        // No op
     }
 
     fn search_command(
         &mut self,
         _model: &Model<T>,
-        statistics: &LocalSearchStatistics,
+        _statistics: &LocalSearchStatistics,
     ) -> SearchCommand {
-        if statistics.total_solutions >= self.limit {
-            SearchCommand::Terminate(format!(
-                "Solution limit reached: {} (total_solutions={})",
-                self.limit, statistics.total_solutions
-            ))
-        } else {
-            SearchCommand::Continue
-        }
+        self.inner.search_command()
     }
 }

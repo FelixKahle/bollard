@@ -38,9 +38,9 @@
 //!   is the number of vessels) is a common rule of thumb.
 
 use crate::eval::DefaultAssignmentEvaluator;
-use crate::memory::Schedule;
 use crate::meta::metaheuristic::Metaheuristic;
 use bollard_model::model::Model;
+use bollard_model::solution::Solution;
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 use rustc_hash::FxHasher;
 use std::collections::{HashSet, VecDeque};
@@ -88,7 +88,7 @@ where
     /// Generates a lightweight signature for the schedule.
     /// We hash the Objective and the Structure (Berths + Start Times).
     #[inline]
-    fn hash_schedule(&self, schedule: &Schedule<T>) -> u64 {
+    fn hash_schedule(&self, schedule: &Solution<T>) -> u64 {
         let mut hasher = FxHasher::default(); // Fast non-cryptographic hash
         schedule.hash(&mut hasher);
         hasher.finish()
@@ -122,7 +122,7 @@ where
         &self.evaluator
     }
 
-    fn on_start(&mut self, _model: &Model<T>, initial_solution: &Schedule<T>) {
+    fn on_start(&mut self, _model: &Model<T>, initial_solution: &Solution<T>) {
         self.tabu_queue.clear();
         self.tabu_set.clear();
 
@@ -130,16 +130,16 @@ where
         self.make_tabu(hash);
     }
 
-    fn search_command(&mut self, _: u64, _: &Model<T>, _: &Schedule<T>) -> SearchCommand {
+    fn search_command(&mut self, _: u64, _: &Model<T>, _: &Solution<T>) -> SearchCommand {
         SearchCommand::Continue
     }
 
     fn should_accept(
         &mut self,
         _model: &Model<T>,
-        current: &Schedule<T>,
-        candidate: &Schedule<T>,
-        best: &Schedule<T>,
+        current: &Solution<T>,
+        candidate: &Solution<T>,
+        best: &Solution<T>,
     ) -> bool {
         let is_improvement = candidate.objective_value() < current.objective_value();
         let is_global_best = candidate.objective_value() < best.objective_value();
@@ -154,7 +154,7 @@ where
         }
     }
 
-    fn on_accept(&mut self, _model: &Model<T>, new_current: &Schedule<T>) {
+    fn on_accept(&mut self, _model: &Model<T>, new_current: &Solution<T>) {
         // We moved to a new solution. Mark it as Tabu so we don't
         // cycle back to it immediately.
         let hash = self.hash_schedule(new_current);
@@ -162,8 +162,8 @@ where
     }
 
     // No-ops for these hooks in standard Tabu Search
-    fn on_reject(&mut self, _model: &Model<T>, _rejected: &Schedule<T>) {}
-    fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Schedule<T>) {}
+    fn on_reject(&mut self, _model: &Model<T>, _rejected: &Solution<T>) {}
+    fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Solution<T>) {}
 }
 
 #[cfg(test)]
@@ -173,8 +173,8 @@ mod tests {
     use bollard_model::model::ModelBuilder;
     use bollard_model::solution::Solution;
 
-    fn sched<T: SolverNumeric>(obj: T, berths: Vec<BerthIndex>, starts: Vec<T>) -> Schedule<T> {
-        Schedule::from(Solution::new(obj, berths, starts))
+    fn sched<T: SolverNumeric>(obj: T, berths: Vec<BerthIndex>, starts: Vec<T>) -> Solution<T> {
+        Solution::from(Solution::new(obj, berths, starts))
     }
 
     #[test]

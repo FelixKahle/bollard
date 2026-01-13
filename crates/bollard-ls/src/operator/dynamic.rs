@@ -32,9 +32,10 @@
 //! boilerplate when lifting existing operators into a dynamic form.
 
 use crate::{
-    memory::Schedule, mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
+    mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
     queue::VesselPriorityQueue,
 };
+use bollard_model::solution::Solution;
 use bollard_search::{neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric};
 
 /// A type-erasing wrapper around any `LocalSearchOperator`, enabling runtime selection and
@@ -126,11 +127,11 @@ where
         &self.name
     }
 
-    fn prepare(&mut self, schedule: &Schedule<T>, queue: &VesselPriorityQueue, neighborhoods: &N) {
+    fn prepare(&mut self, schedule: &Solution<T>, queue: &VesselPriorityQueue, neighborhoods: &N) {
         self.inner.prepare(schedule, queue, neighborhoods)
     }
 
-    fn next_neighbor(&mut self, schedule: &Schedule<T>, mutator: &mut Mutator<T>, n: &N) -> bool {
+    fn next_neighbor(&mut self, schedule: &Solution<T>, mutator: &mut Mutator<T>, n: &N) -> bool {
         self.inner.next_neighbor(schedule, mutator, n)
     }
 

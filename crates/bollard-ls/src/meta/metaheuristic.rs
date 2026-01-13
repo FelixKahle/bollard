@@ -30,8 +30,8 @@
 //! best. The design aims to keep the hot path cheap and predictable so that
 //! metaheuristics can inject guidance without disrupting tight inner loops.
 
-use crate::{eval::evaluator::AssignmentEvaluator, memory::Schedule};
-use bollard_model::model::Model;
+use crate::eval::evaluator::AssignmentEvaluator;
+use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 
 /// A trait governing the acceptance logic and termination of the local search.
@@ -52,14 +52,14 @@ where
     fn evaluator(&self) -> &Self::Evaluator;
 
     /// Called at the start of the search.
-    fn on_start(&mut self, model: &Model<T>, initial_solution: &Schedule<T>);
+    fn on_start(&mut self, model: &Model<T>, initial_solution: &Solution<T>);
 
     /// Determines if the search should proceed to the next iteration.
     fn search_command(
         &mut self,
         iteration: u64,
         model: &Model<T>,
-        best_solution: &Schedule<T>,
+        best_solution: &Solution<T>,
     ) -> SearchCommand;
 
     /// Decides whether to accept the `candidate` solution over the `current` one.
@@ -69,19 +69,19 @@ where
     fn should_accept(
         &mut self,
         model: &Model<T>,
-        current: &Schedule<T>,
-        candidate: &Schedule<T>,
-        best: &Schedule<T>,
+        current: &Solution<T>,
+        candidate: &Solution<T>,
+        best: &Solution<T>,
     ) -> bool;
 
     /// Called when a move is accepted.
-    fn on_accept(&mut self, model: &Model<T>, new_current: &Schedule<T>);
+    fn on_accept(&mut self, model: &Model<T>, new_current: &Solution<T>);
 
     /// Called when a move is rejected.
-    fn on_reject(&mut self, model: &Model<T>, rejected_candidate: &Schedule<T>);
+    fn on_reject(&mut self, model: &Model<T>, rejected_candidate: &Solution<T>);
 
     /// Called when a new global best solution is found.
-    fn on_new_best(&mut self, model: &Model<T>, new_best: &Schedule<T>);
+    fn on_new_best(&mut self, model: &Model<T>, new_best: &Solution<T>);
 }
 
 impl<T, E> std::fmt::Debug for dyn Metaheuristic<T, Evaluator = E>

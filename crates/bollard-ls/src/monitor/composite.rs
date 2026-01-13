@@ -19,10 +19,8 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::{
-    memory::Schedule, monitor::local_search_monitor::LocalSearchMonitor,
-    stats::LocalSearchStatistics,
-};
+use crate::{monitor::local_search_monitor::LocalSearchMonitor, stats::LocalSearchStatistics};
+use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 
 #[derive(Default)]
@@ -86,55 +84,85 @@ where
         "CompositeLocalSearchMonitor"
     }
 
-    fn on_start(&mut self, initial_solution: &Schedule<T>) {
+    fn on_start(&mut self, model: &Model<T>, initial_solution: &Solution<T>) {
         for m in &mut self.monitors {
-            m.on_start(initial_solution);
+            m.on_start(model, initial_solution);
         }
     }
 
-    fn on_end(&mut self, best_solution: &Schedule<T>, statistics: &LocalSearchStatistics) {
+    fn on_end(
+        &mut self,
+        model: &Model<T>,
+        best_solution: &Solution<T>,
+        statistics: &LocalSearchStatistics,
+    ) {
         for m in &mut self.monitors {
-            m.on_end(best_solution, statistics);
+            m.on_end(model, best_solution, statistics);
         }
     }
 
-    fn on_iteration(&mut self, current_solution: &Schedule<T>, statistics: &LocalSearchStatistics) {
+    fn on_iteration(
+        &mut self,
+        model: &Model<T>,
+        current_solution: &Solution<T>,
+        statistics: &LocalSearchStatistics,
+    ) {
         for m in &mut self.monitors {
-            m.on_iteration(current_solution, statistics);
+            m.on_iteration(model, current_solution, statistics);
         }
     }
 
-    fn on_solution_found(&mut self, solution: &Schedule<T>, statistics: &LocalSearchStatistics) {
+    fn on_solution_found(
+        &mut self,
+        model: &Model<T>,
+        solution: &Solution<T>,
+        statistics: &LocalSearchStatistics,
+    ) {
         for m in &mut self.monitors {
-            m.on_solution_found(solution, statistics);
+            m.on_solution_found(model, solution, statistics);
         }
     }
 
-    fn on_solution_accepted(&mut self, solution: &Schedule<T>, statistics: &LocalSearchStatistics) {
+    fn on_solution_accepted(
+        &mut self,
+        model: &Model<T>,
+        solution: &Solution<T>,
+        statistics: &LocalSearchStatistics,
+    ) {
         for m in &mut self.monitors {
-            m.on_solution_accepted(solution, statistics);
+            m.on_solution_accepted(model, solution, statistics);
         }
     }
 
-    fn on_solution_rejected(&mut self, solution: &Schedule<T>, statistics: &LocalSearchStatistics) {
+    fn on_solution_rejected(
+        &mut self,
+        model: &Model<T>,
+        solution: &Solution<T>,
+        statistics: &LocalSearchStatistics,
+    ) {
         for m in &mut self.monitors {
-            m.on_solution_rejected(solution, statistics);
+            m.on_solution_rejected(model, solution, statistics);
         }
     }
 
     fn on_best_solution_updated(
         &mut self,
-        solution: &Schedule<T>,
+        model: &Model<T>,
+        solution: &Solution<T>,
         statistics: &LocalSearchStatistics,
     ) {
         for m in &mut self.monitors {
-            m.on_best_solution_updated(solution, statistics);
+            m.on_best_solution_updated(model, solution, statistics);
         }
     }
 
-    fn search_command(&mut self, statistics: &LocalSearchStatistics) -> SearchCommand {
+    fn search_command(
+        &mut self,
+        model: &Model<T>,
+        statistics: &LocalSearchStatistics,
+    ) -> SearchCommand {
         for m in &mut self.monitors {
-            match m.search_command(statistics) {
+            match m.search_command(model, statistics) {
                 SearchCommand::Continue => continue,
                 // Return the first terminate request to keep ordering deterministic
                 SearchCommand::Terminate(msg) => return SearchCommand::Terminate(msg),

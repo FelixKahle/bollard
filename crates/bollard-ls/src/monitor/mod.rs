@@ -31,3 +31,4 @@ pub mod composite;
 pub mod local_search_monitor;
 pub mod solution;
 pub mod time;
+pub mod wrapper;

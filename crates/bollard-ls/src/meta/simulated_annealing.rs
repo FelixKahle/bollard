@@ -49,9 +49,9 @@
 //! comparison is `WeightedFlowTimeEvaluator`, keeping scoring consistent with other
 //! metaheuristics in this crate.
 
+use crate::eval::DefaultAssignmentEvaluator;
 use crate::meta::metaheuristic::Metaheuristic;
-use crate::{eval::DefaultAssignmentEvaluator, memory::Schedule};
-use bollard_model::model::Model;
+use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 use rand::Rng;
 
@@ -310,7 +310,7 @@ where
         "SimulatedAnnealing"
     }
 
-    fn on_start(&mut self, _model: &Model<T>, _initial_solution: &Schedule<T>) {
+    fn on_start(&mut self, _model: &Model<T>, _initial_solution: &Solution<T>) {
         self.cooling_schedule.on_start();
     }
 
@@ -318,7 +318,7 @@ where
         &mut self,
         _iteration: u64,
         _model: &Model<T>,
-        _best_solution: &Schedule<T>,
+        _best_solution: &Solution<T>,
     ) -> SearchCommand {
         SearchCommand::Continue
     }
@@ -326,9 +326,9 @@ where
     fn should_accept(
         &mut self,
         _model: &Model<T>,
-        current: &Schedule<T>,
-        candidate: &Schedule<T>,
-        _best: &Schedule<T>,
+        current: &Solution<T>,
+        candidate: &Solution<T>,
+        _best: &Solution<T>,
     ) -> bool {
         let current_cost = current.objective_value();
         let candidate_cost = candidate.objective_value();
@@ -368,16 +368,16 @@ where
         self.rng.random_bool(acceptance_probability)
     }
 
-    fn on_accept(&mut self, _model: &Model<T>, _new_current: &Schedule<T>) {
+    fn on_accept(&mut self, _model: &Model<T>, _new_current: &Solution<T>) {
         self.cooling_schedule.update();
     }
 
-    fn on_reject(&mut self, _model: &Model<T>, _rejected_candidate: &Schedule<T>) {
+    fn on_reject(&mut self, _model: &Model<T>, _rejected_candidate: &Solution<T>) {
         // Temperature decays regardless of outcome ("time passes")
         self.cooling_schedule.update();
     }
 
-    fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Schedule<T>) {
+    fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Solution<T>) {
         // Standard SA does not react specially to new bests.
         // Adaptive variants could implement reheating here.
     }
@@ -390,15 +390,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::Schedule;
     use bollard_model::index::BerthIndex;
     use bollard_model::model::ModelBuilder;
     use bollard_model::solution::Solution;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
-    fn sched(obj: i64, berths: Vec<BerthIndex>, starts: Vec<i64>) -> Schedule<i64> {
-        Schedule::from(Solution::new(obj, berths, starts))
+    fn sched(obj: i64, berths: Vec<BerthIndex>, starts: Vec<i64>) -> Solution<i64> {
+        Solution::from(Solution::new(obj, berths, starts))
     }
 
     fn rng_send_sync() -> ChaCha8Rng {

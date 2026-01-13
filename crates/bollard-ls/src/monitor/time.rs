@@ -37,10 +37,8 @@
 //! the termination message includes a short reason indicating that the time limit was
 //! exceeded.
 
-use crate::{
-    memory::Schedule, monitor::local_search_monitor::LocalSearchMonitor,
-    stats::LocalSearchStatistics,
-};
+use crate::{monitor::local_search_monitor::LocalSearchMonitor, stats::LocalSearchStatistics};
+use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 use std::time::{Duration, Instant};
 
@@ -90,43 +88,63 @@ where
         "TimeLimitMonitor"
     }
 
-    fn on_start(&mut self, _initial_solution: &Schedule<T>) {
+    fn on_start(&mut self, _model: &Model<T>, _initial_solution: &Solution<T>) {
         self.start_time = Instant::now();
     }
 
-    fn on_end(&mut self, _best_solution: &Schedule<T>, _statistics: &LocalSearchStatistics) {}
-
-    fn on_iteration(
+    fn on_end(
         &mut self,
-        _current_solution: &Schedule<T>,
+        _model: &Model<T>,
+        _best_solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
     }
 
-    fn on_solution_found(&mut self, _solution: &Schedule<T>, _statistics: &LocalSearchStatistics) {}
+    fn on_iteration(
+        &mut self,
+        _model: &Model<T>,
+        _current_solution: &Solution<T>,
+        _statistics: &LocalSearchStatistics,
+    ) {
+    }
+
+    fn on_solution_found(
+        &mut self,
+        _model: &Model<T>,
+        _solution: &Solution<T>,
+        _statistics: &LocalSearchStatistics,
+    ) {
+    }
 
     fn on_solution_accepted(
         &mut self,
-        _solution: &Schedule<T>,
+        _model: &Model<T>,
+        _solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
     }
 
     fn on_solution_rejected(
         &mut self,
-        _solution: &Schedule<T>,
+        _model: &Model<T>,
+        _solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
     }
 
     fn on_best_solution_updated(
         &mut self,
-        _solution: &Schedule<T>,
+        _model: &Model<T>,
+        _solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
     }
 
-    fn search_command(&mut self, statistics: &LocalSearchStatistics) -> SearchCommand {
+    fn search_command(
+        &mut self,
+        _model: &Model<T>,
+        statistics: &LocalSearchStatistics,
+    ) -> SearchCommand {
         if (statistics.iterations & self.clock_check_mask) == 0 {
             let elapsed = self.start_time.elapsed();
             if elapsed >= self.time_limit {

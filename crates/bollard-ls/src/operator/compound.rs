@@ -45,9 +45,10 @@
 //! mutation generation and evaluation.
 
 use crate::{
-    memory::Schedule, mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
+    mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
     queue::VesselPriorityQueue,
 };
+use bollard_model::solution::Solution;
 use bollard_search::{neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric};
 use std::cmp::Ordering;
 
@@ -102,7 +103,7 @@ where
         "RandomCompoundOperator"
     }
 
-    fn prepare(&mut self, schedule: &Schedule<T>, queue: &VesselPriorityQueue, neighborhoods: &N) {
+    fn prepare(&mut self, schedule: &Solution<T>, queue: &VesselPriorityQueue, neighborhoods: &N) {
         if self.operators.is_empty() {
             return;
         }
@@ -115,7 +116,7 @@ where
 
     fn next_neighbor(
         &mut self,
-        schedule: &Schedule<T>,
+        schedule: &Solution<T>,
         mutator: &mut Mutator<T>,
         neighborhoods: &N,
     ) -> bool {
@@ -179,7 +180,7 @@ where
 
     fn prepare(
         &mut self,
-        _schedule: &Schedule<T>,
+        _schedule: &Solution<T>,
         _queue: &VesselPriorityQueue,
         _neighborhoods: &N,
     ) {
@@ -189,7 +190,7 @@ where
 
     fn next_neighbor(
         &mut self,
-        schedule: &Schedule<T>,
+        schedule: &Solution<T>,
         mutator: &mut Mutator<T>,
         neighborhoods: &N,
     ) -> bool {
@@ -388,7 +389,7 @@ where
 
     fn prepare(
         &mut self,
-        schedule: &Schedule<T>,
+        schedule: &Solution<T>,
         _queue: &VesselPriorityQueue,
         _neighborhoods: &N,
     ) {
@@ -421,7 +422,7 @@ where
 
     fn next_neighbor(
         &mut self,
-        schedule: &Schedule<T>,
+        schedule: &Solution<T>,
         mutator: &mut Mutator<T>,
         neighborhoods: &N,
     ) -> bool {

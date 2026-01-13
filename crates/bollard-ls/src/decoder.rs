@@ -37,8 +37,8 @@
 //! ordering into a complete schedule suitable for iterative improvement in local
 //! search.
 
-use crate::{eval::evaluator::AssignmentEvaluator, memory::Schedule, queue::VesselPriorityQueue};
-use bollard_model::{index::BerthIndex, model::Model};
+use crate::{eval::evaluator::AssignmentEvaluator, queue::VesselPriorityQueue};
+use bollard_model::{index::BerthIndex, model::Model, solution::Solution};
 use bollard_search::num::SolverNumeric;
 
 /// A decoder that transforms a priority queue into a schedule.
@@ -65,7 +65,7 @@ where
         &mut self,
         model: &Model<T>,
         queue: &VesselPriorityQueue,
-        state: &mut Schedule<T>,
+        state: &mut Solution<T>,
         evaluator: &E,
     ) -> bool;
 
@@ -97,7 +97,7 @@ where
         &mut self,
         model: &Model<T>,
         queue: &VesselPriorityQueue,
-        state: &mut Schedule<T>,
+        state: &mut Solution<T>,
         evaluator: &E,
     ) -> bool;
 }
@@ -286,7 +286,7 @@ where
         &mut self,
         model: &Model<T>,
         queue: &VesselPriorityQueue,
-        state: &mut Schedule<T>,
+        state: &mut Solution<T>,
         evaluator: &E,
     ) -> bool {
         let num_berths = model.num_berths();
@@ -408,7 +408,7 @@ where
         &mut self,
         model: &Model<T>,
         queue: &VesselPriorityQueue,
-        state: &mut Schedule<T>,
+        state: &mut Solution<T>,
         evaluator: &E,
     ) -> bool {
         let num_berths = model.num_berths();

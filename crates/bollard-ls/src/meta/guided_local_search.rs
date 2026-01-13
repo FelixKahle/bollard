@@ -54,9 +54,10 @@
 //! throughout. The guided evaluator uses `T: FromPrimitive` to convert penalty costs back
 //! into `T`, and the metaheuristic layer also uses `ToPrimitive` for inspecting objectives.
 
+use crate::eval::DefaultAssignmentEvaluator;
 use crate::eval::evaluator::{AssignmentEvaluator, Evaluation};
 use crate::meta::metaheuristic::Metaheuristic;
-use crate::{eval::DefaultAssignmentEvaluator, memory::Schedule};
+use bollard_model::solution::Solution;
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
@@ -478,7 +479,7 @@ where
 
     /// Calculates the full augmented objective from scratch.
     /// O(N) complexity. Use sparingly (initialization, updates).
-    fn calculate_augmented_score(&self, schedule: &Schedule<T>) -> f64 {
+    fn calculate_augmented_score(&self, schedule: &Solution<T>) -> f64 {
         let base_objective = match schedule.objective_value().to_f64() {
             Some(v) if v.is_finite() => v,
             _ => return f64::INFINITY,
@@ -509,7 +510,7 @@ where
     /// Identifies high-utility assignments in the current schedule and increments their penalties.
     /// Utility is defined as (feature_cost) / (1 + penalty), where feature_cost is derived from vessel
     /// weight and start time O(N) complexity.
-    fn penalize(&mut self, model: &Model<T>, current: &Schedule<T>) {
+    fn penalize(&mut self, model: &Model<T>, current: &Solution<T>) {
         let mut max_utility = f64::NEG_INFINITY;
         let mut candidates: Vec<(VesselIndex, BerthIndex)> = Vec::new();
 
@@ -573,7 +574,7 @@ where
         &self.evaluator
     }
 
-    fn on_start(&mut self, model: &Model<T>, initial_solution: &Schedule<T>) {
+    fn on_start(&mut self, model: &Model<T>, initial_solution: &Solution<T>) {
         self.evaluator
             .resize(model.num_vessels(), model.num_berths());
 
@@ -588,7 +589,7 @@ where
         &mut self,
         _iter: u64,
         _model: &Model<T>,
-        _best: &Schedule<T>,
+        _best: &Solution<T>,
     ) -> SearchCommand {
         SearchCommand::Continue
     }
@@ -596,20 +597,20 @@ where
     fn should_accept(
         &mut self,
         _model: &Model<T>,
-        _current: &Schedule<T>,
-        candidate: &Schedule<T>,
-        _best: &Schedule<T>,
+        _current: &Solution<T>,
+        candidate: &Solution<T>,
+        _best: &Solution<T>,
     ) -> bool {
         let aug_candidate = self.calculate_augmented_score(candidate);
         aug_candidate < self.current_augmented_score - 1e-9
     }
 
-    fn on_accept(&mut self, _model: &Model<T>, new_current: &Schedule<T>) {
+    fn on_accept(&mut self, _model: &Model<T>, new_current: &Solution<T>) {
         self.stagnation_counter = 0;
         self.current_augmented_score = self.calculate_augmented_score(new_current);
     }
 
-    fn on_reject(&mut self, model: &Model<T>, current_schedule: &Schedule<T>) {
+    fn on_reject(&mut self, model: &Model<T>, current_schedule: &Solution<T>) {
         self.stagnation_counter += 1;
         if self.stagnation_counter >= self.stagnation_limit {
             self.penalize(model, current_schedule);
@@ -622,7 +623,7 @@ where
         }
     }
 
-    fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Schedule<T>) {}
+    fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Solution<T>) {}
 }
 
 #[cfg(test)]
@@ -633,11 +634,10 @@ mod tests {
     use bollard_model::solution::Solution;
     use bollard_search::monitor::search_monitor::SearchCommand;
 
-    use crate::memory::Schedule;
     use bollard_search::num::SolverNumeric;
 
-    fn sched<T: SolverNumeric>(obj: T, berths: Vec<BerthIndex>, starts: Vec<T>) -> Schedule<T> {
-        Schedule::from(Solution::new(obj, berths, starts))
+    fn sched<T: SolverNumeric>(obj: T, berths: Vec<BerthIndex>, starts: Vec<T>) -> Solution<T> {
+        Solution::from(Solution::new(obj, berths, starts))
     }
 
     #[test]

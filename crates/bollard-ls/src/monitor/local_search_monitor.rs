@@ -29,7 +29,8 @@
 //! allowing monitors to remain lightweight unless an explicit limit or
 //! condition is reached.
 
-use crate::{memory::Schedule, stats::LocalSearchStatistics};
+use crate::stats::LocalSearchStatistics;
+use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 
 /// A monitor for local search algorithms.
@@ -41,31 +42,61 @@ where
     fn name(&self) -> &str;
 
     /// Called at the start of the local search.
-    fn on_start(&mut self, initial_solution: &Schedule<T>);
+    fn on_start(&mut self, model: &Model<T>, initial_solution: &Solution<T>);
 
     /// Called at the end of the local search.
-    fn on_end(&mut self, best_solution: &Schedule<T>, statistics: &LocalSearchStatistics);
+    fn on_end(
+        &mut self,
+        model: &Model<T>,
+        best_solution: &Solution<T>,
+        statistics: &LocalSearchStatistics,
+    );
 
     /// Called at each iteration of the local search.
-    fn on_iteration(&mut self, current_solution: &Schedule<T>, statistics: &LocalSearchStatistics);
+    fn on_iteration(
+        &mut self,
+        model: &Model<T>,
+        current_solution: &Solution<T>,
+        statistics: &LocalSearchStatistics,
+    );
 
     /// Called when a solution is found.
-    fn on_solution_found(&mut self, solution: &Schedule<T>, statistics: &LocalSearchStatistics);
+    fn on_solution_found(
+        &mut self,
+        model: &Model<T>,
+        solution: &Solution<T>,
+        statistics: &LocalSearchStatistics,
+    );
 
     /// Called when a solution is accepted.
-    fn on_solution_accepted(&mut self, solution: &Schedule<T>, statistics: &LocalSearchStatistics);
+    fn on_solution_accepted(
+        &mut self,
+        model: &Model<T>,
+        solution: &Solution<T>,
+        statistics: &LocalSearchStatistics,
+    );
 
     /// Called when a solution is rejected.
-    fn on_solution_rejected(&mut self, solution: &Schedule<T>, statistics: &LocalSearchStatistics);
+    fn on_solution_rejected(
+        &mut self,
+        model: &Model<T>,
+        solution: &Solution<T>,
+        statistics: &LocalSearchStatistics,
+    );
 
     fn on_best_solution_updated(
         &mut self,
-        solution: &Schedule<T>,
+        model: &Model<T>,
+        solution: &Solution<T>,
         statistics: &LocalSearchStatistics,
     );
 
     /// Determines the command for the next step of the local search.
-    fn search_command(&mut self, _statistics: &LocalSearchStatistics) -> SearchCommand {
+    fn search_command(
+        &mut self,
+        _model: &Model<T>,
+        _statistics: &LocalSearchStatistics,
+    ) -> SearchCommand {
         SearchCommand::Continue
     }
 }

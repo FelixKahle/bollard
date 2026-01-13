@@ -41,9 +41,10 @@
 //! effectively focusing the search on resolving conflicts.
 
 use crate::{
-    memory::Schedule, mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
+    mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
     queue::VesselPriorityQueue,
 };
+use bollard_model::solution::Solution;
 use bollard_search::{neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric};
 
 /// An operator that moves a vessel from one position to another.
@@ -80,7 +81,7 @@ where
         "ShiftOperator"
     }
 
-    fn prepare(&mut self, _schedule: &Schedule<T>, queue: &VesselPriorityQueue, _n: &N) {
+    fn prepare(&mut self, _schedule: &Solution<T>, queue: &VesselPriorityQueue, _n: &N) {
         self.num_vessels = queue.len();
         self.i = 0;
         // Start j at 0. The loop logic will increment it immediately to 1 on the first step
@@ -92,7 +93,7 @@ where
 
     fn next_neighbor(
         &mut self,
-        _schedule: &Schedule<T>,
+        _schedule: &Solution<T>,
         mutator: &mut Mutator<T>,
         neighborhoods: &N,
     ) -> bool {

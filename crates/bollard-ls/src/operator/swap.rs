@@ -31,9 +31,10 @@
 //! or heuristics (e.g., only swapping vessels that share a resource conflict).
 
 use crate::{
-    memory::Schedule, mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
+    mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
     queue::VesselPriorityQueue,
 };
+use bollard_model::solution::Solution;
 use bollard_search::{neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric};
 
 /// An operator that explores swaps between pairs of vessels in the priority queue.
@@ -69,7 +70,7 @@ where
         "SwapOperator"
     }
 
-    fn prepare(&mut self, _schedule: &Schedule<T>, queue: &VesselPriorityQueue, _n: &N) {
+    fn prepare(&mut self, _schedule: &Solution<T>, queue: &VesselPriorityQueue, _n: &N) {
         self.num_vessels = queue.len();
         self.i = 0;
         self.j = 0;
@@ -77,7 +78,7 @@ where
 
     fn next_neighbor(
         &mut self,
-        _schedule: &Schedule<T>,
+        _schedule: &Solution<T>,
         mutator: &mut Mutator<T>,
         neighborhoods: &N,
     ) -> bool {

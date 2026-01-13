@@ -184,7 +184,7 @@ where
         // Prepare the decoder
         decoder.initialize(model);
 
-        monitor.on_start(self.memory.current_schedule());
+        monitor.on_start(model, self.memory.current_schedule());
         metaheuristic.on_start(model, self.memory.current_schedule());
 
         // Prepare for the first iteration
@@ -195,7 +195,7 @@ where
         );
 
         let termination_reason = loop {
-            if let SearchCommand::Terminate(reason) = monitor.search_command(&stats) {
+            if let SearchCommand::Terminate(reason) = monitor.search_command(model, &stats) {
                 break LocalSearchTerminationReason::Aborted(reason);
             }
 
@@ -239,7 +239,7 @@ where
             );
 
             stats.on_found_solution();
-            monitor.on_solution_found(self.memory.candidate_schedule(), &stats);
+            monitor.on_solution_found(model, self.memory.candidate_schedule(), &stats);
 
             let accept = metaheuristic.should_accept(
                 model,
@@ -260,7 +260,7 @@ where
                 );
 
                 metaheuristic.on_accept(model, self.memory.current_schedule());
-                monitor.on_solution_accepted(self.memory.current_schedule(), &stats);
+                monitor.on_solution_accepted(model, self.memory.current_schedule(), &stats);
 
                 if self.memory.current_schedule().objective_value()
                     < best_solution.objective_value()
@@ -276,7 +276,7 @@ where
                     );
 
                     metaheuristic.on_new_best(model, &best_solution);
-                    monitor.on_best_solution_updated(&best_solution, &stats);
+                    monitor.on_best_solution_updated(model, &best_solution, &stats);
                 }
 
                 // Prepare for the next iteration
@@ -297,15 +297,15 @@ where
                 );
 
                 metaheuristic.on_reject(model, self.memory.candidate_schedule());
-                monitor.on_solution_rejected(self.memory.candidate_schedule(), &stats);
+                monitor.on_solution_rejected(model, self.memory.candidate_schedule(), &stats);
             }
 
-            monitor.on_iteration(self.memory.current_schedule(), &stats);
+            monitor.on_iteration(model, self.memory.current_schedule(), &stats);
         };
 
         stats.set_total_time(start_time.elapsed());
-        monitor.on_end(&best_solution, &stats);
-        let final_solution: Solution<T> = best_solution.into();
+        monitor.on_end(model, &best_solution, &stats);
+        let final_solution: Solution<T> = best_solution;
 
         match termination_reason {
             LocalSearchTerminationReason::LocalOptimum => {
@@ -558,13 +558,14 @@ mod tests {
             "NoopMonitor"
         }
 
-        fn on_start(&mut self, _initial_solution: &crate::memory::Schedule<T>) {
+        fn on_start(&mut self, _model: &Model<T>, _initial_solution: &Solution<T>) {
             self.started = true;
         }
 
         fn on_end(
             &mut self,
-            _best_solution: &crate::memory::Schedule<T>,
+            _model: &Model<T>,
+            _best_solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
             self.ended = true;
@@ -572,7 +573,8 @@ mod tests {
 
         fn on_iteration(
             &mut self,
-            _current_solution: &crate::memory::Schedule<T>,
+            _model: &Model<T>,
+            _current_solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
             self.iterations += 1;
@@ -580,7 +582,8 @@ mod tests {
 
         fn on_solution_found(
             &mut self,
-            _solution: &crate::memory::Schedule<T>,
+            _model: &Model<T>,
+            _solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
             self.found += 1;
@@ -588,7 +591,8 @@ mod tests {
 
         fn on_solution_accepted(
             &mut self,
-            _solution: &crate::memory::Schedule<T>,
+            _model: &Model<T>,
+            _solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
             self.accepted += 1;
@@ -596,7 +600,8 @@ mod tests {
 
         fn on_solution_rejected(
             &mut self,
-            _solution: &crate::memory::Schedule<T>,
+            _model: &Model<T>,
+            _solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
             self.rejected += 1;
@@ -604,7 +609,8 @@ mod tests {
 
         fn on_best_solution_updated(
             &mut self,
-            _solution: &crate::memory::Schedule<T>,
+            _model: &Model<T>,
+            _solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
             // No-op

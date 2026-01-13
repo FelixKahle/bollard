@@ -42,7 +42,8 @@
 //! and use `reset` to restore the starting position of the exploration sequence without
 //! re-analyzing the schedule.
 
-use crate::{memory::Schedule, mutator::Mutator, queue::VesselPriorityQueue};
+use crate::{mutator::Mutator, queue::VesselPriorityQueue};
+use bollard_model::solution::Solution;
 use bollard_search::{neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric};
 
 /// A stateful operator that explores a specific neighborhood in a local search.
@@ -74,7 +75,7 @@ where
     /// - Identify "bottleneck" vessels in the `schedule` to target for mutation.
     /// - Pre-calculate a list of vessel pairs for swapping.
     /// - Shuffle or re-order its internal move list if the operator is stochastic.
-    fn prepare(&mut self, schedule: &Schedule<T>, queue: &VesselPriorityQueue, neighborhoods: &N);
+    fn prepare(&mut self, schedule: &Solution<T>, queue: &VesselPriorityQueue, neighborhoods: &N);
 
     /// Applies the next mutation in the neighborhood sequence.
     ///
@@ -89,7 +90,7 @@ where
     /// # Note
     /// It is expected that the operator manages an internal "cursor" to ensure that
     /// subsequent calls result in different neighbors.
-    fn next_neighbor(&mut self, schedule: &Schedule<T>, mutator: &mut Mutator<T>, n: &N) -> bool;
+    fn next_neighbor(&mut self, schedule: &Solution<T>, mutator: &mut Mutator<T>, n: &N) -> bool;
 
     /// Resets the operator's internal state to the beginning of the neighborhood.
     ///
@@ -130,7 +131,7 @@ where
 {
     operator: &'a mut O,
     neighborhoods: &'a N,
-    schedule: &'a Schedule<T>,
+    schedule: &'a Solution<T>,
     mutator: &'a mut Mutator<'a, T>,
 }
 
@@ -143,7 +144,7 @@ where
     pub fn new(
         operator: &'a mut O,
         neighborhoods: &'a N,
-        schedule: &'a Schedule<T>,
+        schedule: &'a Solution<T>,
         mutator: &'a mut Mutator<'a, T>,
     ) -> Self {
         Self {

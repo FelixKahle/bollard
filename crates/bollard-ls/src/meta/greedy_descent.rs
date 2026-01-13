@@ -48,9 +48,9 @@
 //! before applying more exploratory metaheuristics, or to serve as a deterministic
 //! fallback when diversification is not required.
 
+use crate::eval::DefaultAssignmentEvaluator;
 use crate::meta::metaheuristic::Metaheuristic;
-use crate::{eval::DefaultAssignmentEvaluator, memory::Schedule};
-use bollard_model::model::Model;
+use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 
 /// A Greedy Descent metaheuristic (First Improvement).
@@ -102,7 +102,7 @@ where
         "GreedyDescent"
     }
 
-    fn on_start(&mut self, _model: &Model<T>, _initial_solution: &Schedule<T>) {
+    fn on_start(&mut self, _model: &Model<T>, _initial_solution: &Solution<T>) {
         // Stateless strategy; no setup required.
     }
 
@@ -110,7 +110,7 @@ where
         &mut self,
         _iteration: u64,
         _model: &Model<T>,
-        _best_solution: &Schedule<T>,
+        _best_solution: &Solution<T>,
     ) -> SearchCommand {
         SearchCommand::Continue
     }
@@ -118,9 +118,9 @@ where
     fn should_accept(
         &mut self,
         _model: &Model<T>,
-        current: &Schedule<T>,
-        candidate: &Schedule<T>,
-        _best: &Schedule<T>,
+        current: &Solution<T>,
+        candidate: &Solution<T>,
+        _best: &Solution<T>,
     ) -> bool {
         // Strict inequality is crucial here.
         // Accepting equal moves (<=) turns this into a random walk on plateaus,
@@ -128,15 +128,15 @@ where
         candidate.objective_value() < current.objective_value()
     }
 
-    fn on_accept(&mut self, _model: &Model<T>, _new_current: &Schedule<T>) {
+    fn on_accept(&mut self, _model: &Model<T>, _new_current: &Solution<T>) {
         // No internal state (like Tabu lists) to update.
     }
 
-    fn on_reject(&mut self, _model: &Model<T>, _rejected_candidate: &Schedule<T>) {
+    fn on_reject(&mut self, _model: &Model<T>, _rejected_candidate: &Solution<T>) {
         // No internal state to update.
     }
 
-    fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Schedule<T>) {
+    fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Solution<T>) {
         // No internal state to update.
     }
 
@@ -152,8 +152,8 @@ mod tests {
     use bollard_model::model::ModelBuilder;
     use bollard_model::solution::Solution;
 
-    fn sched<T: SolverNumeric>(obj: T, berths: Vec<BerthIndex>, starts: Vec<T>) -> Schedule<T> {
-        Schedule::from(Solution::new(obj, berths, starts))
+    fn sched<T: SolverNumeric>(obj: T, berths: Vec<BerthIndex>, starts: Vec<T>) -> Solution<T> {
+        Solution::from(Solution::new(obj, berths, starts))
     }
 
     #[test]

@@ -30,10 +30,8 @@
 //! driven solver setups, plugin-style architectures, and for crossing crate boundaries where
 //! stability and ABI-neutral interfaces are preferred.
 
-use crate::{
-    eval::dynamic::DynamicAssignmentEvaluator, memory::Schedule, meta::metaheuristic::Metaheuristic,
-};
-use bollard_model::model::Model;
+use crate::{eval::dynamic::DynamicAssignmentEvaluator, meta::metaheuristic::Metaheuristic};
+use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 
 /// A type-erasing wrapper around any `Metaheuristic` that operates with a
@@ -129,7 +127,7 @@ where
         self.inner.evaluator()
     }
 
-    fn on_start(&mut self, model: &Model<T>, initial_solution: &Schedule<T>) {
+    fn on_start(&mut self, model: &Model<T>, initial_solution: &Solution<T>) {
         self.inner.on_start(model, initial_solution);
     }
 
@@ -137,7 +135,7 @@ where
         &mut self,
         iteration: u64,
         model: &Model<T>,
-        best_solution: &Schedule<T>,
+        best_solution: &Solution<T>,
     ) -> SearchCommand {
         self.inner.search_command(iteration, model, best_solution)
     }
@@ -145,22 +143,22 @@ where
     fn should_accept(
         &mut self,
         model: &Model<T>,
-        current: &Schedule<T>,
-        candidate: &Schedule<T>,
-        best: &Schedule<T>,
+        current: &Solution<T>,
+        candidate: &Solution<T>,
+        best: &Solution<T>,
     ) -> bool {
         self.inner.should_accept(model, current, candidate, best)
     }
 
-    fn on_accept(&mut self, model: &Model<T>, new_current: &Schedule<T>) {
+    fn on_accept(&mut self, model: &Model<T>, new_current: &Solution<T>) {
         self.inner.on_accept(model, new_current);
     }
 
-    fn on_reject(&mut self, model: &Model<T>, rejected_candidate: &Schedule<T>) {
+    fn on_reject(&mut self, model: &Model<T>, rejected_candidate: &Solution<T>) {
         self.inner.on_reject(model, rejected_candidate);
     }
 
-    fn on_new_best(&mut self, model: &Model<T>, new_best: &Schedule<T>) {
+    fn on_new_best(&mut self, model: &Model<T>, new_best: &Solution<T>) {
         self.inner.on_new_best(model, new_best);
     }
 }
