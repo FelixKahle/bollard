@@ -637,7 +637,7 @@ mod tests {
     use bollard_search::num::SolverNumeric;
 
     fn sched<T: SolverNumeric>(obj: T, berths: Vec<BerthIndex>, starts: Vec<T>) -> Solution<T> {
-        Solution::from(Solution::new(obj, berths, starts))
+        Solution::new(obj, berths, starts)
     }
 
     #[test]

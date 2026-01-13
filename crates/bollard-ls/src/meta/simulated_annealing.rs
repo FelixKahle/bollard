@@ -397,7 +397,7 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
 
     fn sched(obj: i64, berths: Vec<BerthIndex>, starts: Vec<i64>) -> Solution<i64> {
-        Solution::from(Solution::new(obj, berths, starts))
+        Solution::new(obj, berths, starts)
     }
 
     fn rng_send_sync() -> ChaCha8Rng {
