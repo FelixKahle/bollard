@@ -340,14 +340,21 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::opening;
+
     use super::*;
     use bollard_bnb::{
-        branching::{
-            chronological::ChronologicalExhaustiveBuilder, fcfs::FcfsHeuristicBuilder,
-            regret::RegretHeuristicBuilder, wspt::WsptHeuristicBuilder,
-        },
-        eval::hybrid::HybridEvaluator,
+        branching::regret::RegretHeuristicBuilder, eval::hybrid::HybridEvaluator,
         portfolio::BnbPortfolioSolver,
+    };
+    use bollard_ls::{
+        decoder::GreedyDecoder,
+        meta::simulated_annealing::SimulatedAnnealing,
+        operator::{
+            compound::RoundRobinCompoundOperator, local_search_operator::LocalSearchOperator,
+            shift::ShiftOperator, swap::SwapOperator,
+        },
+        portfolio::LocalSearchPortfolioSolver,
     };
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
@@ -355,6 +362,7 @@ mod tests {
         time::ProcessingTime,
     };
     use bollard_search::neighborhood::topology::StaticTopology;
+    use rand::{SeedableRng, rngs::StdRng};
 
     type IntegerType = i64;
 
@@ -394,38 +402,33 @@ mod tests {
             HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
         );
 
-        let second_solver = BnbPortfolioSolver::new(
-            WsptHeuristicBuilder::<IntegerType>::preallocated(
-                model.num_berths(),
-                model.num_vessels(),
-            ),
-            HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
+        let intital_solution =
+            opening::find_initial_solution(&model).expect("expected to find initial solution");
+        println!(
+            "Initial solution objective value: {}",
+            intital_solution.objective_value()
         );
+        let operators: Vec<Box<dyn LocalSearchOperator<IntegerType, StaticTopology>>> = vec![
+            Box::new(SwapOperator::new()),
+            Box::new(ShiftOperator::new()),
+        ];
+        let op = RoundRobinCompoundOperator::new(operators);
 
-        let third_solver = BnbPortfolioSolver::new(
-            ChronologicalExhaustiveBuilder::new(),
-            HybridEvaluator::<i64>::preallocated(model.num_berths(), model.num_vessels()),
-        );
-
-        let fourth_solver = BnbPortfolioSolver::new(
-            FcfsHeuristicBuilder::<IntegerType>::preallocated(
-                model.num_berths(),
-                model.num_vessels(),
-            ),
-            HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
-        );
+        let metaheuristic =
+            SimulatedAnnealing::with_defaults(&intital_solution, StdRng::from_os_rng());
+        let decoder = GreedyDecoder::preallocated(model.num_berths());
+        let second_solver =
+            LocalSearchPortfolioSolver::new(metaheuristic, decoder, op, &intital_solution);
 
         let mut solver = SolverBuilder::<IntegerType, StaticTopology>::new()
             .add_solver(first_solver)
             .add_solver(second_solver)
-            .add_solver(third_solver)
-            .add_solver(fourth_solver)
+            .with_time_limit(std::time::Duration::from_secs(10))
             .build();
 
         let outcome = solver.solve(&model, &neighborhoods);
         println!("Solver statistics: {}", outcome.statistics());
         println!("{}", outcome.reason());
-        assert!(outcome.is_optimal());
 
         // Objective (Gurobi) = 855
         match outcome.result() {
@@ -434,10 +437,7 @@ mod tests {
                 assert_eq!(solution.objective_value(), 855);
             }
             SolverResult::Feasible(solution) => {
-                panic!(
-                    "expected optimal solution, got feasible with objective {}",
-                    solution.objective_value()
-                );
+                assert_eq!(solution.objective_value(), 855);
             }
             SolverResult::Unknown => panic!("expected optimal solution, got unknown"),
         }

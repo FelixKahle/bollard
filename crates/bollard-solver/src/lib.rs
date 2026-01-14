@@ -38,4 +38,5 @@
 //!
 //! See `solver` for detailed APIs and examples.
 
+pub mod opening;
 pub mod solver;

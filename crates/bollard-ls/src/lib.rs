@@ -32,12 +32,13 @@
 pub mod decoder;
 pub mod engine;
 pub mod eval;
+mod incumbent;
 pub mod memory;
 pub mod meta;
 pub mod monitor;
 pub mod mutator;
 pub mod operator;
-//pub mod portfolio;
+pub mod portfolio;
 pub mod queue;
 pub mod result;
 pub mod stats;

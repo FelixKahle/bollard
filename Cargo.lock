@@ -118,6 +118,7 @@ dependencies = [
  "bollard_model",
  "bollard_search",
  "num-traits",
+ "rand",
  "tracing",
 ]
 

@@ -143,6 +143,18 @@ where
         }
     }
 
+    /// Creates a new `PortfolioSolverResult` representing a converged solve.
+    #[inline]
+    pub fn converged<R>(solution: Solution<T>, reason: R) -> Self
+    where
+        R: Into<String>,
+    {
+        Self {
+            result: SolverResult::Feasible(solution),
+            termination_reason: TerminationReason::Converged(reason.into()),
+        }
+    }
+
     /// Creates a new `PortfolioSolverResult` representing an aborted solve.
     /// If a solution is provided, it is treated as feasible; otherwise, the result is infeasible.
     #[inline]

@@ -19,61 +19,55 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+use crate::monitor::wrapper::LocalSearchMonitorWrapper;
+use crate::{
+    decoder::Decoder, engine::LocalSearchEngine, meta::metaheuristic::Metaheuristic,
+    operator::local_search_operator::LocalSearchOperator,
+};
+use bollard_model::solution::Solution;
 use bollard_search::{
     neighborhood::neighborhoods::Neighborhoods,
     num::SolverNumeric,
     portfolio::{PortfolioSolverContext, PortfolioSolverResult, PortofolioSolver},
 };
 
-use crate::{
-    decoder::Decoder, engine::LocalSearchEngine, meta::metaheuristic::Metaheuristic,
-    monitor::local_search_monitor::LocalSearchMonitor,
-    operator::local_search_operator::LocalSearchOperator,
-};
-
-pub struct LocalSearchPortfolio<T, N, H, D, O, M>
+pub struct LocalSearchPortfolioSolver<'a, T, N, H, D, O>
 where
     T: SolverNumeric,
     N: Neighborhoods,
     H: Metaheuristic<T>,
     D: Decoder<T, H::Evaluator>,
     O: LocalSearchOperator<T, N>,
-    M: LocalSearchMonitor<T>,
 {
     metaheuristic: H,
     decoder: D,
     engine: LocalSearchEngine<T>,
     operator: O,
-    monitor: M,
-    name: String,
+    initial_solution: &'a Solution<T>,
     _neighborhoods: std::marker::PhantomData<N>,
 }
 
-impl<T, N, H, D, O, M> LocalSearchPortfolio<T, N, H, D, O, M>
+impl<'a, T, N, H, D, O> LocalSearchPortfolioSolver<'a, T, N, H, D, O>
 where
     T: SolverNumeric,
     N: Neighborhoods,
     H: Metaheuristic<T>,
     D: Decoder<T, H::Evaluator>,
     O: LocalSearchOperator<T, N>,
-    M: LocalSearchMonitor<T>,
 {
     #[inline]
-    pub fn new(metaheuristic: H, decoder: D, operator: O, monitor: M) -> Self {
-        let name = format!(
-            "LocalSearchPortfolioSolver<{}, {}, {}, {}>",
-            metaheuristic.name(),
-            decoder.name(),
-            operator.name(),
-            monitor.name(),
-        );
+    pub fn new(
+        metaheuristic: H,
+        decoder: D,
+        operator: O,
+        initial_solution: &'a Solution<T>,
+    ) -> Self {
         Self {
             metaheuristic,
             decoder,
             engine: LocalSearchEngine::new(),
             operator,
-            monitor,
-            name,
+            initial_solution,
             _neighborhoods: std::marker::PhantomData,
         }
     }
@@ -94,33 +88,62 @@ where
     }
 
     #[inline]
-    pub fn monitor(&self) -> &M {
-        &self.monitor
-    }
-
-    #[inline]
     pub fn engine(&self) -> &LocalSearchEngine<T> {
         &self.engine
     }
+
+    #[inline]
+    pub fn initial_solution(&self) -> &Solution<T> {
+        self.initial_solution
+    }
 }
 
-impl<T, N, H, D, O, M> PortofolioSolver<T, N> for LocalSearchPortfolio<T, N, H, D, O, M>
+impl<'a, T, N, H, D, O> PortofolioSolver<T, N> for LocalSearchPortfolioSolver<'a, T, N, H, D, O>
 where
     T: SolverNumeric,
-    N: Neighborhoods,
-    H: Metaheuristic<T>,
-    D: Decoder<T, H::Evaluator>,
-    O: LocalSearchOperator<T, N>,
-    M: LocalSearchMonitor<T>,
+    N: Neighborhoods + Send + Sync,
+    H: Metaheuristic<T> + Send + Sync,
+    D: Decoder<T, H::Evaluator> + Send + Sync,
+    O: LocalSearchOperator<T, N> + Send + Sync,
 {
-    fn invoke<'a>(
+    fn invoke<'ctx>(
         &mut self,
-        context: PortfolioSolverContext<'a, T, N>,
+        context: PortfolioSolverContext<'ctx, T, N>,
     ) -> PortfolioSolverResult<T> {
-        todo!()
+        // Use only the wrapper around the provided monitor
+        let ls_monitor = LocalSearchMonitorWrapper::new(context.monitor);
+
+        // Run local search with neighborhoods from the context and the stored initial solution
+        let outcome = self.engine.run_with_incumbent(
+            context.model,
+            &mut self.decoder,
+            context.neighborhoods,
+            &mut self.operator,
+            &mut self.metaheuristic,
+            ls_monitor,
+            context.incumbent,
+            self.initial_solution,
+        );
+
+        // Map local search termination to portfolio result
+        use crate::result::LocalSearchTerminationReason;
+        match outcome.termination_reason() {
+            LocalSearchTerminationReason::LocalOptimum => PortfolioSolverResult::aborted(
+                Some(outcome.solution().clone()),
+                "Local optimum reached".to_string(),
+            ),
+            LocalSearchTerminationReason::Metaheuristic(msg) => {
+                PortfolioSolverResult::aborted(Some(outcome.solution().clone()), msg.clone())
+            }
+            LocalSearchTerminationReason::Aborted(msg) => {
+                PortfolioSolverResult::aborted(Some(outcome.solution().clone()), msg.clone())
+            }
+        }
     }
 
     fn name(&self) -> &str {
-        todo!()
+        // If you prefer including concrete types like the BnB adapter, we can build a string
+        // via type_name::<...>(). For brevity, return a static name here.
+        "LocalSearchPortfolioSolver"
     }
 }

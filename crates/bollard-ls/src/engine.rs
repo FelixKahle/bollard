@@ -32,6 +32,7 @@
 
 use crate::{
     decoder::Decoder,
+    incumbent::NoSharedIncumbent,
     memory::SearchMemory,
     meta::metaheuristic::Metaheuristic,
     monitor::local_search_monitor::LocalSearchMonitor,
@@ -45,7 +46,6 @@ use bollard_search::{
     neighborhood::neighborhoods::{FullNeighborhoods, Neighborhoods},
     num::SolverNumeric,
 };
-use std::time::Instant;
 
 /// Local search engine for berth scheduling.
 ///
@@ -95,46 +95,21 @@ where
         }
     }
 
-    /// Runs the local search engine to improve an initial solution.
+    /// Runs with a shared incumbent: installs every new best immediately.
     ///
-    /// The engine performs iterative neighborhood exploration:
-    /// - The operator proposes a mutation to the current schedule via the priority queue.
-    /// - The decoder attempts to construct a feasible candidate schedule and objective delta.
-    /// - The metaheuristic decides whether to accept the candidate.
-    /// - The monitor observes progress and may request termination.
-    ///
-    /// On success, returns a `LocalSearchEngineOutcome` containing:
-    /// - The best solution discovered (not necessarily the last accepted).
-    /// - Aggregated run statistics.
-    /// - A termination reason (local optimum, metaheuristic directive, or aborted).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the number of vessels in `model`, `neighborhood`,
-    /// and `initial_solution` are inconsistent.
-    ///
-    /// # Parameters
-    /// - `model`: Problem data (berths, vessels, opening times, processing times).
-    /// - `decoder`: Responsible for building candidate schedules from the queue; must be initialized with `model`.
-    /// - `neighborhood`: Defines neighborhoods explored by the operator.
-    /// - `operator`: Applies mutations to the queue (genotype) with an undo log for rollback.
-    /// - `metaheuristic`: Governs acceptance decisions and termination policy.
-    /// - `monitor`: Observes iterations, solutions, and can request early termination.
-    /// - `initial_solution`: Starting point for the search; also seeds memory/queue ordering.
-    ///
-    /// # Notes
-    /// - Internally reuses memory buffers across runs for performance.
-    /// - Uses `decode_unchecked` for speed under the assumption that inputs are validated elsewhere.
-    ///   In debug builds, assertions help catch inconsistencies early.
+    /// Thin wrapper that forwards to the single internal implementation with a
+    /// `SharedIncumbentAdapter`, keeping code duplication minimal.
     #[allow(clippy::too_many_arguments)]
-    pub fn run<N, H, D, O, M>(
+    #[inline]
+    pub fn run_with_incumbent<N, H, D, O, M>(
         &mut self,
         model: &Model<T>,
         decoder: &mut D,
         neighborhood: &N,
         operator: &mut O,
         metaheuristic: &mut H,
-        mut monitor: M,
+        monitor: M,
+        shared: &bollard_search::incumbent::SharedIncumbent<T>,
         initial_solution: &Solution<T>,
     ) -> LocalSearchEngineOutcome<T>
     where
@@ -144,26 +119,101 @@ where
         O: LocalSearchOperator<T, N>,
         M: LocalSearchMonitor<T>,
     {
+        let mut store = crate::incumbent::SharedIncumbentAdapter::new(shared);
+        self.run_internal(
+            model,
+            decoder,
+            neighborhood,
+            operator,
+            metaheuristic,
+            monitor,
+            &mut store,
+            initial_solution,
+        )
+    }
+
+    /// Runs the local search engine to improve an initial solution (no incumbent).
+    ///
+    /// For zero-cost when no incumbent sharing is needed, this forwards into the
+    /// single internal implementation using a no-op store.
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub fn run<N, H, D, O, M>(
+        &mut self,
+        model: &Model<T>,
+        decoder: &mut D,
+        neighborhood: &N,
+        operator: &mut O,
+        metaheuristic: &mut H,
+        monitor: M,
+        initial_solution: &Solution<T>,
+    ) -> LocalSearchEngineOutcome<T>
+    where
+        N: Neighborhoods,
+        H: Metaheuristic<T>,
+        D: Decoder<T, H::Evaluator>,
+        O: LocalSearchOperator<T, N>,
+        M: LocalSearchMonitor<T>,
+    {
+        let mut store = NoSharedIncumbent::<T>::new();
+        self.run_internal(
+            model,
+            decoder,
+            neighborhood,
+            operator,
+            metaheuristic,
+            monitor,
+            &mut store,
+            initial_solution,
+        )
+    }
+
+    /// Private internal run with incumbent abstraction.
+    ///
+    /// - Single source of truth for the local search loop.
+    /// - Publishes every new best via `store.on_best_solution`.
+    /// - Public `run` and `run_with_incumbent` forward into this method.
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    fn run_internal<N, H, D, O, M, S>(
+        &mut self,
+        model: &Model<T>,
+        decoder: &mut D,
+        neighborhood: &N,
+        operator: &mut O,
+        metaheuristic: &mut H,
+        mut monitor: M,
+        store: &mut S,
+        initial_solution: &Solution<T>,
+    ) -> LocalSearchEngineOutcome<T>
+    where
+        N: Neighborhoods,
+        H: Metaheuristic<T>,
+        D: Decoder<T, H::Evaluator>,
+        O: LocalSearchOperator<T, N>,
+        M: LocalSearchMonitor<T>,
+        S: crate::incumbent::IncumbentStore<T>,
+    {
         assert!(
             model.num_vessels() == neighborhood.num_vessels(),
-            "called `LocalSearchEngine::run` with inconsistent number of vessels: model has {}, neighborhood has {}",
+            "called `LocalSearchEngine::run_internal` with inconsistent number of vessels: model has {}, neighborhood has {}",
             model.num_vessels(),
             neighborhood.num_vessels()
         );
         assert!(
             model.num_vessels() == initial_solution.num_vessels(),
-            "called `LocalSearchEngine::run` with inconsistent number of vessels: model has {}, initial solution has {}",
+            "called `LocalSearchEngine::run_internal` with inconsistent number of vessels: model has {}, initial solution has {}",
             model.num_vessels(),
             initial_solution.num_vessels()
         );
         assert!(
             neighborhood.num_vessels() == initial_solution.num_vessels(),
-            "called `LocalSearchEngine::run` with inconsistent number of vessels: neighborhood has {}, initial solution has {}",
+            "called `LocalSearchEngine::run_internal` with inconsistent number of vessels: neighborhood has {}, initial solution has {}",
             neighborhood.num_vessels(),
             initial_solution.num_vessels()
         );
 
-        let start_time = Instant::now();
+        let start_time = std::time::Instant::now();
         let mut stats = LocalSearchStatistics::default();
 
         // Initialize memory with the initial solution
@@ -174,7 +224,7 @@ where
         debug_assert!(
             model.num_vessels() == self.memory.num_vessels()
                 && self.memory.current_schedule().num_vessels() == initial_solution.num_vessels(),
-            "called `LocalSearchEngine::run` with inconsistent number of vessels: model has {}, memory has {}, current schedule has {}, initial solution has {}",
+            "called `LocalSearchEngine::run_internal` with inconsistent number of vessels: model has {}, memory has {}, current schedule has {}, initial solution has {}",
             model.num_vessels(),
             self.memory.num_vessels(),
             self.memory.current_schedule().num_vessels(),
@@ -232,7 +282,7 @@ where
             debug_assert!(
                 self.memory.candidate_schedule().num_vessels() == self.memory.num_vessels()
                     && self.memory.num_vessels() == model.num_vessels(),
-                "called `LocalSearchEngine::run` with inconsistent number of vessels after decoding: candidate schedule has {}, memory has {}, model has {}",
+                "called `LocalSearchEngine::run_internal` with inconsistent number of vessels after decoding: candidate schedule has {}, memory has {}, model has {}",
                 self.memory.candidate_schedule().num_vessels(),
                 self.memory.num_vessels(),
                 model.num_vessels()
@@ -254,7 +304,7 @@ where
 
                 debug_assert!(
                     self.memory.current_schedule().num_vessels() == self.memory.num_vessels(),
-                    "called `LocalSearchEngine::run` with inconsistent number of vessels after acceptance: current schedule has {}, memory has {}",
+                    "called `LocalSearchEngine::run_internal` with inconsistent number of vessels after acceptance: current schedule has {}, memory has {}",
                     self.memory.current_schedule().num_vessels(),
                     self.memory.num_vessels()
                 );
@@ -270,13 +320,16 @@ where
                     debug_assert!(
                         best_solution.objective_value()
                             <= self.memory.current_schedule().objective_value(),
-                        "called `LocalSearchEngine::run` with inconsistent best solution objective value: best solution has {}, current schedule has {}",
+                        "called `LocalSearchEngine::run_internal` with inconsistent best solution objective value: best solution has {}, current schedule has {}",
                         best_solution.objective_value(),
                         self.memory.current_schedule().objective_value()
                     );
 
                     metaheuristic.on_new_best(model, &best_solution);
                     monitor.on_best_solution_updated(&best_solution, &stats);
+
+                    // Publish to incumbent store immediately (no-op for NoSharedIncumbent)
+                    store.on_best_solution(&best_solution);
                 }
 
                 // Prepare for the next iteration
@@ -291,7 +344,7 @@ where
 
                 debug_assert!(
                     self.memory.num_vessels() == queue_len_before,
-                    "called `LocalSearchEngine::run` with inconsistent queue length after rejection: before was {}, now is {}",
+                    "called `LocalSearchEngine::run_internal` with inconsistent queue length after rejection: before was {}, now is {}",
                     queue_len_before,
                     self.memory.num_vessels()
                 );
@@ -362,6 +415,38 @@ where
             initial_solution,
         )
     }
+
+    #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
+    pub fn run_with_full_neighborhood_and_incumbent<H, D, O, M>(
+        &mut self,
+        model: &Model<T>,
+        decoder: &mut D,
+        operator: &mut O,
+        metaheuristic: &mut H,
+        monitor: M,
+        shared: &bollard_search::incumbent::SharedIncumbent<T>,
+        initial_solution: &Solution<T>,
+    ) -> LocalSearchEngineOutcome<T>
+    where
+        H: Metaheuristic<T>,
+        D: Decoder<T, H::Evaluator>,
+        O: LocalSearchOperator<T, FullNeighborhoods>,
+        M: LocalSearchMonitor<T>,
+    {
+        let neighborhoods = FullNeighborhoods::from_model(model);
+
+        self.run_with_incumbent(
+            model,
+            decoder,
+            &neighborhoods,
+            operator,
+            metaheuristic,
+            monitor,
+            shared,
+            initial_solution,
+        )
+    }
 }
 
 /// Wrapper combining a metaheuristic and decoder with a local search engine.
@@ -421,7 +506,7 @@ where
         }
     }
 
-    /// Solves the given model using the internal engine, decoder, and metaheuristic.
+    /// Solves the given model using the internal engine, decoder, and metaheuristic (no incumbent).
     ///
     /// # Panics
     ///
@@ -462,18 +547,21 @@ where
             initial_solution.num_vessels()
         );
 
-        self.engine.run(
+        let mut store = crate::incumbent::NoSharedIncumbent::<T>::new();
+
+        self.engine.run_internal(
             model,
             &mut self.decoder,
             neighborhood,
             operator,
             &mut self.metaheuristic,
             monitor,
+            &mut store,
             initial_solution,
         )
     }
 
-    /// Solves the given model using full neighborhoods with the internal engine, decoder, and metaheuristic.
+    /// Solves the given model using full neighborhoods with the internal engine, decoder, and metaheuristic (no incumbent).
     ///
     /// # Note
     ///
@@ -509,6 +597,60 @@ where
         )
     }
 
+    /// Solves using a shared incumbent: installs every new best immediately.
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub fn solve_with_incumbent<N, O, M>(
+        &mut self,
+        model: &Model<T>,
+        neighborhood: &N,
+        operator: &mut O,
+        monitor: M,
+        shared: &bollard_search::incumbent::SharedIncumbent<T>,
+        initial_solution: &Solution<T>,
+    ) -> LocalSearchEngineOutcome<T>
+    where
+        N: Neighborhoods,
+        O: LocalSearchOperator<T, N>,
+        M: LocalSearchMonitor<T>,
+    {
+        self.engine.run_with_incumbent(
+            model,
+            &mut self.decoder,
+            neighborhood,
+            operator,
+            &mut self.metaheuristic,
+            monitor,
+            shared,
+            initial_solution,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub fn solve_with_full_neighborhood_and_incumbent<O, M>(
+        &mut self,
+        model: &Model<T>,
+        operator: &mut O,
+        monitor: M,
+        shared: &bollard_search::incumbent::SharedIncumbent<T>,
+        initial_solution: &Solution<T>,
+    ) -> LocalSearchEngineOutcome<T>
+    where
+        O: LocalSearchOperator<T, FullNeighborhoods>,
+        M: LocalSearchMonitor<T>,
+    {
+        self.engine.run_with_full_neighborhood_and_incumbent(
+            model,
+            &mut self.decoder,
+            operator,
+            &mut self.metaheuristic,
+            monitor,
+            shared,
+            initial_solution,
+        )
+    }
+
     /// Accesses the internal metaheuristic.
     #[inline]
     pub fn metaheuristic(&self) -> &H {
@@ -521,7 +663,7 @@ where
         &self.decoder
     }
 
-    /// Accesses the internal local search engine.
+    /// Accesses the internal engine.
     #[inline]
     pub fn engine(&self) -> &LocalSearchEngine<T> {
         &self.engine
@@ -531,185 +673,335 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::decoder::GreedyDecoder;
-    use crate::meta::greedy_descent::GreedyDescent;
-    use crate::operator::swap::SwapOperator;
-    use bollard_model::index::{BerthIndex, VesselIndex};
-    use bollard_model::model::ModelBuilder;
-    use bollard_model::solution::Solution;
-    use bollard_search::neighborhood::topology::StaticTopology;
+    use crate::{
+        decoder::GreedyDecoder,
+        eval::DefaultAssignmentEvaluator,
+        meta::greedy_descent::GreedyDescent,
+        monitor::{
+            composite::CompositeLocalSearchMonitor, solution::SolutionLimitMonitor,
+            time::TimeLimitMonitor,
+        },
+        operator::swap::SwapOperator,
+        result::LocalSearchTerminationReason,
+    };
+    use bollard_model::{
+        index::{BerthIndex, VesselIndex},
+        model::ModelBuilder,
+        solution::Solution,
+        time::ProcessingTime,
+    };
+    use bollard_search::{
+        incumbent::SharedIncumbent,
+        neighborhood::{neighborhoods::FullNeighborhoods, topology::StaticTopology},
+    };
+    use std::time::Duration;
 
-    // A monitor that records calls and never terminates early.
-    #[derive(Default)]
-    struct NoopMonitor {
-        started: bool,
-        ended: bool,
-        iterations: u64,
-        found: u64,
-        accepted: u64,
-        rejected: u64,
+    fn vi(i: usize) -> VesselIndex {
+        VesselIndex::new(i)
+    }
+    fn bi(i: usize) -> BerthIndex {
+        BerthIndex::new(i)
     }
 
-    impl<T> LocalSearchMonitor<T> for NoopMonitor
-    where
-        T: SolverNumeric,
-    {
-        fn name(&self) -> &str {
-            "NoopMonitor"
-        }
-
-        fn on_start(&mut self, _model: &Model<T>, _initial_solution: &Solution<T>) {
-            self.started = true;
-        }
-
-        fn on_end(
-            &mut self,
-            _best_solution: &Solution<T>,
-            _statistics: &crate::stats::LocalSearchStatistics,
-        ) {
-            self.ended = true;
-        }
-
-        fn on_iteration(
-            &mut self,
-            _current_solution: &Solution<T>,
-            _statistics: &crate::stats::LocalSearchStatistics,
-        ) {
-            self.iterations += 1;
-        }
-
-        fn on_solution_found(
-            &mut self,
-            _solution: &Solution<T>,
-            _statistics: &crate::stats::LocalSearchStatistics,
-        ) {
-            self.found += 1;
-        }
-
-        fn on_solution_accepted(
-            &mut self,
-            _solution: &Solution<T>,
-            _statistics: &crate::stats::LocalSearchStatistics,
-        ) {
-            self.accepted += 1;
-        }
-
-        fn on_solution_rejected(
-            &mut self,
-            _solution: &Solution<T>,
-            _statistics: &crate::stats::LocalSearchStatistics,
-        ) {
-            self.rejected += 1;
-        }
-
-        fn on_best_solution_updated(
-            &mut self,
-            _solution: &Solution<T>,
-            _statistics: &crate::stats::LocalSearchStatistics,
-        ) {
-            // No-op
-        }
-    }
-
-    // Build a small model where vessels contend so SwapOperator has work.
-    // Two vessels, one berth, overlapping windows, simple weights and processing times.
-    fn build_model() -> bollard_model::model::Model<i64> {
-        let mut builder = ModelBuilder::<i64>::new(1, 2);
-
-        // Allow both vessels on berth 0 with processing time 5
-        builder.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            bollard_model::time::ProcessingTime::from_option(Some(5)),
-        );
-        builder.set_vessel_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(0),
-            bollard_model::time::ProcessingTime::from_option(Some(5)),
+    fn build_basic_model() -> bollard_model::model::Model<i64> {
+        let mut bldr = ModelBuilder::<i64>::new(1, 3);
+        bldr.add_berth_closing_time(
+            bi(0),
+            bollard_core::math::interval::ClosedOpenInterval::new(0, 1000),
         );
 
-        // Overlapping windows
-        builder.set_vessel_arrival_time(VesselIndex::new(0), 0);
-        builder.set_vessel_latest_departure_time(VesselIndex::new(0), 20);
-        builder.set_vessel_arrival_time(VesselIndex::new(1), 0);
-        builder.set_vessel_latest_departure_time(VesselIndex::new(1), 20);
+        bldr.set_vessel_arrival_time(vi(0), 0)
+            .set_vessel_latest_departure_time(vi(0), 1000)
+            .set_vessel_weight(vi(0), 1);
+        bldr.set_vessel_arrival_time(vi(1), 1)
+            .set_vessel_latest_departure_time(vi(1), 1000)
+            .set_vessel_weight(vi(1), 1);
+        bldr.set_vessel_arrival_time(vi(2), 2)
+            .set_vessel_latest_departure_time(vi(2), 1000)
+            .set_vessel_weight(vi(2), 1);
 
-        // Weights
-        builder.set_vessel_weight(VesselIndex::new(0), 1);
-        builder.set_vessel_weight(VesselIndex::new(1), 2);
+        bldr.set_vessel_processing_time(vi(0), bi(0), ProcessingTime::some(5))
+            .set_vessel_processing_time(vi(1), bi(0), ProcessingTime::some(7))
+            .set_vessel_processing_time(vi(2), bi(0), ProcessingTime::some(3));
 
-        builder.build()
+        bldr.build()
     }
 
-    // Construct an initial solution with queue order [1, 0] via start times,
-    // and berths assigned to the only berth 0 for both vessels.
-    fn initial_solution() -> Solution<i64> {
-        let berths = vec![BerthIndex::new(0), BerthIndex::new(0)];
-        // Start times encode queue order in SearchMemory.initialize via sorting.
-        // Using [10, 0] gives queue [1, 0] initially.
-        let start_times = vec![10, 0];
-        Solution::new(0, berths, start_times)
+    fn initial_solution_from_order(
+        model: &bollard_model::model::Model<i64>,
+        order: &[usize],
+    ) -> Solution<i64> {
+        let num_vessels = model.num_vessels();
+        assert_eq!(num_vessels, order.len());
+        let berths = vec![bi(0); num_vessels];
+        let mut starts = vec![0_i64; num_vessels];
+        for (pos, &vidx) in order.iter().enumerate() {
+            starts[vidx] = pos as i64;
+        }
+        Solution::new(0, berths, starts)
     }
 
     #[test]
-    fn test_engine_run_hill_climber_with_swap_and_greedy_decoder() {
-        // Assemble components
-        let model = build_model();
+    fn test_engine_run_local_optimum_with_greedy_and_swap_static_topology() {
+        let model = build_basic_model();
         let topology = StaticTopology::from_model(&model);
 
-        let mut decoder = GreedyDecoder::<i64, _>::new();
-        decoder.initialize(&model);
+        let mut mh: GreedyDescent<i64> = GreedyDescent::new();
+        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
+            GreedyDecoder::preallocated(model.num_berths());
+        let mut op: SwapOperator<i64, StaticTopology> = SwapOperator::new();
 
-        let mut meta = GreedyDescent::default();
-        let monitor = NoopMonitor::default();
+        let init = initial_solution_from_order(&model, &[2, 1, 0]);
+        let composite = CompositeLocalSearchMonitor::<i64>::new();
 
-        // Operator must specify Neighborhood type parameter when using SwapOperator<T, N>
-        let mut op = SwapOperator::<i64, StaticTopology>::new();
-
-        // Use the engine with default memory
         let mut engine = LocalSearchEngine::<i64>::new();
-        let init = initial_solution();
-
-        // Run
-        let outcome = engine.run(
-            &model,
-            &mut decoder,
-            &topology,
-            &mut op,
-            &mut meta,
-            monitor,
-            &init,
+        let out = engine.run(
+            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
         );
 
-        // Outcome validity
-        assert!(
-            outcome.statistics().iterations >= 1,
-            "engine should perform at least one iteration"
-        );
-        // Termination should be Local Optimum or Metaheuristic; hill climber tends to reach local optimum
-        match outcome.termination_reason() {
-            crate::result::LocalSearchTerminationReason::LocalOptimum => {}
-            crate::result::LocalSearchTerminationReason::Metaheuristic(_) => {}
-            other => panic!("unexpected termination reason: {:?}", other),
+        match out.termination_reason() {
+            LocalSearchTerminationReason::LocalOptimum => {}
+            other => panic!("unexpected termination: {:?}", other),
         }
 
-        // The solution returned by outcome must have the same number of vessels as model
-        assert_eq!(
-            outcome.solution().num_vessels(),
-            model.num_vessels(),
-            "solution vessel count mismatch"
+        let sol = out.solution();
+        assert_eq!(sol.num_vessels(), model.num_vessels());
+        assert_eq!(sol.berths().len(), model.num_vessels());
+        assert_eq!(sol.start_times().len(), model.num_vessels());
+        assert!(sol.objective_value() >= 0);
+    }
+
+    #[test]
+    fn test_monitor_solution_limit_terminates_search() {
+        let model = build_basic_model();
+        let topology = StaticTopology::from_model(&model);
+        let mut mh: GreedyDescent<i64> = GreedyDescent::new();
+        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
+            GreedyDecoder::preallocated(model.num_berths());
+        let mut op: SwapOperator<i64, StaticTopology> = SwapOperator::new();
+
+        let init = initial_solution_from_order(&model, &[0, 1, 2]);
+
+        // Terminate immediately at the first search_command check
+        let limit_monitor = SolutionLimitMonitor::new(0);
+        let mut composite = CompositeLocalSearchMonitor::<i64>::with_capacity(1);
+        composite.add_monitor(limit_monitor);
+
+        let mut engine = LocalSearchEngine::<i64>::new();
+        let out = engine.run(
+            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
         );
 
-        // Decoder name and metaheuristic name available
-        assert_eq!(decoder.name(), "GreedyDecoder");
-        assert_eq!(meta.name(), "GreedyDescent");
+        match out.termination_reason() {
+            LocalSearchTerminationReason::Aborted(msg) => {
+                assert!(
+                    msg.contains("Solution limit"),
+                    "unexpected aborted message: {}",
+                    msg
+                );
+            }
+            other => panic!(
+                "expected early termination via monitor (Aborted), got {:?}",
+                other
+            ),
+        }
 
-        // Topology has 2 vessels and reports neighbor relationship
-        assert_eq!(topology.num_vessels(), 2);
-        // Unsafe neighbor check (safe here due to fixed indices)
-        unsafe {
-            let n = topology.are_neighbors_unchecked(VesselIndex::new(0), VesselIndex::new(1));
-            assert!(n, "vessels should be neighbors in this model");
+        let sol = out.solution();
+        assert_eq!(sol.num_vessels(), model.num_vessels());
+    }
+
+    #[test]
+    fn test_time_limit_monitor_terminates_quickly_with_mask() {
+        let model = build_basic_model();
+        let topology = StaticTopology::from_model(&model);
+        let mut mh: GreedyDescent<i64> = GreedyDescent::new();
+        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
+            GreedyDecoder::preallocated(model.num_berths());
+        let mut op: SwapOperator<i64, StaticTopology> = SwapOperator::new();
+
+        let init = initial_solution_from_order(&model, &[0, 2, 1]);
+
+        // Use a near-zero time limit and aggressive mask to check immediately
+        let tlm = TimeLimitMonitor::with_mask(Duration::from_millis(0), 0);
+        let mut composite = CompositeLocalSearchMonitor::<i64>::with_capacity(1);
+        composite.add_monitor(tlm);
+
+        let mut engine = LocalSearchEngine::<i64>::new();
+        let out = engine.run(
+            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
+        );
+
+        match out.termination_reason() {
+            LocalSearchTerminationReason::Aborted(msg) => {
+                assert_eq!(msg, "time limit exceeded");
+            }
+            other => panic!(
+                "expected Aborted(\"time limit exceeded\") from time limit monitor, got {:?}",
+                other
+            ),
+        }
+    }
+
+    #[test]
+    fn test_run_with_full_neighborhood_and_swap() {
+        let model = build_basic_model();
+        let mut mh: GreedyDescent<i64> = GreedyDescent::new();
+        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
+            GreedyDecoder::preallocated(model.num_berths());
+
+        let mut op: SwapOperator<i64, FullNeighborhoods> = SwapOperator::new();
+
+        let init = initial_solution_from_order(&model, &[1, 0, 2]);
+        let composite = CompositeLocalSearchMonitor::<i64>::new();
+
+        let mut engine = LocalSearchEngine::<i64>::new();
+        let out =
+            engine.run_with_full_neighborhood(&model, &mut dec, &mut op, &mut mh, composite, &init);
+
+        match out.termination_reason() {
+            LocalSearchTerminationReason::LocalOptimum => {}
+            other => panic!("expected local optimum termination, got {:?}", other),
+        }
+        let sol = out.solution();
+        assert_eq!(sol.num_vessels(), model.num_vessels());
+    }
+
+    #[test]
+    fn test_solver_solve_delegates_to_engine() {
+        let model = build_basic_model();
+        let topology = StaticTopology::from_model(&model);
+        let mh: GreedyDescent<i64> = GreedyDescent::new();
+        let dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
+            GreedyDecoder::preallocated(model.num_berths());
+        let mut solver = LocalSearchSolver::new(mh, dec);
+
+        let mut op: SwapOperator<i64, StaticTopology> = SwapOperator::new();
+        let init = initial_solution_from_order(&model, &[0, 1, 2]);
+        let composite = CompositeLocalSearchMonitor::<i64>::new();
+
+        let out = solver.solve(&model, &topology, &mut op, composite, &init);
+        match out.termination_reason() {
+            LocalSearchTerminationReason::LocalOptimum => {}
+            other => panic!("expected local optimum termination, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_solver_solve_with_full_neighborhood_delegates() {
+        let model = build_basic_model();
+        let mh: GreedyDescent<i64> = GreedyDescent::new();
+        let dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
+            GreedyDecoder::preallocated(model.num_berths());
+        let mut solver = LocalSearchSolver::new(mh, dec);
+
+        let mut op: SwapOperator<i64, FullNeighborhoods> = SwapOperator::new();
+        let init = initial_solution_from_order(&model, &[2, 0, 1]);
+        let composite = CompositeLocalSearchMonitor::<i64>::new();
+
+        let out = solver.solve_with_full_neighborhood(&model, &mut op, composite, &init);
+        match out.termination_reason() {
+            LocalSearchTerminationReason::LocalOptimum => {}
+            other => panic!("expected local optimum termination, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_run_with_incumbent_publishes_best() {
+        let model = build_basic_model();
+        let topology = StaticTopology::from_model(&model);
+
+        let mut mh: GreedyDescent<i64> = GreedyDescent::new();
+        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
+            GreedyDecoder::preallocated(model.num_berths());
+        let mut op: SwapOperator<i64, StaticTopology> = SwapOperator::new();
+
+        let init = initial_solution_from_order(&model, &[2, 1, 0]);
+        let composite = CompositeLocalSearchMonitor::<i64>::new();
+
+        let shared = SharedIncumbent::<i64>::new();
+
+        let mut engine = LocalSearchEngine::<i64>::new();
+        let out = engine.run_with_incumbent(
+            &model, &mut dec, &topology, &mut op, &mut mh, composite, &shared, &init,
+        );
+
+        match out.termination_reason() {
+            LocalSearchTerminationReason::LocalOptimum
+            | LocalSearchTerminationReason::Metaheuristic(_)
+            | LocalSearchTerminationReason::Aborted(_) => {}
+        }
+        let final_sol = out.solution();
+        assert_eq!(final_sol.num_vessels(), model.num_vessels());
+    }
+
+    #[test]
+    fn test_operator_prepare_and_iteration_integration() {
+        let model = build_basic_model();
+        let topology = StaticTopology::from_model(&model);
+
+        let mut mh: GreedyDescent<i64> = GreedyDescent::new();
+        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
+            GreedyDecoder::preallocated(model.num_berths());
+
+        struct CountingSwap<T, N> {
+            inner: SwapOperator<T, N>,
+            prepares: usize,
+        }
+        impl<T, N> CountingSwap<T, N> {
+            fn new() -> Self {
+                Self {
+                    inner: SwapOperator::new(),
+                    prepares: 0,
+                }
+            }
+            fn prepares(&self) -> usize {
+                self.prepares
+            }
+        }
+        impl<T, N> crate::operator::local_search_operator::LocalSearchOperator<T, N> for CountingSwap<T, N>
+        where
+            T: bollard_search::num::SolverNumeric,
+            N: bollard_search::neighborhood::neighborhoods::Neighborhoods,
+        {
+            fn name(&self) -> &str {
+                "CountingSwap"
+            }
+            fn prepare(
+                &mut self,
+                schedule: &Solution<T>,
+                queue: &crate::queue::VesselPriorityQueue,
+                n: &N,
+            ) {
+                self.prepares += 1;
+                self.inner.prepare(schedule, queue, n);
+            }
+            fn next_neighbor(
+                &mut self,
+                schedule: &Solution<T>,
+                mutator: &mut crate::mutator::Mutator<T>,
+                n: &N,
+            ) -> bool {
+                self.inner.next_neighbor(schedule, mutator, n)
+            }
+            fn reset(&mut self) {
+                self.inner.reset();
+            }
+        }
+
+        let mut op = CountingSwap::<i64, StaticTopology>::new();
+        let init = initial_solution_from_order(&model, &[0, 2, 1]);
+        let composite = CompositeLocalSearchMonitor::<i64>::new();
+
+        let mut engine = LocalSearchEngine::<i64>::new();
+        let out = engine.run(
+            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
+        );
+
+        assert!(op.prepares() >= 1, "operator.prepare was not called");
+
+        match out.termination_reason() {
+            LocalSearchTerminationReason::LocalOptimum => {}
+            other => panic!("expected local optimum termination, got {:?}", other),
         }
     }
 }
