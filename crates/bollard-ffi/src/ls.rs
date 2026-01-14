@@ -24,28 +24,13 @@
 // ----------------------------------------------------------------
 
 use crate::solution::BollardFfiSolution;
-use bollard_ls::{
-    decoder::GreedyDecoder,
-    engine::LocalSearchEngine,
-    meta::metaheuristic::Metaheuristic,
-    monitor::{
-        composite::CompositeLocalSearchMonitor, solution::SolutionLimitMonitor,
-        time::TimeLimitMonitor,
-    },
-    operator::local_search_operator::LocalSearchOperator,
-    stats::LocalSearchStatistics,
-};
-use bollard_model::{model::Model, solution::Solution};
+use bollard_ls::{engine::LocalSearchEngine, stats::LocalSearchStatistics};
+use bollard_model::model::Model;
 use bollard_search::neighborhood::{
-    dynamic::DynamicNeighborhoods,
-    neighborhoods::{FullNeighborhoods, Neighborhoods},
-    topology::StaticTopology,
+    dynamic::DynamicNeighborhoods, neighborhoods::FullNeighborhoods, topology::StaticTopology,
 };
 use num_traits::ToPrimitive;
-use std::{
-    ffi::{c_char, CString},
-    time::Duration,
-};
+use std::ffi::{c_char, CString};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -569,53 +554,4 @@ pub unsafe extern "C" fn bollard_ls_engine_free(engine: *mut LocalSearchFfiEngin
     if !engine.is_null() {
         drop(Box::from_raw(engine));
     }
-}
-
-/// Solver runner function.
-#[allow(clippy::too_many_arguments, dead_code)] // TODO: Remove dead_code when used
-#[inline(always)]
-fn run<N, M, O>(
-    engine: &mut LocalSearchEngine<i64>,
-    model: &Model<i64>,
-    neighborhoods: &N,
-    metaheuristic: &mut M,
-    initial_solution: &Solution<i64>,
-    operator: &mut O,
-    solution_limit: u64, // 0 means no limit
-    time_limit_ms: u64,  // 0 means no limit
-    enable_log: bool,
-) -> bollard_ls::result::LocalSearchEngineOutcome<i64>
-where
-    N: Neighborhoods,
-    M: Metaheuristic<i64>,
-    O: LocalSearchOperator<i64, N>,
-{
-    let capacity =
-        (solution_limit > 0) as usize + (time_limit_ms > 0) as usize + (enable_log as usize);
-
-    let mut monitor = CompositeLocalSearchMonitor::with_capacity(capacity);
-
-    if solution_limit > 0 {
-        monitor.add_monitor(SolutionLimitMonitor::new(solution_limit));
-    }
-
-    if time_limit_ms > 0 {
-        monitor.add_monitor(TimeLimitMonitor::new(Duration::from_millis(time_limit_ms)));
-    }
-
-    if enable_log {
-        // TODO: Add a proper logger monitor
-    }
-
-    let mut decoder = GreedyDecoder::preallocated(model.num_berths());
-
-    engine.run(
-        model,
-        &mut decoder,
-        neighborhoods,
-        operator,
-        metaheuristic,
-        monitor,
-        initial_solution,
-    )
 }

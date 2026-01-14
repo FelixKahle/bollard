@@ -42,10 +42,23 @@ use crate::{
 };
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{
-    monitor::search_monitor::SearchCommand,
-    neighborhood::neighborhoods::{FullNeighborhoods, Neighborhoods},
-    num::SolverNumeric,
+    incumbent::SharedIncumbent, monitor::search_monitor::SearchCommand,
+    neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric,
 };
+
+/// Parameters for a local search run.
+pub struct LocalSearchParams<'a, N, H, D, O, M, T>
+where
+    T: SolverNumeric,
+{
+    pub model: &'a Model<T>,
+    pub decoder: &'a mut D,
+    pub neighborhood: &'a N,
+    pub operator: &'a mut O,
+    pub metaheuristic: &'a mut H,
+    pub monitor: M,
+    pub initial_solution: &'a Solution<T>,
+}
 
 /// Local search engine for berth scheduling.
 ///
@@ -103,14 +116,8 @@ where
     #[inline]
     pub fn run_with_incumbent<N, H, D, O, M>(
         &mut self,
-        model: &Model<T>,
-        decoder: &mut D,
-        neighborhood: &N,
-        operator: &mut O,
-        metaheuristic: &mut H,
-        monitor: M,
-        shared: &bollard_search::incumbent::SharedIncumbent<T>,
-        initial_solution: &Solution<T>,
+        params: LocalSearchParams<N, H, D, O, M, T>,
+        shared: &SharedIncumbent<T>,
     ) -> LocalSearchEngineOutcome<T>
     where
         N: Neighborhoods,
@@ -120,16 +127,7 @@ where
         M: LocalSearchMonitor<T>,
     {
         let mut store = crate::incumbent::SharedIncumbentAdapter::new(shared);
-        self.run_internal(
-            model,
-            decoder,
-            neighborhood,
-            operator,
-            metaheuristic,
-            monitor,
-            &mut store,
-            initial_solution,
-        )
+        self.run_internal(params, &mut store)
     }
 
     /// Runs the local search engine to improve an initial solution (no incumbent).
@@ -140,13 +138,7 @@ where
     #[inline]
     pub fn run<N, H, D, O, M>(
         &mut self,
-        model: &Model<T>,
-        decoder: &mut D,
-        neighborhood: &N,
-        operator: &mut O,
-        metaheuristic: &mut H,
-        monitor: M,
-        initial_solution: &Solution<T>,
+        params: LocalSearchParams<N, H, D, O, M, T>,
     ) -> LocalSearchEngineOutcome<T>
     where
         N: Neighborhoods,
@@ -156,16 +148,7 @@ where
         M: LocalSearchMonitor<T>,
     {
         let mut store = NoSharedIncumbent::<T>::new();
-        self.run_internal(
-            model,
-            decoder,
-            neighborhood,
-            operator,
-            metaheuristic,
-            monitor,
-            &mut store,
-            initial_solution,
-        )
+        self.run_internal(params, &mut store)
     }
 
     /// Private internal run with incumbent abstraction.
@@ -177,14 +160,8 @@ where
     #[inline]
     fn run_internal<N, H, D, O, M, S>(
         &mut self,
-        model: &Model<T>,
-        decoder: &mut D,
-        neighborhood: &N,
-        operator: &mut O,
-        metaheuristic: &mut H,
-        mut monitor: M,
+        params: LocalSearchParams<N, H, D, O, M, T>,
         store: &mut S,
-        initial_solution: &Solution<T>,
     ) -> LocalSearchEngineOutcome<T>
     where
         N: Neighborhoods,
@@ -194,6 +171,16 @@ where
         M: LocalSearchMonitor<T>,
         S: crate::incumbent::IncumbentStore<T>,
     {
+        let LocalSearchParams {
+            model,
+            decoder,
+            neighborhood,
+            operator,
+            metaheuristic,
+            mut monitor,
+            initial_solution,
+        } = params;
+
         assert!(
             model.num_vessels() == neighborhood.num_vessels(),
             "called `LocalSearchEngine::run_internal` with inconsistent number of vessels: model has {}, neighborhood has {}",
@@ -372,302 +359,6 @@ where
             }
         }
     }
-
-    /// Runs the local search engine using full neighborhoods.
-    ///
-    /// # Note
-    ///
-    /// Prefer the `run` method with explicit neighborhoods for better performance
-    /// when possible. This method will allocate a temporary `FullNeighborhoods` instance
-    /// which takes `O(N^2)` time and memory, where `N` is the number of vessels.
-    /// This is fine when you want to call the engine once, but in many cases, where you
-    /// want to run the engine multiple times on the same model, it is better to create the
-    /// `FullNeighborhoods` instance once and reuse it across multiple runs.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the number of vessels in `model` and `initial_solution` are inconsistent.
-    #[inline(always)]
-    pub fn run_with_full_neighborhood<H, D, O, M>(
-        &mut self,
-        model: &Model<T>,
-        decoder: &mut D,
-        operator: &mut O,
-        metaheuristic: &mut H,
-        monitor: M,
-        initial_solution: &Solution<T>,
-    ) -> LocalSearchEngineOutcome<T>
-    where
-        H: Metaheuristic<T>,
-        D: Decoder<T, H::Evaluator>,
-        O: LocalSearchOperator<T, FullNeighborhoods>,
-        M: LocalSearchMonitor<T>,
-    {
-        let neighborhoods = FullNeighborhoods::from_model(model);
-
-        self.run(
-            model,
-            decoder,
-            &neighborhoods,
-            operator,
-            metaheuristic,
-            monitor,
-            initial_solution,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[inline(always)]
-    pub fn run_with_full_neighborhood_and_incumbent<H, D, O, M>(
-        &mut self,
-        model: &Model<T>,
-        decoder: &mut D,
-        operator: &mut O,
-        metaheuristic: &mut H,
-        monitor: M,
-        shared: &bollard_search::incumbent::SharedIncumbent<T>,
-        initial_solution: &Solution<T>,
-    ) -> LocalSearchEngineOutcome<T>
-    where
-        H: Metaheuristic<T>,
-        D: Decoder<T, H::Evaluator>,
-        O: LocalSearchOperator<T, FullNeighborhoods>,
-        M: LocalSearchMonitor<T>,
-    {
-        let neighborhoods = FullNeighborhoods::from_model(model);
-
-        self.run_with_incumbent(
-            model,
-            decoder,
-            &neighborhoods,
-            operator,
-            metaheuristic,
-            monitor,
-            shared,
-            initial_solution,
-        )
-    }
-}
-
-/// Wrapper combining a metaheuristic and decoder with a local search engine.
-///
-/// This struct simplifies the usage of the local search engine by bundling
-/// a specific metaheuristic and decoder together. It provides a convenient
-/// interface to solve problems without needing to manage the engine separately.
-/// This is also beneficial where the same combination of metaheuristic and decoder
-/// is reused across multiple problem instances, because memory allocations for
-/// the engine are amortized.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalSearchSolver<T, D, H>
-where
-    T: SolverNumeric,
-    H: Metaheuristic<T>,
-    D: Decoder<T, H::Evaluator>,
-{
-    metaheuristic: H,
-    decoder: D,
-    engine: LocalSearchEngine<T>,
-}
-
-impl<T, D, H> LocalSearchSolver<T, D, H>
-where
-    T: SolverNumeric,
-    H: Metaheuristic<T>,
-    D: Decoder<T, H::Evaluator>,
-{
-    /// Creates a new solver with the given metaheuristic and decoder.
-    #[inline]
-    pub fn new(metaheuristic: H, decoder: D) -> Self {
-        Self {
-            metaheuristic,
-            decoder,
-            engine: LocalSearchEngine::new(),
-        }
-    }
-
-    /// Creates a new solver with pre‑allocated memory for a specific problem size.
-    #[inline]
-    pub fn preallocated(metaheuristic: H, decoder: D, num_vessels: usize) -> Self {
-        Self {
-            metaheuristic,
-            decoder,
-            engine: LocalSearchEngine::preallocated(num_vessels),
-        }
-    }
-
-    /// Creates a new solver with pre‑allocated memory for a specific problem size.
-    #[inline]
-    pub fn from_model(model: &Model<T>, metaheuristic: H, mut decoder: D) -> Self {
-        decoder.initialize(model);
-        Self {
-            metaheuristic,
-            decoder,
-            engine: LocalSearchEngine::preallocated(model.num_vessels()),
-        }
-    }
-
-    /// Solves the given model using the internal engine, decoder, and metaheuristic (no incumbent).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the number of vessels in `model`, `neighborhood`,
-    /// and `initial_solution` are inconsistent.
-    #[inline]
-    pub fn solve<N, O, M>(
-        &mut self,
-        model: &Model<T>,
-        neighborhood: &N,
-        operator: &mut O,
-        monitor: M,
-        initial_solution: &Solution<T>,
-    ) -> LocalSearchEngineOutcome<T>
-    where
-        N: Neighborhoods,
-        O: LocalSearchOperator<T, N>,
-        M: LocalSearchMonitor<T>,
-    {
-        assert!(
-            model.num_vessels() == neighborhood.num_vessels(),
-            "called `LocalSearchSolver::solve` with inconsistent number of vessels: model has {}, neighborhood has {}",
-            model.num_vessels(),
-            neighborhood.num_vessels()
-        );
-
-        assert!(
-            model.num_vessels() == initial_solution.num_vessels(),
-            "called `LocalSearchSolver::solve` with inconsistent number of vessels: model has {}, initial solution has {}",
-            model.num_vessels(),
-            initial_solution.num_vessels()
-        );
-
-        assert!(
-            neighborhood.num_vessels() == initial_solution.num_vessels(),
-            "called `LocalSearchSolver::solve` with inconsistent number of vessels: neighborhood has {}, initial solution has {}",
-            neighborhood.num_vessels(),
-            initial_solution.num_vessels()
-        );
-
-        let mut store = crate::incumbent::NoSharedIncumbent::<T>::new();
-
-        self.engine.run_internal(
-            model,
-            &mut self.decoder,
-            neighborhood,
-            operator,
-            &mut self.metaheuristic,
-            monitor,
-            &mut store,
-            initial_solution,
-        )
-    }
-
-    /// Solves the given model using full neighborhoods with the internal engine, decoder, and metaheuristic (no incumbent).
-    ///
-    /// # Note
-    ///
-    /// Prefer the `solve` method with explicit neighborhoods for better performance
-    /// when possible. This method will allocate a temporary `FullNeighborhoods` instance
-    /// which takes `O(N^2)` time and memory, where `N` is the number of vessels.
-    /// This is fine when you want to call the solver once, but in many cases, where you
-    /// want to run the solver multiple times on the same model, it is better to create the
-    /// `FullNeighborhoods` instance once and reuse it across multiple runs.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the number of vessels in `model` and `initial_solution` are inconsistent.
-    #[inline]
-    pub fn solve_with_full_neighborhood<O, M>(
-        &mut self,
-        model: &Model<T>,
-        operator: &mut O,
-        monitor: M,
-        initial_solution: &Solution<T>,
-    ) -> LocalSearchEngineOutcome<T>
-    where
-        O: LocalSearchOperator<T, FullNeighborhoods>,
-        M: LocalSearchMonitor<T>,
-    {
-        self.engine.run_with_full_neighborhood(
-            model,
-            &mut self.decoder,
-            operator,
-            &mut self.metaheuristic,
-            monitor,
-            initial_solution,
-        )
-    }
-
-    /// Solves using a shared incumbent: installs every new best immediately.
-    #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub fn solve_with_incumbent<N, O, M>(
-        &mut self,
-        model: &Model<T>,
-        neighborhood: &N,
-        operator: &mut O,
-        monitor: M,
-        shared: &bollard_search::incumbent::SharedIncumbent<T>,
-        initial_solution: &Solution<T>,
-    ) -> LocalSearchEngineOutcome<T>
-    where
-        N: Neighborhoods,
-        O: LocalSearchOperator<T, N>,
-        M: LocalSearchMonitor<T>,
-    {
-        self.engine.run_with_incumbent(
-            model,
-            &mut self.decoder,
-            neighborhood,
-            operator,
-            &mut self.metaheuristic,
-            monitor,
-            shared,
-            initial_solution,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub fn solve_with_full_neighborhood_and_incumbent<O, M>(
-        &mut self,
-        model: &Model<T>,
-        operator: &mut O,
-        monitor: M,
-        shared: &bollard_search::incumbent::SharedIncumbent<T>,
-        initial_solution: &Solution<T>,
-    ) -> LocalSearchEngineOutcome<T>
-    where
-        O: LocalSearchOperator<T, FullNeighborhoods>,
-        M: LocalSearchMonitor<T>,
-    {
-        self.engine.run_with_full_neighborhood_and_incumbent(
-            model,
-            &mut self.decoder,
-            operator,
-            &mut self.metaheuristic,
-            monitor,
-            shared,
-            initial_solution,
-        )
-    }
-
-    /// Accesses the internal metaheuristic.
-    #[inline]
-    pub fn metaheuristic(&self) -> &H {
-        &self.metaheuristic
-    }
-
-    /// Accesses the internal decoder.
-    #[inline]
-    pub fn decoder(&self) -> &D {
-        &self.decoder
-    }
-
-    /// Accesses the internal engine.
-    #[inline]
-    pub fn engine(&self) -> &LocalSearchEngine<T> {
-        &self.engine
-    }
 }
 
 #[cfg(test)]
@@ -690,10 +381,7 @@ mod tests {
         solution::Solution,
         time::ProcessingTime,
     };
-    use bollard_search::{
-        incumbent::SharedIncumbent,
-        neighborhood::{neighborhoods::FullNeighborhoods, topology::StaticTopology},
-    };
+    use bollard_search::{incumbent::SharedIncumbent, neighborhood::topology::StaticTopology};
     use std::time::Duration;
 
     fn vi(i: usize) -> VesselIndex {
@@ -755,9 +443,16 @@ mod tests {
         let composite = CompositeLocalSearchMonitor::<i64>::new();
 
         let mut engine = LocalSearchEngine::<i64>::new();
-        let out = engine.run(
-            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
-        );
+        let params = LocalSearchParams {
+            model: &model,
+            decoder: &mut dec,
+            neighborhood: &topology,
+            operator: &mut op,
+            metaheuristic: &mut mh,
+            monitor: composite,
+            initial_solution: &init,
+        };
+        let out = engine.run(params);
 
         match out.termination_reason() {
             LocalSearchTerminationReason::LocalOptimum => {}
@@ -788,9 +483,16 @@ mod tests {
         composite.add_monitor(limit_monitor);
 
         let mut engine = LocalSearchEngine::<i64>::new();
-        let out = engine.run(
-            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
-        );
+        let params = LocalSearchParams {
+            model: &model,
+            decoder: &mut dec,
+            neighborhood: &topology,
+            operator: &mut op,
+            metaheuristic: &mut mh,
+            monitor: composite,
+            initial_solution: &init,
+        };
+        let out = engine.run(params);
 
         match out.termination_reason() {
             LocalSearchTerminationReason::Aborted(msg) => {
@@ -827,9 +529,16 @@ mod tests {
         composite.add_monitor(tlm);
 
         let mut engine = LocalSearchEngine::<i64>::new();
-        let out = engine.run(
-            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
-        );
+        let params = LocalSearchParams {
+            model: &model,
+            decoder: &mut dec,
+            neighborhood: &topology,
+            operator: &mut op,
+            metaheuristic: &mut mh,
+            monitor: composite,
+            initial_solution: &init,
+        };
+        let out = engine.run(params);
 
         match out.termination_reason() {
             LocalSearchTerminationReason::Aborted(msg) => {
@@ -839,69 +548,6 @@ mod tests {
                 "expected Aborted(\"time limit exceeded\") from time limit monitor, got {:?}",
                 other
             ),
-        }
-    }
-
-    #[test]
-    fn test_run_with_full_neighborhood_and_swap() {
-        let model = build_basic_model();
-        let mut mh: GreedyDescent<i64> = GreedyDescent::new();
-        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
-            GreedyDecoder::preallocated(model.num_berths());
-
-        let mut op: SwapOperator<i64, FullNeighborhoods> = SwapOperator::new();
-
-        let init = initial_solution_from_order(&model, &[1, 0, 2]);
-        let composite = CompositeLocalSearchMonitor::<i64>::new();
-
-        let mut engine = LocalSearchEngine::<i64>::new();
-        let out =
-            engine.run_with_full_neighborhood(&model, &mut dec, &mut op, &mut mh, composite, &init);
-
-        match out.termination_reason() {
-            LocalSearchTerminationReason::LocalOptimum => {}
-            other => panic!("expected local optimum termination, got {:?}", other),
-        }
-        let sol = out.solution();
-        assert_eq!(sol.num_vessels(), model.num_vessels());
-    }
-
-    #[test]
-    fn test_solver_solve_delegates_to_engine() {
-        let model = build_basic_model();
-        let topology = StaticTopology::from_model(&model);
-        let mh: GreedyDescent<i64> = GreedyDescent::new();
-        let dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
-            GreedyDecoder::preallocated(model.num_berths());
-        let mut solver = LocalSearchSolver::new(mh, dec);
-
-        let mut op: SwapOperator<i64, StaticTopology> = SwapOperator::new();
-        let init = initial_solution_from_order(&model, &[0, 1, 2]);
-        let composite = CompositeLocalSearchMonitor::<i64>::new();
-
-        let out = solver.solve(&model, &topology, &mut op, composite, &init);
-        match out.termination_reason() {
-            LocalSearchTerminationReason::LocalOptimum => {}
-            other => panic!("expected local optimum termination, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_solver_solve_with_full_neighborhood_delegates() {
-        let model = build_basic_model();
-        let mh: GreedyDescent<i64> = GreedyDescent::new();
-        let dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
-            GreedyDecoder::preallocated(model.num_berths());
-        let mut solver = LocalSearchSolver::new(mh, dec);
-
-        let mut op: SwapOperator<i64, FullNeighborhoods> = SwapOperator::new();
-        let init = initial_solution_from_order(&model, &[2, 0, 1]);
-        let composite = CompositeLocalSearchMonitor::<i64>::new();
-
-        let out = solver.solve_with_full_neighborhood(&model, &mut op, composite, &init);
-        match out.termination_reason() {
-            LocalSearchTerminationReason::LocalOptimum => {}
-            other => panic!("expected local optimum termination, got {:?}", other),
         }
     }
 
@@ -921,9 +567,16 @@ mod tests {
         let shared = SharedIncumbent::<i64>::new();
 
         let mut engine = LocalSearchEngine::<i64>::new();
-        let out = engine.run_with_incumbent(
-            &model, &mut dec, &topology, &mut op, &mut mh, composite, &shared, &init,
-        );
+        let params = LocalSearchParams {
+            model: &model,
+            decoder: &mut dec,
+            neighborhood: &topology,
+            operator: &mut op,
+            metaheuristic: &mut mh,
+            monitor: composite,
+            initial_solution: &init,
+        };
+        let out = engine.run_with_incumbent(params, &shared);
 
         match out.termination_reason() {
             LocalSearchTerminationReason::LocalOptimum
@@ -993,9 +646,16 @@ mod tests {
         let composite = CompositeLocalSearchMonitor::<i64>::new();
 
         let mut engine = LocalSearchEngine::<i64>::new();
-        let out = engine.run(
-            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
-        );
+        let params = LocalSearchParams {
+            model: &model,
+            decoder: &mut dec,
+            neighborhood: &topology,
+            operator: &mut op,
+            metaheuristic: &mut mh,
+            monitor: composite,
+            initial_solution: &init,
+        };
+        let out = engine.run(params);
 
         assert!(op.prepares() >= 1, "operator.prepare was not called");
 

@@ -42,7 +42,9 @@
 //! - Accessors expose the inner solver, builder, and evaluator for inspection.
 
 use crate::{
-    bnb::BnbSolver, branching::decision::DecisionBuilder, eval::evaluator::ObjectiveEvaluator,
+    bnb::{BnbSearchParams, BnbSolver},
+    branching::decision::DecisionBuilder,
+    eval::evaluator::ObjectiveEvaluator,
     monitor::wrapper::WrapperMonitor,
 };
 use bollard_search::{
@@ -155,13 +157,16 @@ where
         context: PortfolioSolverContext<'a, T, N>,
     ) -> PortfolioSolverResult<T> {
         let monitor = WrapperMonitor::new(context.monitor);
-        let outcome = self.inner.solve_with_incumbent(
-            context.model,
-            &mut self.decision_builder,
-            &mut self.evaluator,
+
+        let params = BnbSearchParams {
+            model: context.model,
+            builder: &mut self.decision_builder,
+            evaluator: &mut self.evaluator,
             monitor,
-            context.incumbent,
-        );
+            fixed: &[],
+        };
+
+        let outcome = self.inner.solve_with_incumbent(params, context.incumbent);
 
         outcome.into()
     }

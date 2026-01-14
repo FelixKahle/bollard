@@ -19,6 +19,7 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+use crate::engine::LocalSearchParams;
 use crate::monitor::wrapper::LocalSearchMonitorWrapper;
 use crate::{
     decoder::Decoder, engine::LocalSearchEngine, meta::metaheuristic::Metaheuristic,
@@ -113,17 +114,18 @@ where
         // Use only the wrapper around the provided monitor
         let ls_monitor = LocalSearchMonitorWrapper::new(context.monitor);
 
+        let params = LocalSearchParams {
+            model: context.model,
+            decoder: &mut self.decoder,
+            neighborhood: context.neighborhoods,
+            operator: &mut self.operator,
+            metaheuristic: &mut self.metaheuristic,
+            monitor: ls_monitor,
+            initial_solution: self.initial_solution,
+        };
+
         // Run local search with neighborhoods from the context and the stored initial solution
-        let outcome = self.engine.run_with_incumbent(
-            context.model,
-            &mut self.decoder,
-            context.neighborhoods,
-            &mut self.operator,
-            &mut self.metaheuristic,
-            ls_monitor,
-            context.incumbent,
-            self.initial_solution,
-        );
+        let outcome = self.engine.run_with_incumbent(params, context.incumbent);
 
         // Map local search termination to portfolio result
         use crate::result::LocalSearchTerminationReason;
