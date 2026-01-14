@@ -133,7 +133,7 @@ where
 
         debug_assert!(
             self.i < self.j && self.j <= self.num_vessels,
-            "ScrambleOperator cursors out of bounds: i={}, j={}, len={}",
+            "invariant of `ScrambleOperator` violated in `ScrambleOperator::next_neighbor`: i={}, j={}, num_vessels={}",
             self.i,
             self.j,
             self.num_vessels

@@ -132,7 +132,7 @@ where
         // 2. j < num_vessels (ensured by loop condition)
         debug_assert!(
             self.i < self.j && self.j < self.num_vessels,
-            "TwoOptOperator cursors out of bounds: i={}, j={}, len={}",
+            "invariant of `TwoOptOperator` violated in `TwoOptOperator::next_neighbor`: i={}, j={}, num_vessels={}",
             self.i,
             self.j,
             self.num_vessels

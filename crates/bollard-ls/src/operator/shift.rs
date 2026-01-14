@@ -140,7 +140,7 @@ where
 
             debug_assert!(
                 self.i < self.num_vessels && self.j < self.num_vessels,
-                "ShiftOperator cursors out of bounds: i={}, j={}, len={}",
+                "invariant of `ShiftOperator` violated in `ShiftOperator::next_neighbor`: i={}, j={}, num_vessels={}",
                 self.i,
                 self.j,
                 self.num_vessels
