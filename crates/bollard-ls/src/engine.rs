@@ -195,7 +195,7 @@ where
         );
 
         let termination_reason = loop {
-            if let SearchCommand::Terminate(reason) = monitor.search_command(model, &stats) {
+            if let SearchCommand::Terminate(reason) = monitor.search_command(&stats) {
                 break LocalSearchTerminationReason::Aborted(reason);
             }
 
@@ -239,7 +239,7 @@ where
             );
 
             stats.on_found_solution();
-            monitor.on_solution_found(model, self.memory.candidate_schedule(), &stats);
+            monitor.on_solution_found(self.memory.candidate_schedule(), &stats);
 
             let accept = metaheuristic.should_accept(
                 model,
@@ -260,7 +260,7 @@ where
                 );
 
                 metaheuristic.on_accept(model, self.memory.current_schedule());
-                monitor.on_solution_accepted(model, self.memory.current_schedule(), &stats);
+                monitor.on_solution_accepted(self.memory.current_schedule(), &stats);
 
                 if self.memory.current_schedule().objective_value()
                     < best_solution.objective_value()
@@ -276,7 +276,7 @@ where
                     );
 
                     metaheuristic.on_new_best(model, &best_solution);
-                    monitor.on_best_solution_updated(model, &best_solution, &stats);
+                    monitor.on_best_solution_updated(&best_solution, &stats);
                 }
 
                 // Prepare for the next iteration
@@ -297,14 +297,14 @@ where
                 );
 
                 metaheuristic.on_reject(model, self.memory.candidate_schedule());
-                monitor.on_solution_rejected(model, self.memory.candidate_schedule(), &stats);
+                monitor.on_solution_rejected(self.memory.candidate_schedule(), &stats);
             }
 
-            monitor.on_iteration(model, self.memory.current_schedule(), &stats);
+            monitor.on_iteration(self.memory.current_schedule(), &stats);
         };
 
         stats.set_total_time(start_time.elapsed());
-        monitor.on_end(model, &best_solution, &stats);
+        monitor.on_end(&best_solution, &stats);
         let final_solution: Solution<T> = best_solution;
 
         match termination_reason {
@@ -564,7 +564,6 @@ mod tests {
 
         fn on_end(
             &mut self,
-            _model: &Model<T>,
             _best_solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
@@ -573,7 +572,6 @@ mod tests {
 
         fn on_iteration(
             &mut self,
-            _model: &Model<T>,
             _current_solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
@@ -582,7 +580,6 @@ mod tests {
 
         fn on_solution_found(
             &mut self,
-            _model: &Model<T>,
             _solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
@@ -591,7 +588,6 @@ mod tests {
 
         fn on_solution_accepted(
             &mut self,
-            _model: &Model<T>,
             _solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
@@ -600,7 +596,6 @@ mod tests {
 
         fn on_solution_rejected(
             &mut self,
-            _model: &Model<T>,
             _solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {
@@ -609,7 +604,6 @@ mod tests {
 
         fn on_best_solution_updated(
             &mut self,
-            _model: &Model<T>,
             _solution: &Solution<T>,
             _statistics: &crate::stats::LocalSearchStatistics,
         ) {

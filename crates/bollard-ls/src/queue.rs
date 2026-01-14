@@ -36,7 +36,8 @@
 //! are proven elsewhere, and debug assertions remain in place to catch accidental misuse
 //! during development.
 
-use bollard_model::index::VesselIndex;
+use bollard_model::{index::VesselIndex, solution::Solution};
+use bollard_search::num::SolverNumeric;
 
 /// A priority queue for vessel indices used in local search algorithms.
 ///
@@ -69,6 +70,18 @@ impl VesselPriorityQueue {
         Self {
             queue: Vec::with_capacity(num_vessels),
         }
+    }
+
+    pub fn from_solution<T>(solution: &Solution<T>) -> Self
+    where
+        T: SolverNumeric,
+    {
+        let n = solution.num_vessels();
+        let mut indices: Vec<VesselIndex> = (0..n).map(VesselIndex::from).collect();
+        indices.sort_by_key(|&v| solution.start_time_for_vessel(v));
+        let mut q = VesselPriorityQueue::preallocated(n);
+        q.extend(indices);
+        q
     }
 
     /// Returns the number of vessel indices in the priority queue.

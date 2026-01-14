@@ -41,3 +41,7 @@ regex = "1.12.2"
 [[bench]]
 name = "decoder_benchmark"
 harness = false
+
+[[bench]]
+name = "undo_benchmark"
+harness = false

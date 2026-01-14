@@ -32,13 +32,29 @@
 //! - `i`: The source index (vessel to move).
 //! - `j`: The target index (new position).
 //!
-//! # Topology Pruning
+//! In contrast to pairwise operators (e.g., swap), shift deliberately does not consult
+//! `Neighborhoods` to prune the move set. This is by design:
 //!
-//! To maintain efficiency, the operator consults the `Neighborhoods` topology.
-//! A shift of vessel `u` (at `i`) to position `j` (occupied by vessel `v`) is only
-//! attempted if `u` and `v` are neighbors. This heuristic assumes that reordering
-//! disjoint (non-interacting) vessels is unlikely to yield significant improvements,
-//! effectively focusing the search on resolving conflicts.
+//! - Non-local effect: Moving `u = π_i` to index `j` alters `u`’s relative order with
+//!   every vessel in the intermediate range between `i` and `j`. Even if `u` and the
+//!   vessel currently at `π_j` are not neighbors, `u` may interact with one or more
+//!   vessels in the block being traversed. Pruning on endpoint adjacency (or any single
+//!   pair) would miss these intermediate interactions.
+//!
+//! - Cascading interactions: In resource-constrained scheduling, a single insertion can
+//!   reduce or amplify downstream delays by reordering several vessels at once. These
+//!   cascades are not captured by a local neighborhood predicate defined on a single pair
+//!   (e.g., `are_neighbors(u, v)`), and rejecting moves based on such a predicate is
+//!   lossy.
+//!
+//! - Completeness over pruning: The semantic reach of an insertion is inherently
+//!   multi-vessel. To preserve completeness and avoid over-pruning, the implementation
+//!   evaluates the full quadratic neighborhood. This ensures all potential reordering
+//!   effects (including beneficial interactions with intermediate vessels) are considered.
+//!
+//! Consequently, `Shift(i, j)` is attempted for all `i != j`, and evaluation decides
+//! whether the move is beneficial. This complements topology-pruned pairwise operators
+//! (like swap), which are well-suited to endpoint-local interactions.
 
 use crate::{
     mutator::Mutator, operator::local_search_operator::LocalSearchOperator,
@@ -95,7 +111,7 @@ where
         &mut self,
         _schedule: &Solution<T>,
         mutator: &mut Mutator<T>,
-        neighborhoods: &N,
+        _neighborhoods: &N,
     ) -> bool {
         // Need at least 2 vessels to perform a shift.
         if self.num_vessels < 2 {
@@ -130,22 +146,8 @@ where
                 self.num_vessels
             );
 
-            // Topology Check:
-            // We interpret the move "Shift i to j" as an interaction between
-            // the vessel moving (u) and the vessel currently at the target (v).
-            // If they are not neighbors (e.g., disjoint time windows), moving u
-            // next to v is unlikely to resolve a bottleneck relevant to v.
-            let u = mutator.get_unchecked(self.i);
-            let v = mutator.get_unchecked(self.j);
-
-            // Safety: Neighborhood bounds checked by implementation.
-            let are_neighbors = unsafe { neighborhoods.are_neighbors_unchecked(u, v) };
-
-            if are_neighbors {
-                // Apply Mutation: Move element at `i` to `j`.
-                mutator.shift(self.i, self.j);
-                return true;
-            }
+            mutator.shift(self.i, self.j);
+            return true;
         }
     }
 
@@ -193,68 +195,6 @@ mod tests {
         assert!(
             !moved,
             "next_neighbor should return false with zero vessels"
-        );
-    }
-
-    #[test]
-    fn test_non_neighbors_are_skipped_and_operator_terminates() {
-        // Two vessels on disjoint berths (no shared berth) => not neighbors.
-        let mut builder = ModelBuilder::<i64>::new(2, 2);
-
-        // Vessel 0 allowed only on berth 0; time window [0, 10)
-        builder.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            ProcessingTime::from_option(Some(10)),
-        );
-        builder.set_vessel_arrival_time(VesselIndex::new(0), 0);
-        builder.set_vessel_latest_departure_time(VesselIndex::new(0), 10);
-
-        // Vessel 1 allowed only on berth 1; time window [0, 10)
-        builder.set_vessel_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(1),
-            ProcessingTime::from_option(Some(10)),
-        );
-        builder.set_vessel_arrival_time(VesselIndex::new(1), 0);
-        builder.set_vessel_latest_departure_time(VesselIndex::new(1), 10);
-
-        let model = builder.build();
-        let topology = StaticTopology::from_model(&model);
-
-        // Build a solution with start times to ensure queue order [0, 1]
-        let berths = vec![BerthIndex::new(0), BerthIndex::new(1)];
-        let start_times = vec![0, 1]; // strictly increasing, stable order
-        let solution = Solution::<i64>::new(0, berths, start_times);
-
-        // Initialize search memory and get schedule/mutator
-        let mut memory = SearchMemory::<i64>::new();
-        memory.initialize(&solution);
-        let (schedule, mutator) = memory.prepare_operator();
-        let mut mutator = mutator;
-
-        let mut op = ShiftOperator::<i64, StaticTopology>::new();
-        op.prepare(schedule, mutator.queue(), &topology);
-
-        // Operator scans possible (i,j) pairs with i != j. Since the only pair interacts
-        // non-neighbors, the operator should return false and eventually terminate.
-        let moved_first = op.next_neighbor(schedule, &mut mutator, &topology);
-        assert!(
-            !moved_first,
-            "next_neighbor should return false when all (i,j) pairs are not neighbors"
-        );
-
-        // Queue remains unchanged. Inspect via mutator.queue().
-        let buf = mutator.queue().buffer();
-        assert_eq!(buf.len(), 2);
-        assert_eq!(buf[0].get(), 0);
-        assert_eq!(buf[1].get(), 1);
-
-        // Subsequent call should still return false (operator exhausted).
-        let moved_second = op.next_neighbor(schedule, &mut mutator, &topology);
-        assert!(
-            !moved_second,
-            "operator should terminate after exhausting all non-neighbor moves"
         );
     }
 

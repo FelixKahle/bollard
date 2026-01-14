@@ -52,36 +52,24 @@ where
         // No-op
     }
 
-    fn on_end(
-        &mut self,
-        _model: &Model<T>,
-        _best_solution: &Solution<T>,
-        _statistics: &LocalSearchStatistics,
-    ) {
+    fn on_end(&mut self, _best_solution: &Solution<T>, _statistics: &LocalSearchStatistics) {
         // No-op
     }
 
     fn on_iteration(
         &mut self,
-        _model: &Model<T>,
         _current_solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
         // No-op
     }
 
-    fn on_solution_found(
-        &mut self,
-        _model: &Model<T>,
-        _solution: &Solution<T>,
-        _statistics: &LocalSearchStatistics,
-    ) {
+    fn on_solution_found(&mut self, _solution: &Solution<T>, _statistics: &LocalSearchStatistics) {
         // No-op
     }
 
     fn on_solution_accepted(
         &mut self,
-        _model: &Model<T>,
         _solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
@@ -90,7 +78,6 @@ where
 
     fn on_solution_rejected(
         &mut self,
-        _model: &Model<T>,
         _solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
@@ -99,18 +86,13 @@ where
 
     fn on_best_solution_updated(
         &mut self,
-        _model: &Model<T>,
         _solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
         // No-op
     }
 
-    fn search_command(
-        &mut self,
-        _model: &Model<T>,
-        statistics: &LocalSearchStatistics,
-    ) -> SearchCommand {
+    fn search_command(&mut self, statistics: &LocalSearchStatistics) -> SearchCommand {
         if statistics.total_solutions >= self.limit {
             SearchCommand::Terminate(format!(
                 "Solution limit reached: {} (total_solutions={})",

@@ -22,5 +22,7 @@
 pub mod compound;
 pub mod dynamic;
 pub mod local_search_operator;
+pub mod scramble;
 pub mod shift;
 pub mod swap;
+pub mod two_opt;

@@ -41,4 +41,4 @@ pub mod operator;
 pub mod queue;
 pub mod result;
 pub mod stats;
-mod undo;
+pub mod undo;

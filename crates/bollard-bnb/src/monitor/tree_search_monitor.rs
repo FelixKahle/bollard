@@ -118,7 +118,7 @@ where
     fn on_backtrack(&mut self, state: &SearchState<T>, statistics: &BnbSolverStatistics);
     /// Called when a new solution is found.
     fn on_solution_found(&mut self, solution: &Solution<T>, statistics: &BnbSolverStatistics);
-
+    /// Called when an improved solution is found.
     fn on_improvement_found(&mut self, solution: &Solution<T>, statistics: &BnbSolverStatistics);
 }
 
