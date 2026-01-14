@@ -85,6 +85,39 @@ where
         }
     }
 
+    /// Creates a new Tabu Search with tenure automatically tuned to the problem size.
+    ///
+    /// # The Formula
+    ///
+    /// Tenure is calculated as a fraction of the problem size (number of vessels),
+    /// bounded by a minimum to ensure stability on small instances.
+    ///
+    /// $$ \text{Tenure} = \max(\text{min\_tenure}, \lceil N \times \text{tenure\_factor} \rceil) $$
+    ///
+    /// # Arguments
+    /// * `model`: The problem model (to get $N$).
+    /// * `tenure_factor`: The fraction of $N$ to use for memory (e.g., 0.1 for 10%).
+    /// * `min_tenure`: The absolute minimum memory size (e.g., 10).
+    pub fn with_heuristic_tuning(model: &Model<T>, tenure_factor: f64, min_tenure: usize) -> Self {
+        let n = model.num_vessels();
+        let calculated = (n as f64 * tenure_factor).ceil() as usize;
+        let tenure = calculated.max(min_tenure).max(1); // Ensure at least 1
+
+        Self::new(tenure)
+    }
+
+    /// Creates a Tabu Search with robust defaults for the Berth Allocation Problem.
+    ///
+    /// # Defaults
+    /// * **Tenure Factor = 0.1**: Maintains a memory of the last ~10% of visited states.
+    /// * **Min Tenure = 20**: Ensures sufficient history to prevent immediate cycling in small instances.
+    ///
+    /// This configuration is generally effective for permutation-based problems where
+    /// neighborhoods are large ($\mathcal{O}(N^2)$) and cycling risks are moderate.
+    pub fn with_defaults(model: &Model<T>) -> Self {
+        Self::with_heuristic_tuning(model, 0.1, 20)
+    }
+
     /// Generates a lightweight signature for the schedule.
     /// We hash the Objective and the Structure (Berths + Start Times).
     #[inline]

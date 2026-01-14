@@ -298,6 +298,74 @@ where
     }
 }
 
+impl<T, R> SimulatedAnnealing<T, R, GeometricCooling>
+where
+    T: SolverNumeric,
+    R: Rng,
+{
+    /// Creates a SA instance with parameters automatically tuned to the problem scale.
+    ///
+    /// # The Formula
+    ///
+    /// The initial temperature $T_0$ is calculated to achieve a target acceptance probability ($P_0$)
+    /// for a hypothetical worsening move of magnitude $\Delta E$:
+    ///
+    /// $$ T_0 = \frac{-\Delta E}{\ln(P_0)} $$
+    ///
+    /// Where $\Delta E$ is estimated as a fraction (`sensitivity`) of the initial objective value.
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_solution`: The starting solution used to gauge the problem scale.
+    /// * `rng`: Random number generator.
+    /// * `initial_prob`: Target probability to accept a "bad" move at start (e.g. 0.5 = 50%).
+    /// * `sensitivity`: The magnitude of a "bad" move as a fraction of total cost (e.g. 0.01 = 1%).
+    /// * `cooling_rate`: Geometric decay factor (alpha), typically 0.99 to 0.9999.
+    pub fn with_heuristic_tuning(
+        initial_solution: &Solution<T>,
+        rng: R,
+        initial_prob: f64,
+        sensitivity: f64,
+        cooling_rate: f64,
+    ) -> Self {
+        let obj = initial_solution
+            .objective_value()
+            .to_f64()
+            .unwrap_or(1000.0); // Safety fallback
+
+        // Estimate Delta E (The cost of a "bad" move)
+        // e.g., if Obj=30,000 and sensitivity=0.01, we expect bad moves to cost ~300.
+        let delta_e = obj.abs() * sensitivity;
+
+        // Calculate Initial Temperature
+        // T = -DeltaE / ln(P)
+        // Guard against P <= 0 or P >= 1
+        let p = initial_prob.clamp(0.001, 0.999);
+        let t0 = -delta_e / p.ln();
+
+        // Calculate Min Temperature (Frozen threshold)
+        // Stop when probability of accepting that same move drops to 0.01%
+        // T_end = -DeltaE / ln(0.0001)
+        let t_min = -delta_e / (0.0001f64).ln();
+
+        let cooling = GeometricCooling::new(t0, cooling_rate, t_min);
+
+        Self::new(cooling, rng)
+    }
+
+    /// Creates a SA instance with robust defaults for Weighted Flow Time problems.
+    ///
+    /// # Defaults
+    /// * **Initial Probability = 0.5**: Starts by accepting 50% of worsening moves (high exploration).
+    /// * **Sensitivity = 2.0%**: Assumes a "bad" move degrades the objective by ~2%.
+    /// * **Cooling Rate = 0.9995**: Very slow cooling to allow settling.
+    pub fn with_defaults(initial_solution: &Solution<T>, rng: R) -> Self {
+        // For weighted flow time, variance is high, so we set sensitivity slightly higher (0.02)
+        // to ensure the initial temperature is hot enough to escape deep local optima.
+        Self::with_heuristic_tuning(initial_solution, rng, 0.5, 0.02, 0.9995)
+    }
+}
+
 impl<T, R, C> Metaheuristic<T> for SimulatedAnnealing<T, R, C>
 where
     T: SolverNumeric,

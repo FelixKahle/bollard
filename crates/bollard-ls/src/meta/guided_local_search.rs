@@ -477,6 +477,56 @@ where
         }
     }
 
+    /// Creates a new GLS instance with parameters tuned automatically based on the initial solution.
+    ///
+    /// # The Formula
+    ///
+    /// $$ \lambda = \alpha \cdot \frac{\text{Objective}(s_0)}{N} $$
+    ///
+    /// # Arguments
+    /// * `alpha` - The intensity parameter.
+    ///    - Standard GLS: 0.1 to 0.5.
+    ///    - Weighted BAP: 10.0 to 20.0 (to overcome high weight variances).
+    /// * `stagnation_factor` - Fraction of N iterations to wait. (e.g. 1.0 = N iterations).
+    pub fn with_heuristic_tuning(
+        model: &Model<T>,
+        initial_solution: &Solution<T>,
+        alpha: f64,
+        stagnation_factor: f64,
+    ) -> Self {
+        let n = model.num_vessels() as f64;
+
+        let obj = initial_solution.objective_value().to_f64().unwrap_or(1.0);
+        let avg_contribution = if n > 0.0 { obj / n } else { 1.0 };
+        let lambda = alpha * avg_contribution;
+        let stagnation_limit = (n * stagnation_factor) as u64;
+
+        let evaluator = GuidedEvaluator::new(model.num_vessels(), model.num_berths(), lambda);
+
+        Self {
+            lambda,
+            stagnation_limit: stagnation_limit.max(1),
+            evaluator,
+            stagnation_counter: 0,
+            current_augmented_score: f64::INFINITY,
+        }
+    }
+
+    /// Creates a new GLS instance with robust default parameters derived from the initial solution.
+    ///
+    /// This is a convenience wrapper around `with_heuristic_tuning` that uses values
+    /// optimized for the weighted Berth Allocation Problem:
+    /// - **Alpha = 15.0**: Strong enough to overcome high vessel weights (up to 100).
+    /// - **Stagnation = 1.0 * N**: Penalizes only after a full neighborhood cycle of stagnation.
+    ///
+    /// # Usage
+    /// Use this constructor when you want "set it and forget it" behavior without manual tuning.
+    pub fn with_defaults(model: &Model<T>, initial_solution: &Solution<T>) -> Self {
+        // Alpha 15.0 is aggressive enough for weighted flow time.
+        // Stagnation factor 1.0 means we wait for `num_vessels` iterations before kicking.
+        Self::with_heuristic_tuning(model, initial_solution, 15.0, 1.0)
+    }
+
     /// Calculates the full augmented objective from scratch.
     /// O(N) complexity. Use sparingly (initialization, updates).
     fn calculate_augmented_score(&self, schedule: &Solution<T>) -> f64 {
