@@ -144,7 +144,7 @@ where
             for solver in &mut self.portfolio_solver {
                 let handle = scope.spawn(move || {
                     // 1. Build the monitor stack
-                    let mut monitor = CompositeMonitor::<T>::new();
+                    let mut monitor = CompositeMonitor::<T>::with_capacity(3); // three monitors max
 
                     // Always add the interrupt monitor so this thread can be stopped
                     // if another thread finishes early.
@@ -172,7 +172,10 @@ where
             }
 
             for handle in handles {
-                results.push(handle.join().expect("portfolio solver thread panicked"));
+                match handle.join() {
+                    Ok(res) => results.push(res),
+                    Err(e) => eprintln!("One solver thread panicked: {:?}", e),
+                }
             }
         });
 
