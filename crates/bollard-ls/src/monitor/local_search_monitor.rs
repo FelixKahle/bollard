@@ -34,7 +34,7 @@ use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 
 /// A monitor for local search algorithms.
-pub trait LocalSearchMonitor<T>: Send + Sync
+pub trait LocalSearchMonitor<T>
 where
     T: SolverNumeric,
 {

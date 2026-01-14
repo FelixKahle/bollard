@@ -257,4 +257,6 @@ where
             monitor.on_exit_search();
         }
     }
+
+    fn on_improvement_found(&mut self, _solution: &Solution<T>) {}
 }

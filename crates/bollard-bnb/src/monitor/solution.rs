@@ -118,4 +118,11 @@ where
             SearchCommand::Continue
         }
     }
+
+    fn on_improvement_found(
+        &mut self,
+        _solution: &bollard_model::solution::Solution<T>,
+        _statistics: &BnbSolverStatistics,
+    ) {
+    }
 }

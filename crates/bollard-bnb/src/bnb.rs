@@ -705,6 +705,7 @@ where
                 self.incumbent.on_solution_found(&solution);
                 self.stats.on_solution_found();
                 self.monitor.on_solution_found(&solution, &self.stats);
+                self.monitor.on_improvement_found(&solution, &self.stats);
                 self.best_solution = Some(solution);
             } else {
                 self.stats.on_pruning_infeasible();

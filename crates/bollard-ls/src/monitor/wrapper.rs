@@ -26,47 +26,59 @@ use bollard_search::{
     num::SolverNumeric,
 };
 
-pub struct LocalSearchMonitorWrapper<T, M>
-where
-    T: bollard_search::num::SolverNumeric,
-    M: SearchMonitor<T>,
-{
-    inner: M,
-    _phantom: std::marker::PhantomData<T>,
-}
-
-impl<T, M> LocalSearchMonitorWrapper<T, M>
+/// A wrapper that adapts a generic `SearchMonitor` to the
+/// `LocalSearchMonitor` trait.
+///
+/// This struct holds a mutable reference to a `SearchMonitor` and
+/// forwards local search events to it, translating the lifecycle
+/// callbacks appropriately. Some local search specific events are
+/// no-ops since they do not have direct equivalents in the generic
+/// monitor interface.
+pub struct LocalSearchMonitorWrapper<'a, T>
 where
     T: SolverNumeric,
-    M: SearchMonitor<T>,
 {
+    inner: &'a mut dyn SearchMonitor<T>,
+    name: String,
+}
+
+impl<'a, T> LocalSearchMonitorWrapper<'a, T>
+where
+    T: SolverNumeric,
+{
+    /// Creates a new `LocalSearchMonitorWrapper` that wraps the given
+    /// search monitor.
     #[inline]
-    pub fn new(monitor: M) -> Self {
+    pub fn new(monitor: &'a mut dyn SearchMonitor<T>) -> Self {
+        let name = format!("LocalSearchMonitorWrapper({})", monitor.name());
         Self {
             inner: monitor,
-            _phantom: std::marker::PhantomData,
+            name,
         }
     }
 
+    /// Returns a reference to the inner `SearchMonitor`.
     #[inline]
-    pub fn inner(&self) -> &M {
-        &self.inner
+    pub fn inner(&self) -> &dyn SearchMonitor<T> {
+        self.inner
     }
 }
 
-impl<T, M> LocalSearchMonitor<T> for LocalSearchMonitorWrapper<T, M>
+impl<'a, T> LocalSearchMonitor<T> for LocalSearchMonitorWrapper<'a, T>
 where
     T: SolverNumeric,
-    M: SearchMonitor<T> + Send + Sync,
 {
+    #[inline(always)]
     fn name(&self) -> &str {
-        self.inner.name()
+        &self.name
     }
 
+    #[inline(always)]
     fn on_start(&mut self, model: &Model<T>, _initial_solution: &Solution<T>) {
         self.inner.on_enter_search(model);
     }
 
+    #[inline(always)]
     fn on_end(
         &mut self,
         _model: &Model<T>,
@@ -76,6 +88,7 @@ where
         self.inner.on_exit_search();
     }
 
+    #[inline(always)]
     fn on_iteration(
         &mut self,
         _model: &Model<T>,
@@ -85,6 +98,7 @@ where
         self.inner.on_step();
     }
 
+    #[inline(always)]
     fn on_solution_found(
         &mut self,
         _model: &Model<T>,
@@ -94,6 +108,7 @@ where
         self.inner.on_solution_found(solution);
     }
 
+    #[inline(always)]
     fn on_solution_accepted(
         &mut self,
         _model: &Model<T>,
@@ -103,6 +118,7 @@ where
         // No op
     }
 
+    #[inline(always)]
     fn on_solution_rejected(
         &mut self,
         _model: &Model<T>,
@@ -112,15 +128,17 @@ where
         // No op
     }
 
+    #[inline(always)]
     fn on_best_solution_updated(
         &mut self,
         _model: &Model<T>,
-        _solution: &Solution<T>,
+        solution: &Solution<T>,
         _statistics: &LocalSearchStatistics,
     ) {
-        // No op
+        self.inner.on_improvement_found(solution);
     }
 
+    #[inline(always)]
     fn search_command(
         &mut self,
         _model: &Model<T>,
