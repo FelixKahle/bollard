@@ -98,7 +98,9 @@ pub trait TypedIndexTag: Clone {
 /// assert_eq!(index.get(), 5);
 /// ```
 #[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize,
+)]
 pub struct TypedIndex<T> {
     index: usize,
     _marker: std::marker::PhantomData<T>,

@@ -38,7 +38,7 @@ use num_traits::{PrimInt, Signed};
 ///
 /// This struct uses a Structure of Arrays (SoA) layout.
 /// Data is indexed directly by `VesselIndex` (i.e., index `i` corresponds to vessel `i`).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub struct Solution<T> {
     /// The assigned berth for each vessel.
     /// `berths[v]` is the berth assigned to vessel `v`.

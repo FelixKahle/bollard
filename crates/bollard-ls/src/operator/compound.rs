@@ -61,19 +61,18 @@ use std::cmp::Ordering;
 /// This is effective for:
 /// - **Diversification**: Preventing the search from following deterministic paths.
 /// - **Escape**: breaking out of local optima that a specific deterministic operator might get stuck in.
-#[derive(Debug)]
-pub struct RandomCompoundOperator<T, N, R>
+pub struct RandomCompoundOperator<'a, T, N, R>
 where
     T: SolverNumeric,
     N: Neighborhoods,
     R: rand::Rng,
 {
-    operators: Vec<Box<dyn LocalSearchOperator<T, N>>>, // List of sub-operators
-    rng: R,                                             // Random number generator
-    current_index: usize,                               // Index of the currently selected operator
+    operators: Vec<Box<dyn LocalSearchOperator<T, N> + 'a>>, // List of sub-operators
+    rng: R,                                                  // Random number generator
+    current_index: usize, // Index of the currently selected operator
 }
 
-impl<T, N, R> RandomCompoundOperator<T, N, R>
+impl<'a, T, N, R> RandomCompoundOperator<'a, T, N, R>
 where
     T: SolverNumeric,
     N: Neighborhoods,
@@ -93,7 +92,7 @@ where
     }
 }
 
-impl<T, N, R> LocalSearchOperator<T, N> for RandomCompoundOperator<T, N, R>
+impl<'a, T, N, R> LocalSearchOperator<T, N> for RandomCompoundOperator<'a, T, N, R>
 where
     T: SolverNumeric,
     N: Neighborhoods,
@@ -104,11 +103,16 @@ where
     }
 
     fn prepare(&mut self, schedule: &Solution<T>, queue: &VesselPriorityQueue, neighborhoods: &N) {
-        if self.operators.is_empty() {
+        let n = self.operators.len();
+        if n == 0 {
             return;
         }
 
-        self.current_index = self.rng.random_range(0..self.operators.len());
+        // Choose a random starting operator for this solution.
+        self.current_index = self.rng.random_range(0..n);
+
+        // Lazily prepare only the chosen operator; others will be prepared
+        // on first use in `next_neighbor` if needed.
         if let Some(op) = self.operators.get_mut(self.current_index) {
             op.prepare(schedule, queue, neighborhoods);
         }
@@ -120,17 +124,41 @@ where
         mutator: &mut Mutator<T>,
         neighborhoods: &N,
     ) -> bool {
-        if let Some(op) = self.operators.get_mut(self.current_index) {
-            op.next_neighbor(schedule, mutator, neighborhoods)
-        } else {
-            false
+        let n = self.operators.len();
+        if n == 0 {
+            return false;
+        }
+
+        // Probe operators starting from the current_index, wrapping around.
+        // This keeps the entry point random (from `prepare`) but robustly
+        // falls back to other operators if the chosen one is exhausted.
+        let start = self.current_index;
+        let mut idx = start;
+
+        loop {
+            if let Some(op) = self.operators.get_mut(idx)
+                && op.next_neighbor(schedule, mutator, neighborhoods)
+            {
+                // Stick with this operator until it is exhausted.
+                self.current_index = idx;
+                return true;
+            }
+
+            idx = (idx + 1) % n;
+            if idx == start {
+                // All operators exhausted for this solution.
+                return false;
+            }
         }
     }
 
     fn reset(&mut self) {
-        if let Some(op) = self.operators.get_mut(self.current_index) {
+        // Reset all sub-operators so this compound operator can be reused
+        // cleanly across multiple runs/solutions.
+        for op in &mut self.operators {
             op.reset();
         }
+        self.current_index = 0;
     }
 }
 
@@ -142,18 +170,17 @@ where
 ///
 /// It returns `false` (exhausted) only when **all** sub-operators have been exhausted for
 /// the current solution.
-#[derive(Debug)]
-pub struct RoundRobinCompoundOperator<T, N>
+pub struct RoundRobinCompoundOperator<'a, T, N>
 where
     T: SolverNumeric,
     N: Neighborhoods,
 {
-    operators: Vec<Box<dyn LocalSearchOperator<T, N>>>, // List of sub-operators
-    current_index: usize,                               // Index of the currently active operator
-    op_started: Vec<bool>,                              // operator i started
+    operators: Vec<Box<dyn LocalSearchOperator<T, N> + 'a>>, // List of sub-operators
+    current_index: usize,  // Index of the currently active operator
+    op_started: Vec<bool>, // operator i started
 }
 
-impl<T, N> RoundRobinCompoundOperator<T, N>
+impl<'a, T, N> RoundRobinCompoundOperator<'a, T, N>
 where
     T: SolverNumeric,
     N: Neighborhoods,
@@ -169,7 +196,7 @@ where
     }
 }
 
-impl<T, N> LocalSearchOperator<T, N> for RoundRobinCompoundOperator<T, N>
+impl<'a, T, N> LocalSearchOperator<T, N> for RoundRobinCompoundOperator<'a, T, N>
 where
     T: SolverNumeric,
     N: Neighborhoods,
@@ -315,12 +342,12 @@ impl BanditStats {
 }
 
 /// A compound operator that selects sub-operators using a Multi-Armed Bandit (UCB1) strategy.
-pub struct MultiArmedBanditCompoundOperator<T, N>
+pub struct MultiArmedBanditCompoundOperator<'a, T, N>
 where
     T: SolverNumeric,
     N: Neighborhoods,
 {
-    operators: Vec<Box<dyn LocalSearchOperator<T, N>>>, // List of sub-operators
+    operators: Vec<Box<dyn LocalSearchOperator<T, N> + 'a>>, // List of sub-operators
     memory_coeff: f64,      // Learning rate for updating average improvements
     exploration_coeff: f64, // Coefficient for exploration bonus in UCB1
 
@@ -332,7 +359,7 @@ where
     last_obj: Option<T>,        // Objective value of the last accepted solution
 }
 
-impl<T, N> MultiArmedBanditCompoundOperator<T, N>
+impl<'a, T, N> MultiArmedBanditCompoundOperator<'a, T, N>
 where
     T: SolverNumeric,
     N: Neighborhoods,
@@ -378,7 +405,7 @@ where
     }
 }
 
-impl<T, N> LocalSearchOperator<T, N> for MultiArmedBanditCompoundOperator<T, N>
+impl<'a, T, N> LocalSearchOperator<T, N> for MultiArmedBanditCompoundOperator<'a, T, N>
 where
     T: SolverNumeric,
     N: Neighborhoods,
