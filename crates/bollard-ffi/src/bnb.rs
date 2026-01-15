@@ -736,7 +736,7 @@ where
         builder: &mut builder,
         evaluator: &mut evaluator,
         monitor,
-        fixed: fixed_assignments,
+        fixed: Some(fixed_assignments),
     };
 
     solver.solve(params)

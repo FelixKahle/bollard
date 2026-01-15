@@ -382,6 +382,10 @@ where
         self.cooling_schedule.on_start();
     }
 
+    fn on_end(&mut self, _model: &Model<T>, _final_solution: &Solution<T>) {
+        // no op
+    }
+
     fn search_command(
         &mut self,
         _iteration: u64,

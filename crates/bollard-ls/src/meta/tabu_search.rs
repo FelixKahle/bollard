@@ -163,6 +163,11 @@ where
         self.make_tabu(hash);
     }
 
+    fn on_end(&mut self, _model: &Model<T>, _final_solution: &Solution<T>) {
+        self.tabu_queue.clear();
+        self.tabu_set.clear();
+    }
+
     fn search_command(&mut self, _: u64, _: &Model<T>, _: &Solution<T>) -> SearchCommand {
         SearchCommand::Continue
     }

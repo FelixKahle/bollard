@@ -54,6 +54,9 @@ where
     /// Called at the start of the search.
     fn on_start(&mut self, model: &Model<T>, initial_solution: &Solution<T>);
 
+    /// Called at the end of the search.
+    fn on_end(&mut self, model: &Model<T>, final_solution: &Solution<T>);
+
     /// Determines if the search should proceed to the next iteration.
     fn search_command(
         &mut self,

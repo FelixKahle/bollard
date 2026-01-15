@@ -131,6 +131,10 @@ where
         self.inner.on_start(model, initial_solution);
     }
 
+    fn on_end(&mut self, model: &Model<T>, final_solution: &Solution<T>) {
+        self.inner.on_end(model, final_solution);
+    }
+
     fn search_command(
         &mut self,
         iteration: u64,

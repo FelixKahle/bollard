@@ -94,7 +94,7 @@ fn find_feasible_solution(model: &Model<i64>) -> Solution<i64> {
         builder: &mut builder,
         evaluator: &mut evaluator,
         monitor: solution_limit_monitor,
-        fixed: &[],
+        fixed: None,
     };
 
     let outcome = bnb_solver.solve(params);

@@ -106,6 +106,10 @@ where
         // Stateless strategy; no setup required.
     }
 
+    fn on_end(&mut self, _model: &Model<T>, _final_solution: &Solution<T>) {
+        // No op
+    }
+
     fn search_command(
         &mut self,
         _iteration: u64,

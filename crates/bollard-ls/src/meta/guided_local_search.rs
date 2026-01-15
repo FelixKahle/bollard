@@ -635,6 +635,12 @@ where
         self.current_augmented_score = self.calculate_augmented_score(initial_solution);
     }
 
+    fn on_end(&mut self, _model: &Model<T>, _final_solution: &Solution<T>) {
+        // Reset
+        self.evaluator.penalties.reset();
+        self.stagnation_counter = 0;
+    }
+
     fn search_command(
         &mut self,
         _iter: u64,

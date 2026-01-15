@@ -66,7 +66,45 @@ where
     pub builder: &'a mut B,
     pub evaluator: &'a mut E,
     pub monitor: S,
-    pub fixed: &'a [FixedAssignment<T>],
+    pub fixed: Option<&'a [FixedAssignment<T>]>,
+}
+
+impl<'a, T, B, E, S> BnbSearchParams<'a, T, B, E, S>
+where
+    T: SolverNumeric,
+{
+    #[inline]
+    pub fn new(model: &'a Model<T>, builder: &'a mut B, evaluator: &'a mut E, monitor: S) -> Self {
+        Self {
+            model,
+            builder,
+            evaluator,
+            monitor,
+            fixed: None,
+        }
+    }
+
+    #[inline]
+    pub fn with_fixed_assignments(
+        model: &'a Model<T>,
+        builder: &'a mut B,
+        evaluator: &'a mut E,
+        monitor: S,
+        fixed: &'a [FixedAssignment<T>],
+    ) -> Self {
+        Self {
+            model,
+            builder,
+            evaluator,
+            monitor,
+            fixed: Some(fixed),
+        }
+    }
+
+    #[inline]
+    pub fn has_fixed_assignments(&self) -> bool {
+        self.fixed.is_some()
+    }
 }
 
 /// A constraint branch and bound solver for the berth scheduling problem using
@@ -198,10 +236,15 @@ where
             evaluator.name()
         );
 
+        let fixed_assignments = match fixed {
+            Some(f) => f,
+            None => &[],
+        };
+
         let session = BnbSolverSearchSession::new(
             self,
             model,
-            fixed,
+            fixed_assignments,
             builder,
             evaluator,
             &mut monitor,
@@ -800,7 +843,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: LogTreeSearchMonitor::default(),
-            fixed: &[],
+            fixed: None,
         });
 
         // 2. Print the rich result (Outcome, Reason, Objective, Stats Table)
@@ -865,7 +908,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         // Unwrap solution from the inner result
@@ -912,7 +955,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         let solution = match outcome.result() {
@@ -962,7 +1005,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
         let sol1 = match outcome1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -981,7 +1024,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator2,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
         let sol2 = match outcome2.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1022,7 +1065,7 @@ mod tests {
                 builder: &mut builder,
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
-                fixed: &[],
+                fixed: None,
             },
             &incumbent,
         );
@@ -1071,7 +1114,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         let solution = match outcome.result() {
@@ -1159,7 +1202,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         let solution = match outcome.result() {
@@ -1238,7 +1281,7 @@ mod tests {
                 builder: &mut builder,
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
-                fixed: &[],
+                fixed: None,
             },
             &incumbent,
         );
@@ -1276,7 +1319,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         let solution = match outcome.result() {
@@ -1319,7 +1362,7 @@ mod tests {
                 builder: &mut builder,
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
-                fixed: &[],
+                fixed: None,
             });
 
             let solution = match outcome.result() {
@@ -1378,7 +1421,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator1,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
         let sol1 = match outcome1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1395,7 +1438,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator2,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
         let sol2 = match outcome2.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1429,7 +1472,7 @@ mod tests {
                 builder: &mut builder,
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
-                fixed: &[],
+                fixed: None,
             });
 
             let solution = match outcome.result() {
@@ -1495,7 +1538,7 @@ mod tests {
                 builder: &mut builder,
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
-                fixed: &[],
+                fixed: None,
             },
             &incumbent,
         );
@@ -1529,7 +1572,7 @@ mod tests {
                 builder: &mut builder,
                 evaluator: &mut evaluator2,
                 monitor: NoOperationMonitor::new(),
-                fixed: &[],
+                fixed: None,
             },
             &incumbent,
         );
@@ -1593,7 +1636,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         let solution = match outcome.result() {
@@ -1639,7 +1682,7 @@ mod tests {
                 builder: &mut builder,
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
-                fixed: &[],
+                fixed: None,
             });
 
             let solution = match outcome.result() {
@@ -1682,7 +1725,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         let solution = match outcome.result() {
@@ -1738,7 +1781,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         match outcome.result() {
@@ -1770,7 +1813,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator_cold,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         // Extract the best solution from the cold run
@@ -1806,7 +1849,7 @@ mod tests {
                 builder: &mut builder,
                 evaluator: &mut evaluator_warm,
                 monitor: NoOperationMonitor::new(),
-                fixed: &[],
+                fixed: None,
             },
             &incumbent,
         );
@@ -1898,7 +1941,7 @@ mod tests {
                 builder: &mut builder,
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
-                fixed: &[],
+                fixed: None,
             },
             &incumbent,
         );
@@ -1948,7 +1991,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         // Extract the solution to ensure we solved the instance
@@ -1998,7 +2041,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator1,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
         let baseline = match outcome1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.clone(),
@@ -2039,7 +2082,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator_a,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
         let sol_a = match out_a.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -2065,7 +2108,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator_b,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
 
         match out_b.result() {
@@ -2095,7 +2138,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator1,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
         let sol1 = match out1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.clone(),
@@ -2111,7 +2154,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator2,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
         let sol2 = match out2.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.clone(),
@@ -2186,7 +2229,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &[],
+            fixed: None,
         });
         let solution = outcome.result().unwrap_optimal();
 
@@ -2241,7 +2284,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &fixed,
+            fixed: Some(&fixed),
         });
         let solution = outcome.result().unwrap_optimal();
 
@@ -2275,7 +2318,7 @@ mod tests {
             builder: &mut builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &fixed,
+            fixed: Some(&fixed),
         });
         let solution = outcome.result().unwrap_optimal();
 
@@ -2327,7 +2370,7 @@ mod tests {
             builder: &mut decision_builder,
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
-            fixed: &fixed,
+            fixed: Some(&fixed),
         });
 
         match outcome.result() {

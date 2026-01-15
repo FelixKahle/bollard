@@ -47,7 +47,7 @@ use bollard_search::{
 };
 
 /// Parameters for a local search run.
-pub struct LocalSearchParams<'a, N, H, D, O, M, T>
+pub struct LocalSearchParams<'a, T, N, H, D, O, M>
 where
     T: SolverNumeric,
 {
@@ -58,6 +58,32 @@ where
     pub metaheuristic: &'a mut H,
     pub monitor: M,
     pub initial_solution: &'a Solution<T>,
+}
+
+impl<'a, T, N, H, D, O, M> LocalSearchParams<'a, T, N, H, D, O, M>
+where
+    T: SolverNumeric,
+{
+    #[inline]
+    pub fn new(
+        model: &'a Model<T>,
+        decoder: &'a mut D,
+        neighborhood: &'a N,
+        operator: &'a mut O,
+        metaheuristic: &'a mut H,
+        monitor: M,
+        initial_solution: &'a Solution<T>,
+    ) -> Self {
+        Self {
+            model,
+            decoder,
+            neighborhood,
+            operator,
+            metaheuristic,
+            monitor,
+            initial_solution,
+        }
+    }
 }
 
 /// Local search engine for berth scheduling.
@@ -116,7 +142,7 @@ where
     #[inline]
     pub fn run_with_incumbent<N, H, D, O, M>(
         &mut self,
-        params: LocalSearchParams<N, H, D, O, M, T>,
+        params: LocalSearchParams<T, N, H, D, O, M>,
         shared: &SharedIncumbent<T>,
     ) -> LocalSearchEngineOutcome<T>
     where
@@ -134,11 +160,10 @@ where
     ///
     /// For zero-cost when no incumbent sharing is needed, this forwards into the
     /// single internal implementation using a no-op store.
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn run<N, H, D, O, M>(
         &mut self,
-        params: LocalSearchParams<N, H, D, O, M, T>,
+        params: LocalSearchParams<T, N, H, D, O, M>,
     ) -> LocalSearchEngineOutcome<T>
     where
         N: Neighborhoods,
@@ -156,11 +181,10 @@ where
     /// - Single source of truth for the local search loop.
     /// - Publishes every new best via `store.on_best_solution`.
     /// - Public `run` and `run_with_incumbent` forward into this method.
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     fn run_internal<N, H, D, O, M, S>(
         &mut self,
-        params: LocalSearchParams<N, H, D, O, M, T>,
+        params: LocalSearchParams<T, N, H, D, O, M>,
         store: &mut S,
     ) -> LocalSearchEngineOutcome<T>
     where
@@ -347,6 +371,9 @@ where
         monitor.on_end(&best_solution, &stats);
         let final_solution: Solution<T> = best_solution;
 
+        operator.reset();
+        metaheuristic.on_end(model, &final_solution);
+
         match termination_reason {
             LocalSearchTerminationReason::LocalOptimum => {
                 LocalSearchEngineOutcome::local_optimum(final_solution, stats)
@@ -369,20 +396,34 @@ mod tests {
         eval::DefaultAssignmentEvaluator,
         meta::greedy_descent::GreedyDescent,
         monitor::{
-            composite::CompositeLocalSearchMonitor, solution::SolutionLimitMonitor,
-            time::TimeLimitMonitor,
+            composite::CompositeLocalSearchMonitor, logging::LogLocalSearchMonitor,
+            solution::SolutionLimitMonitor, time::TimeLimitMonitor,
         },
-        operator::swap::SwapOperator,
+        operator::{
+            compound::MultiArmedBanditCompoundOperator, scramble::ScrambleOperator,
+            shift::ShiftOperator, swap::SwapOperator, two_opt::TwoOptOperator,
+        },
         result::LocalSearchTerminationReason,
+    };
+    use bollard_bnb::{
+        bnb::{BnbSearchParams, BnbSolver},
+        branching::edf::EarliestDeadlineFirstBuilder,
+        eval::hybrid::HybridEvaluator,
     };
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
+        loading::ProblemLoader,
         model::ModelBuilder,
         solution::Solution,
         time::ProcessingTime,
     };
     use bollard_search::{incumbent::SharedIncumbent, neighborhood::topology::StaticTopology};
-    use std::time::Duration;
+    use rand::SeedableRng;
+    use regex::Regex;
+    use std::{
+        path::{Path, PathBuf},
+        time::Duration,
+    };
 
     fn vi(i: usize) -> VesselIndex {
         VesselIndex::new(i)
@@ -663,5 +704,141 @@ mod tests {
             LocalSearchTerminationReason::LocalOptimum => {}
             other => panic!("expected local optimum termination, got {:?}", other),
         }
+    }
+
+    fn find_instances_dir() -> Option<PathBuf> {
+        let mut cur: Option<&Path> = Some(Path::new(env!("CARGO_MANIFEST_DIR")));
+        while let Some(p) = cur {
+            let cand = p.join("data");
+            if cand.is_dir() {
+                return Some(cand);
+            }
+            cur = p.parent();
+        }
+        None
+    }
+
+    /// Helper to gather all instance files matching the regex "^f\d+x\d+-\d+\.txt$".
+    fn get_instance_files() -> Vec<PathBuf> {
+        let dir = find_instances_dir().expect("Could not find 'data/' directory");
+
+        let re = Regex::new(r"^f\d+x\d+-\d+\.txt$").unwrap();
+
+        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+            .expect("Failed to read data directory")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|s| re.is_match(s))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        // Sort for deterministic benchmark order
+        files.sort();
+        files
+    }
+
+    fn find_feasible_solution(model: &Model<i64>) -> Solution<i64> {
+        let num_vessels = model.num_vessels();
+        let num_berths = model.num_berths();
+
+        let mut bnb_solver = BnbSolver::preallocated(num_berths, num_vessels);
+        let mut builder = EarliestDeadlineFirstBuilder::preallocated(num_berths, num_vessels);
+        let mut evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
+        let solution_limit_monitor = bollard_bnb::monitor::solution::SolutionLimitMonitor::new(1);
+
+        let params = BnbSearchParams {
+            model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: solution_limit_monitor,
+            fixed: None,
+        };
+
+        let outcome = bnb_solver.solve(params);
+
+        let res = outcome.result().unwrap_feasible();
+        res.clone()
+    }
+
+    fn load_instance(path: &str) -> Model<i64> {
+        let loader = ProblemLoader::new();
+        loader.from_path(path).unwrap()
+    }
+
+    #[ignore = "this test is to expensive to run"]
+    #[test]
+    fn test_first_instance_with_simulated_annealing_and_composite_monitor_arm_bandit() {
+        use crate::meta::simulated_annealing::{GeometricCooling, SimulatedAnnealing};
+
+        // 1. Get first instance path
+        let files = get_instance_files();
+        assert!(!files.is_empty(), "No instance files found in data/");
+        let first = &files[0];
+
+        // 2. Load model and find an initial feasible solution via BnB
+        let model = load_instance(first.to_str().unwrap());
+        let neighborhood = StaticTopology::from(&model);
+        let initial = find_feasible_solution(&model);
+
+        // 3. Build a simulated annealing metaheuristic with
+        //    high temperature & low cooling rate (slow cooling).
+        let rng = rand::rngs::StdRng::seed_from_u64(1234);
+        let cooling = GeometricCooling::new(
+            10_000.0, // high initial temperature
+            0.9999,   // low cooling rate (alpha close to 1.0 => slow cooling)
+            0.000001, // min temperature
+        );
+        let mut sa = SimulatedAnnealing::new(cooling, rng);
+
+        // 5. Build the rest of the local search components
+        let num_vessels = model.num_vessels();
+        let num_berths = model.num_berths();
+
+        let operators: Vec<Box<dyn LocalSearchOperator<i64, StaticTopology>>> = vec![
+            Box::new(SwapOperator::new()),
+            Box::new(ShiftOperator::new()),
+            Box::new(ScrambleOperator::new(rand::rngs::StdRng::seed_from_u64(32))),
+            Box::new(TwoOptOperator::new()),
+        ];
+
+        // Memory Coefficient (alpha = 0.8):
+        // A value close to 1.0 means the bandit "remembers" past success rates for a long time.
+        // 0.8 is a good balance, allowing the bandit to adapt if an operator stops performing
+        // well later in the search (e.g., swapping might be good early, but 2-opt better late).
+        let memory_coeff = 0.8;
+
+        // Exploration Coefficient (C = 1.0):
+        // This is the exploration constant in the UCB algorithm.
+        // 1.0 provides a balanced weight to the "uncertainty" term, ensuring operators
+        // that haven't been tried recently get a chance.
+        let exploration_coeff = 1.0;
+
+        let mut operator =
+            MultiArmedBanditCompoundOperator::new(operators, memory_coeff, exploration_coeff);
+
+        let mut composite = CompositeLocalSearchMonitor::with_capacity(2);
+        composite.add_monitor(LogLocalSearchMonitor::new(std::time::Duration::from_secs(
+            1,
+        )));
+        composite.add_monitor(TimeLimitMonitor::new(std::time::Duration::from_secs(60)));
+
+        let mut decoder = GreedyDecoder::preallocated(num_berths);
+        let params = LocalSearchParams {
+            model: &model,
+            decoder: &mut decoder,
+            neighborhood: &neighborhood,
+            operator: &mut operator,
+            metaheuristic: &mut sa,
+            monitor: composite,
+            initial_solution: &initial,
+        };
+
+        let mut engine = LocalSearchEngine::preallocated(num_vessels);
+        let outcome = engine.run(params);
+        println!("{}", outcome.solution().objective_value());
     }
 }

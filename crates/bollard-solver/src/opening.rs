@@ -49,7 +49,7 @@ where
         builder: &mut builder,
         evaluator: &mut evaluator,
         monitor: solution_limit_monitor,
-        fixed: &[],
+        fixed: None,
     };
 
     let outcome = bnb_solver.solve(params);
