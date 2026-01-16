@@ -414,7 +414,7 @@ mod tests {
         let accept_back = ts.should_accept(&model, &s_b, &s_a, &best);
         assert!(
             !accept_back,
-            "Tabu Search should prevent returning to Solution A"
+            "Tabu Search must not return to Solution A"
         );
     }
 
