@@ -136,7 +136,7 @@ where
         let index = vessel_index.get();
         debug_assert!(
             index < self.num_vessels(),
-            "called `Solution::berth_for_vessel` with vessel index out of bounds: the len is {} but the index is {}",
+            "called `Solution::berth_for_vessel_unchecked` with vessel index out of bounds: the len is {} but the index is {}",
             index,
             self.num_vessels()
         );
