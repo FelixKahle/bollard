@@ -412,10 +412,7 @@ mod tests {
         // A is in the Tabu List (from start). A is NOT better than Global Best (100 !< 100).
         // Result: REJECT.
         let accept_back = ts.should_accept(&model, &s_b, &s_a, &best);
-        assert!(
-            !accept_back,
-            "Tabu Search must not return to Solution A"
-        );
+        assert!(!accept_back, "Tabu Search must not return to Solution A");
     }
 
     #[test]
