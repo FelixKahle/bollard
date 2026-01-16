@@ -49,7 +49,7 @@ impl<T> LogLocalSearchMonitor<T>
 where
     T: std::fmt::Display + std::fmt::Debug + PrimInt + Signed,
 {
-    //// Default mask for clock checks to avoid excessive time checks.
+    /// Default mask for clock checks to avoid excessive time checks.
     /// This mask checks the clock every 512 steps.
     const DEFAULT_STEP_CLOCK_CHECK_MASK: u64 = 0x1FF; // 511 ≈ 512 steps
 
