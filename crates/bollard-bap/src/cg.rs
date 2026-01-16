@@ -69,9 +69,10 @@ impl ColumnGenerator {
             self.simplex.recompute_state();
 
             if self.simplex.phase() == OptimizationPhase::Feasibility
-                && self.simplex.try_transition_phase() {
-                    continue;
-                }
+                && self.simplex.try_transition_phase()
+            {
+                continue;
+            }
 
             let duals = self.simplex.duals();
             let is_phase_2 = self.simplex.phase() == OptimizationPhase::Optimality;
