@@ -50,7 +50,7 @@ fn bench_initialization(c: &mut Criterion) {
     let mut group = c.benchmark_group("Simplex Initialization");
 
     // Benchmark for different problem sizes (N vessels)
-    for size in [10, 100, 500, 1000].iter() {
+    for size in [10, 100, 200, 250, 500].iter() {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &n| {
             b.iter(|| {
                 // We perform a black_box to prevent the compiler from optimizing away the allocation

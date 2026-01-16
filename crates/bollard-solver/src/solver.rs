@@ -355,7 +355,8 @@ mod tests {
         meta::simulated_annealing::SimulatedAnnealing,
         operator::{
             compound::RoundRobinCompoundOperator, local_search_operator::LocalSearchOperator,
-            shift::ShiftOperator, swap::SwapOperator,
+            scramble::ScrambleOperator, shift::ShiftOperator, swap::SwapOperator,
+            two_opt::TwoOptOperator,
         },
         portfolio::LocalSearchPortfolioSolver,
     };
@@ -394,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_portfolio_solver() {
-        let model = build_model(2, 10);
+        let model = build_model(2, 12);
         let neighborhoods = StaticTopology::from(&model);
 
         let first_solver = BnbPortfolioSolver::new(
@@ -414,6 +415,8 @@ mod tests {
         let operators: Vec<Box<dyn LocalSearchOperator<IntegerType, StaticTopology>>> = vec![
             Box::new(SwapOperator::new()),
             Box::new(ShiftOperator::new()),
+            Box::new(TwoOptOperator::new()),
+            Box::new(ScrambleOperator::new(StdRng::from_os_rng())),
         ];
         let op = RoundRobinCompoundOperator::new(operators);
 
@@ -433,14 +436,14 @@ mod tests {
         println!("Solver statistics: {}", outcome.statistics());
         println!("{}", outcome.reason());
 
-        // Objective (Gurobi) = 855
+        // Objective (Gurobi) = 1019
         match outcome.result() {
             SolverResult::Infeasible => panic!("expected optimal solution, got infeasible"),
             SolverResult::Optimal(solution) => {
-                assert_eq!(solution.objective_value(), 855);
+                assert_eq!(solution.objective_value(), 1019);
             }
             SolverResult::Feasible(solution) => {
-                assert_eq!(solution.objective_value(), 855);
+                assert_eq!(solution.objective_value(), 1019);
             }
             SolverResult::Unknown => panic!("expected optimal solution, got unknown"),
         }

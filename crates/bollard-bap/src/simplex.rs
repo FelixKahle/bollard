@@ -47,7 +47,6 @@ pub struct SimplexOptimizer {
     /// The number of constraints (Rows), equivalent to the number of vessels.
     num_constraints: usize,
 
-    // --- Solver State (Private) ---
     /// The pool of ALL columns (variables) generated so far.
     columns: Vec<Column>,
 
@@ -63,7 +62,6 @@ pub struct SimplexOptimizer {
     /// The current phase of the Two-Phase Simplex method.
     phase: OptimizationPhase,
 
-    // --- Persistent Workspaces (Private Arena) ---
     /// The Basis Matrix workspace ($N \times N$).
     basis_matrix_workspace: Mat<f64>,
 
@@ -89,13 +87,13 @@ impl SimplexOptimizer {
         let mut columns = Vec::with_capacity(num_vessels);
         let mut basis = Vec::with_capacity(num_vessels);
 
-        // 1. Initialize with Artificial Columns (Identity Basis)
+        // Initialize with Artificial Columns (Identity Basis)
         for i in 0..num_vessels {
             columns.push(Column::new_artificial(i, num_vessels));
             basis.push(i);
         }
 
-        // 2. Compute Scratch Memory Requirements
+        // Compute Scratch Memory Requirements
         // Using Default::default() to let Rust infer the correct Spec type for params.
 
         let req_factor = factor::lu_in_place_scratch::<usize, f64>(
@@ -131,8 +129,6 @@ impl SimplexOptimizer {
             memory_buffer,
         }
     }
-
-    // --- Public Getters (Read-Only API) ---
 
     /// Returns the current Dual Values (Shadow Prices).
     /// Used by the Pricing Oracle to calculate reduced costs.
@@ -196,6 +192,8 @@ impl SimplexOptimizer {
         objective
     }
 
+    /// Iterates the active columns and their corresponding primal solution values.
+    #[inline(always)]
     pub fn iter_active_columns(&self) -> impl Iterator<Item = (&Column, f64)> + '_ {
         self.basis
             .iter()
@@ -241,7 +239,7 @@ impl SimplexOptimizer {
     pub fn recompute_state(&mut self) {
         let num_constraints = self.num_constraints;
 
-        // 1. Rebuild Dense Basis Matrix
+        // Rebuild Dense Basis Matrix
         self.basis_matrix_workspace.fill(0.0);
 
         for (basis_index, &basis_column_index) in self.basis.iter().enumerate() {
@@ -271,7 +269,7 @@ impl SimplexOptimizer {
             }
         }
 
-        // 2. LU Factorization (In-Place)
+        // LU Factorization (In-Place)
         {
             let stack = MemStack::new(&mut self.memory_buffer);
             factor::lu_in_place(
@@ -290,7 +288,7 @@ impl SimplexOptimizer {
             num_constraints,
         );
 
-        // 3. Solve Primal (B * x = 1)
+        // Solve Primal (B * x = 1)
         self.rhs_workspace.fill(1.0);
         {
             let stack = MemStack::new(&mut self.memory_buffer);
@@ -322,7 +320,7 @@ impl SimplexOptimizer {
             }
         }
 
-        // 4. Solve Dual (B^T * pi = c_B)
+        // Solve Dual (B^T * pi = c_B)
         self.rhs_workspace.copy_from(&self.basis_cost_workspace);
         {
             let stack = MemStack::new(&mut self.memory_buffer);
@@ -412,7 +410,7 @@ impl SimplexOptimizer {
     pub fn perform_pivot(&mut self, new_column: Column) -> bool {
         let num_constraints = self.num_constraints;
 
-        // 1. Construct Entering Vector (A_j) into workspace
+        // Construct Entering Vector (A_j) into workspace
         self.rhs_workspace.fill(0.0);
         for vessel_row_index in new_column.covered_vessels().ones() {
             debug_assert!(
@@ -426,7 +424,7 @@ impl SimplexOptimizer {
             self.rhs_workspace[(vessel_row_index, 0)] = 1.0;
         }
 
-        // 2. Solve for Direction d (B * d = A_j)
+        // Solve for Direction d (B * d = A_j)
         // Reuse LU factors from basis_matrix_workspace
         let permutation = PermRef::new_checked(
             &self.row_permutation,
@@ -446,7 +444,7 @@ impl SimplexOptimizer {
             );
         }
 
-        // 3. Ratio Test
+        // Ratio Test
         let mut minimum_theta = f64::MAX;
         let mut leaving_basis_index: Option<usize> = None;
 
