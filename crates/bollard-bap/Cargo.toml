@@ -19,18 +19,24 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-[workspace]
-members = [
-    "crates/bollard-bap",
-    "crates/bollard-bnb",
-    "crates/bollard-core",
-    "crates/bollard-model",
-    "crates/bollard-ffi",
-    "crates/bollard-search",
-    "crates/bollard-solver",
-    "crates/bollard-ls"
-]
-resolver = "3"
+[package]
+name = "bollard_bap"
+version = "0.1.0"
+edition.workspace = true
 
-[workspace.package]
-edition = "2024"
+[dependencies]
+bollard_core = { path = "../bollard-core" }
+bollard_model = { path = "../bollard-model" }
+bollard_search = { path = "../bollard-search" }
+num-traits = "0.2.19"
+fixedbitset = "0.5.7"
+tracing = "0.1.43"
+faer = "0.23.2"
+dyn-stack = "0.13.2"
+
+[dev-dependencies]
+criterion = "0.8.1"
+
+[[bench]]
+name = "simplex_benchmark"
+harness = false
