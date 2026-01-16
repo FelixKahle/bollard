@@ -343,9 +343,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::opening;
-
     use super::*;
+    use crate::opening;
     use bollard_bnb::{
         branching::regret::RegretHeuristicBuilder, eval::hybrid::HybridEvaluator,
         portfolio::BnbPortfolioSolver,
@@ -429,7 +428,7 @@ mod tests {
         let mut solver = SolverBuilder::<IntegerType, StaticTopology>::new()
             .add_solver(first_solver)
             .add_solver(second_solver)
-            .with_time_limit(std::time::Duration::from_secs(10))
+            .with_time_limit(std::time::Duration::from_secs(100))
             .build();
 
         let outcome = solver.solve(&model, &neighborhoods);

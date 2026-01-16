@@ -21,7 +21,6 @@
 
 [workspace]
 members = [
-    "crates/bollard-bap",
     "crates/bollard-bnb",
     "crates/bollard-core",
     "crates/bollard-model",
