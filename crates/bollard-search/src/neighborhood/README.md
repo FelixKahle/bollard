@@ -1,4 +1,4 @@
-# Neighborhoods in `bollard-ls`
+# Neighborhoods in `bollard-search`
 
 This module provides core abstractions and data structures for expressing vessel connectivity in local search. It is designed to be **model-agnostic**, focusing on hot-loop performance and predictable memory layout. Implementations expose contiguous slices for efficient iteration, suitable for rejection sampling and other inner-loop heuristics.
 
