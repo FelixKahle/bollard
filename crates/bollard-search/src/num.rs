@@ -45,6 +45,8 @@
 //!
 //! Note: `i128` is intentionally excluded for performance reasons.
 
+use std::hash::Hash;
+
 use bollard_core::num::{
     constants::{MinusOne, PlusOne, Zero},
     ops::{checked_arithmetic, saturating_arithmetic},
@@ -85,6 +87,7 @@ pub trait SolverNumeric:
     + checked_arithmetic::CheckedShrVal
     + Send
     + Sync
+    + Hash
 {
 }
 
@@ -113,5 +116,6 @@ impl<T> SolverNumeric for T where
         + checked_arithmetic::CheckedShrVal
         + Send
         + Sync
+        + Hash
 {
 }

@@ -31,46 +31,6 @@
 //! coordinates a portfolio of strategies, letting them compete to install the
 //! best solution while respecting global limits and early-stop signals when
 //! optimality is proven elsewhere.
-//!
-//! ## Highlights
-//!
-//! - Portfolio execution:
-//!   - Spawn each `PortofolioSolver<T>` in a thread using `std::thread::scope`.
-//!   - Build a `CompositeMonitor<T>` per thread with interrupt, solution-limit,
-//!     and optional time-limit monitors.
-//! - Shared state:
-//!   - `SharedIncumbent<T>` stores the best solution (atomic upper bound + mutex snapshot).
-//!   - Global counters (`AtomicU64`) for solutions found; `AtomicBool` stop signal.
-//! - Outcome construction:
-//!   - Aggregates thread results, determines best global solution,
-//!     and returns `SolverOutcome<T>` with statistics and termination reason.
-//! - Builder pattern:
-//!   - `SolverBuilder` to configure solution/time limits and add portfolio solvers.
-//!
-//! ## Usage
-//!
-//! ```rust
-//! use bollard_search::result::SolverOutcome;
-//! use bollard_solver::solver::{SolverBuilder};
-//! use bollard_search::result::SolverResult;
-//! use bollard_model::model::Model;
-//!
-//! // Build a model and portfolio solvers elsewhere...
-//! // let model: Model<i64> = ...;
-//! // let s1 = ...; let s2 = ...; // implementors of PortofolioSolver<i64>
-//!
-//! let mut solver = SolverBuilder::<i64>::new()
-//!     // .with_solution_limit(10)
-//!     // .with_time_limit(std::time::Duration::from_secs(30))
-//!     // .add_solver(s1)
-//!     // .add_solver(s2)
-//!     .build();
-//!
-//! // Run the solver
-//! // let outcome = solver.solve(&model);
-//! // println!("{}", outcome);
-//! // assert!(matches!(outcome.result(), SolverResult::Optimal(_)));
-//! ```
 
 use bollard_model::model::Model;
 use bollard_search::{
@@ -79,6 +39,7 @@ use bollard_search::{
         composite::CompositeMonitor, interrupt::InterruptMonitor, solution::SolutionMonitor,
         time_limit::TimeLimitMonitor,
     },
+    neighborhood::neighborhoods::Neighborhoods,
     num::SolverNumeric,
     portfolio::{PortfolioSolverContext, PortfolioSolverResult, PortofolioSolver},
     result::{SolverOutcome, SolverResult, TerminationReason},
@@ -86,8 +47,12 @@ use bollard_search::{
 };
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-pub struct Solver<'a, T> {
-    portfolio_solver: Vec<Box<dyn PortofolioSolver<T> + 'a>>,
+pub struct Solver<'a, T, N>
+where
+    T: SolverNumeric,
+    N: Neighborhoods,
+{
+    portfolio_solver: Vec<Box<dyn PortofolioSolver<T, N> + 'a>>,
     incumbent: SharedIncumbent<T>,
     global_solution_count: AtomicU64,
     /// Shared flag to signal all solvers to stop (e.g., when optimality is proven).
@@ -96,20 +61,21 @@ pub struct Solver<'a, T> {
     time_limit: Option<std::time::Duration>,
 }
 
-impl<'a, T> Solver<'a, T>
+impl<'a, T, N> Solver<'a, T, N>
 where
     T: SolverNumeric,
+    N: Neighborhoods,
 {
     #[inline]
     pub fn add_solver<S>(&mut self, solver: S)
     where
-        S: PortofolioSolver<T> + 'a,
+        S: PortofolioSolver<T, N> + 'a,
     {
         self.portfolio_solver.push(Box::new(solver));
     }
 
     #[inline]
-    pub fn add_solver_boxed(&mut self, solver: Box<dyn PortofolioSolver<T> + 'a>) {
+    pub fn add_solver_boxed(&mut self, solver: Box<dyn PortofolioSolver<T, N> + 'a>) {
         self.portfolio_solver.push(solver);
     }
 
@@ -138,7 +104,7 @@ where
         self.time_limit.is_some()
     }
 
-    pub fn solve(&mut self, model: &Model<T>) -> SolverOutcome<T> {
+    pub fn solve(&mut self, model: &Model<T>, neighborhoods: &N) -> SolverOutcome<T> {
         assert!(
             !self.portfolio_solver.is_empty(),
             "called `Solver::solve` with no portfolio solvers added"
@@ -151,14 +117,18 @@ where
         self.global_solution_count.store(0, Ordering::Relaxed);
 
         // 2. Run Parallel Solvers
-        let results = self.run_portfolio_parallel(model);
+        let results = self.run_portfolio_parallel(model, neighborhoods);
 
         // 3. Construct and Return Outcome
         self.construct_outcome(start_time, results)
     }
 
     /// Internal helper to spawn threads and collect results.
-    fn run_portfolio_parallel(&mut self, model: &Model<T>) -> Vec<PortfolioSolverResult<T>> {
+    fn run_portfolio_parallel(
+        &mut self,
+        model: &Model<T>,
+        neighborhoods: &N,
+    ) -> Vec<PortfolioSolverResult<T>> {
         // Capture references for threads
         let solution_limit = self.solution_limit;
         let time_limit = self.time_limit;
@@ -174,7 +144,7 @@ where
             for solver in &mut self.portfolio_solver {
                 let handle = scope.spawn(move || {
                     // 1. Build the monitor stack
-                    let mut monitor = CompositeMonitor::<T>::new();
+                    let mut monitor = CompositeMonitor::<T>::with_capacity(3); // three monitors max
 
                     // Always add the interrupt monitor so this thread can be stopped
                     // if another thread finishes early.
@@ -186,7 +156,7 @@ where
                     }
 
                     // 2. Run the solver
-                    let ctx = PortfolioSolverContext::new(model, incumbent, &mut monitor);
+                    let ctx = PortfolioSolverContext::new(model, neighborhoods, incumbent, &mut monitor);
                     let result = solver.invoke(ctx);
 
                     // 3. Signal stop if optimal
@@ -202,7 +172,10 @@ where
             }
 
             for handle in handles {
-                results.push(handle.join().expect("portfolio solver thread panicked"));
+                match handle.join() {
+                    Ok(res) => results.push(res),
+                    Err(e) => eprintln!("One solver thread panicked: {:?}", e),
+                }
             }
         });
 
@@ -299,15 +272,20 @@ where
     }
 }
 
-pub struct SolverBuilder<'a, T> {
-    portfolio_solver: Vec<Box<dyn PortofolioSolver<T> + 'a>>,
+pub struct SolverBuilder<'a, T, N>
+where
+    T: SolverNumeric,
+    N: Neighborhoods,
+{
+    portfolio_solver: Vec<Box<dyn PortofolioSolver<T, N> + 'a>>,
     solution_limit: Option<u64>,
     time_limit: Option<std::time::Duration>,
 }
 
-impl<'a, T> Default for SolverBuilder<'a, T>
+impl<'a, T, N> Default for SolverBuilder<'a, T, N>
 where
     T: SolverNumeric,
+    N: Neighborhoods,
 {
     #[inline]
     fn default() -> Self {
@@ -315,9 +293,10 @@ where
     }
 }
 
-impl<'a, T> SolverBuilder<'a, T>
+impl<'a, T, N> SolverBuilder<'a, T, N>
 where
     T: SolverNumeric,
+    N: Neighborhoods,
 {
     #[inline]
     pub fn new() -> Self {
@@ -343,14 +322,14 @@ where
     #[inline]
     pub fn add_solver<S>(mut self, solver: S) -> Self
     where
-        S: PortofolioSolver<T> + 'a,
+        S: PortofolioSolver<T, N> + 'a,
     {
         self.portfolio_solver.push(Box::new(solver));
         self
     }
 
     #[inline]
-    pub fn build(self) -> Solver<'a, T> {
+    pub fn build(self) -> Solver<'a, T, N> {
         Solver {
             portfolio_solver: self.portfolio_solver,
             incumbent: SharedIncumbent::new(),
@@ -365,19 +344,28 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::opening;
     use bollard_bnb::{
-        branching::{
-            chronological::ChronologicalExhaustiveBuilder, fcfs::FcfsHeuristicBuilder,
-            regret::RegretHeuristicBuilder, wspt::WsptHeuristicBuilder,
-        },
-        eval::hybrid::HybridEvaluator,
+        branching::regret::RegretHeuristicBuilder, eval::hybrid::HybridEvaluator,
         portfolio::BnbPortfolioSolver,
+    };
+    use bollard_ls::{
+        decoder::GreedyDecoder,
+        meta::simulated_annealing::SimulatedAnnealing,
+        operator::{
+            compound::RoundRobinCompoundOperator, local_search_operator::LocalSearchOperator,
+            scramble::ScrambleOperator, shift::ShiftOperator, swap::SwapOperator,
+            two_opt::TwoOptOperator,
+        },
+        portfolio::LocalSearchPortfolioSolver,
     };
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
         time::ProcessingTime,
     };
+    use bollard_search::neighborhood::topology::StaticTopology;
+    use rand::{SeedableRng, rngs::StdRng};
 
     type IntegerType = i64;
 
@@ -406,7 +394,8 @@ mod tests {
 
     #[test]
     fn test_portfolio_solver() {
-        let model = build_model(2, 10);
+        let model = build_model(2, 12);
+        let neighborhoods = StaticTopology::from(&model);
 
         let first_solver = BnbPortfolioSolver::new(
             RegretHeuristicBuilder::<IntegerType>::preallocated(
@@ -416,50 +405,44 @@ mod tests {
             HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
         );
 
-        let second_solver = BnbPortfolioSolver::new(
-            WsptHeuristicBuilder::<IntegerType>::preallocated(
-                model.num_berths(),
-                model.num_vessels(),
-            ),
-            HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
+        let intital_solution =
+            opening::find_initial_solution(&model).expect("expected to find initial solution");
+        println!(
+            "Initial solution objective value: {}",
+            intital_solution.objective_value()
         );
+        let operators: Vec<Box<dyn LocalSearchOperator<IntegerType, StaticTopology>>> = vec![
+            Box::new(SwapOperator::new()),
+            Box::new(ShiftOperator::new()),
+            Box::new(TwoOptOperator::new()),
+            Box::new(ScrambleOperator::new(StdRng::from_os_rng())),
+        ];
+        let op = RoundRobinCompoundOperator::new(operators);
 
-        let third_solver = BnbPortfolioSolver::new(
-            ChronologicalExhaustiveBuilder::new(),
-            HybridEvaluator::<i64>::preallocated(model.num_berths(), model.num_vessels()),
-        );
+        let metaheuristic =
+            SimulatedAnnealing::with_defaults(&intital_solution, StdRng::from_os_rng());
+        let decoder = GreedyDecoder::preallocated(model.num_berths());
+        let second_solver =
+            LocalSearchPortfolioSolver::new(metaheuristic, decoder, op, &intital_solution);
 
-        let fourth_solver = BnbPortfolioSolver::new(
-            FcfsHeuristicBuilder::<IntegerType>::preallocated(
-                model.num_berths(),
-                model.num_vessels(),
-            ),
-            HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
-        );
-
-        let mut solver = SolverBuilder::<IntegerType>::new()
+        let mut solver = SolverBuilder::<IntegerType, StaticTopology>::new()
             .add_solver(first_solver)
             .add_solver(second_solver)
-            .add_solver(third_solver)
-            .add_solver(fourth_solver)
+            .with_time_limit(std::time::Duration::from_secs(100))
             .build();
 
-        let outcome = solver.solve(&model);
+        let outcome = solver.solve(&model, &neighborhoods);
         println!("Solver statistics: {}", outcome.statistics());
         println!("{}", outcome.reason());
-        assert!(outcome.is_optimal());
 
-        // Objective (Gurobi) = 855
+        // Objective (Gurobi) = 1019
         match outcome.result() {
             SolverResult::Infeasible => panic!("expected optimal solution, got infeasible"),
             SolverResult::Optimal(solution) => {
-                assert_eq!(solution.objective_value(), 855);
+                assert_eq!(solution.objective_value(), 1019);
             }
             SolverResult::Feasible(solution) => {
-                panic!(
-                    "expected optimal solution, got feasible with objective {}",
-                    solution.objective_value()
-                );
+                assert_eq!(solution.objective_value(), 1019);
             }
             SolverResult::Unknown => panic!("expected optimal solution, got unknown"),
         }

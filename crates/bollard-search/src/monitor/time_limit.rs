@@ -59,7 +59,7 @@
 //! ```
 
 use crate::monitor::search_monitor::{SearchCommand, SearchMonitor};
-use bollard_model::model::Model;
+use bollard_model::{model::Model, solution::Solution};
 use num_traits::{PrimInt, Signed};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +129,8 @@ where
         }
         SearchCommand::Continue
     }
+
+    fn on_improvement_found(&mut self, _solution: &Solution<T>) {}
 }
 
 #[cfg(test)]

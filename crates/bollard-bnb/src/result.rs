@@ -44,11 +44,43 @@ use bollard_search::{
 };
 use num_traits::{PrimInt, Signed};
 
+/// The reason for the solver's termination.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BnbTerminationReason {
+    /// The solver found and proved optimality of a solution.
+    OptimalityProven,
+    /// The solver proved that the problem is infeasible.
+    InfeasibilityProven,
+    /// The solver aborted due to a search limit (time, iterations, etc.).
+    /// The string contains information about the reason for abortion.
+    Aborted(String),
+}
+
+impl std::fmt::Display for BnbTerminationReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BnbTerminationReason::OptimalityProven => write!(f, "Optimality Proven"),
+            BnbTerminationReason::InfeasibilityProven => write!(f, "Infeasibility Proven"),
+            BnbTerminationReason::Aborted(msg) => write!(f, "Aborted: {}", msg),
+        }
+    }
+}
+
+impl From<BnbTerminationReason> for TerminationReason {
+    fn from(val: BnbTerminationReason) -> Self {
+        match val {
+            BnbTerminationReason::OptimalityProven => TerminationReason::OptimalityProven,
+            BnbTerminationReason::InfeasibilityProven => TerminationReason::InfeasibilityProven,
+            BnbTerminationReason::Aborted(msg) => TerminationReason::Aborted(msg),
+        }
+    }
+}
+
 /// Result of the solver after termination.
 #[derive(Debug, Clone)]
 pub struct BnbSolverOutcome<T> {
     result: SolverResult<T>,
-    termination_reason: TerminationReason,
+    termination_reason: BnbTerminationReason,
     statistics: BnbSolverStatistics,
 }
 
@@ -58,7 +90,7 @@ impl<T> BnbSolverOutcome<T> {
     pub fn optimal(solution: Solution<T>, statistics: BnbSolverStatistics) -> Self {
         Self {
             result: SolverResult::Optimal(solution),
-            termination_reason: TerminationReason::OptimalityProven,
+            termination_reason: BnbTerminationReason::OptimalityProven,
             statistics,
         }
     }
@@ -68,7 +100,7 @@ impl<T> BnbSolverOutcome<T> {
     pub fn infeasible(statistics: BnbSolverStatistics) -> Self {
         Self {
             result: SolverResult::Infeasible,
-            termination_reason: TerminationReason::InfeasibilityProven,
+            termination_reason: BnbTerminationReason::InfeasibilityProven,
             statistics,
         }
     }
@@ -83,7 +115,7 @@ impl<T> BnbSolverOutcome<T> {
     where
         R: Into<String>,
     {
-        let termination_reason = TerminationReason::Aborted(reason.into());
+        let termination_reason = BnbTerminationReason::Aborted(reason.into());
 
         let result = match solution {
             Some(sol) => SolverResult::Feasible(sol),
@@ -105,7 +137,7 @@ impl<T> BnbSolverOutcome<T> {
 
     /// Returns the termination reason.
     #[inline]
-    pub fn termination_reason(&self) -> &TerminationReason {
+    pub fn termination_reason(&self) -> &BnbTerminationReason {
         &self.termination_reason
     }
 
@@ -113,6 +145,12 @@ impl<T> BnbSolverOutcome<T> {
     #[inline]
     pub fn statistics(&self) -> &BnbSolverStatistics {
         &self.statistics
+    }
+
+    /// Decomposes the outcome into its components.
+    #[inline]
+    pub fn into_inner(self) -> (SolverResult<T>, BnbTerminationReason, BnbSolverStatistics) {
+        (self.result, self.termination_reason, self.statistics)
     }
 }
 
@@ -122,7 +160,7 @@ where
 {
     fn from(val: BnbSolverOutcome<T>) -> Self {
         match val.termination_reason {
-            TerminationReason::OptimalityProven => {
+            BnbTerminationReason::OptimalityProven => {
                 assert!(
                     matches!(val.result, SolverResult::Optimal(_)),
                     "called `BnbSolverOutcome::into()` with inconsistent state: termination reason is OptimalityProven but result is not Optimal"
@@ -133,8 +171,8 @@ where
                     PortfolioSolverResult::infeasible()
                 }
             }
-            TerminationReason::InfeasibilityProven => PortfolioSolverResult::infeasible(),
-            TerminationReason::Aborted(reason) => match val.result {
+            BnbTerminationReason::InfeasibilityProven => PortfolioSolverResult::infeasible(),
+            BnbTerminationReason::Aborted(reason) => match val.result {
                 SolverResult::Feasible(solution) => {
                     PortfolioSolverResult::aborted(Some(solution), reason)
                 }
@@ -187,7 +225,7 @@ mod tests {
         // Construct an inconsistent outcome: termination says OptimalityProven, but result isn't Optimal.
         let inconsistent = BnbSolverOutcome::<I> {
             result: SolverResult::Infeasible,
-            termination_reason: TerminationReason::OptimalityProven,
+            termination_reason: BnbTerminationReason::OptimalityProven,
             statistics: stats(),
         };
         // This should panic due to the assert guarding the invariant.

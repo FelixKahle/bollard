@@ -42,10 +42,13 @@
 //! - Accessors expose the inner solver, builder, and evaluator for inspection.
 
 use crate::{
-    bnb::BnbSolver, branching::decision::DecisionBuilder, eval::evaluator::ObjectiveEvaluator,
+    bnb::{BnbSearchParams, BnbSolver},
+    branching::decision::DecisionBuilder,
+    eval::evaluator::ObjectiveEvaluator,
     monitor::wrapper::WrapperMonitor,
 };
 use bollard_search::{
+    neighborhood::neighborhoods::Neighborhoods,
     num::SolverNumeric,
     portfolio::{PortfolioSolverContext, PortfolioSolverResult, PortofolioSolver},
 };
@@ -142,21 +145,27 @@ where
     }
 }
 
-impl<T, B, E> PortofolioSolver<T> for BnbPortfolioSolver<T, B, E>
+impl<T, B, E, N> PortofolioSolver<T, N> for BnbPortfolioSolver<T, B, E>
 where
     T: SolverNumeric,
     B: DecisionBuilder<T, E> + Send + Sync,
     E: ObjectiveEvaluator<T> + Send + Sync,
+    N: Neighborhoods + Send + Sync,
 {
-    fn invoke<'a>(&mut self, context: PortfolioSolverContext<'a, T>) -> PortfolioSolverResult<T> {
+    fn invoke<'a>(
+        &mut self,
+        context: PortfolioSolverContext<'a, T, N>,
+    ) -> PortfolioSolverResult<T> {
         let monitor = WrapperMonitor::new(context.monitor);
-        let outcome = self.inner.solve_with_incumbent(
+
+        let params = BnbSearchParams::new(
             context.model,
             &mut self.decision_builder,
             &mut self.evaluator,
             monitor,
-            context.incumbent,
         );
+
+        let outcome = self.inner.solve_with_incumbent(params, context.incumbent);
 
         outcome.into()
     }
@@ -176,7 +185,10 @@ mod tests {
         model::ModelBuilder,
         time::ProcessingTime,
     };
-    use bollard_search::{monitor::search_monitor::DummyMonitor, result::SolverResult};
+    use bollard_search::{
+        monitor::search_monitor::DummyMonitor, neighborhood::topology::StaticTopology,
+        result::SolverResult,
+    };
 
     type IntegerType = i64;
 
@@ -213,6 +225,7 @@ mod tests {
     fn test_portfolio_bnb_solver_finds_optimal_solution() {
         // Build a non-trivial model
         let model = build_model(2, 10);
+        let neighborhoods = StaticTopology::from(&model);
 
         // Construct inner solver, builder, and evaluator
         let builder = ChronologicalExhaustiveBuilder::new();
@@ -232,7 +245,7 @@ mod tests {
         // Prepare portfolio context
         let incumbent = bollard_search::incumbent::SharedIncumbent::<IntegerType>::new();
         let mut monitor = DummyMonitor::new();
-        let context = PortfolioSolverContext::new(&model, &incumbent, &mut monitor);
+        let context = PortfolioSolverContext::new(&model, &neighborhoods, &incumbent, &mut monitor);
 
         // Invoke portfolio solver
         let result: PortfolioSolverResult<IntegerType> = portfolio_solver.invoke(context);

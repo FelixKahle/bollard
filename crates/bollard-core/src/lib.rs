@@ -38,6 +38,7 @@
 //! - `utils`: Core helpers such as phantom-tagged, strongly typed indices
 //!   (`TypedIndex<T>`), optional iterator wrapper (`MaybeIter<I>`), and
 //!   nominal typing (`Brand<'x>`).
+//! - `algorithm`: Common algorithms optimized for scheduling contexts.
 //!
 //! ## Purpose
 //!
@@ -47,6 +48,7 @@
 //!
 //! Refer to each module for detailed APIs and examples.
 
+pub mod algorithm;
 pub mod math;
 pub mod num;
 pub mod utils;

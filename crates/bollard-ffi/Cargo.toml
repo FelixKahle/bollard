@@ -32,6 +32,7 @@ bollard_core = { path = "../bollard-core" }
 bollard_model = { path = "../bollard-model" }
 bollard_bnb = { path = "../bollard-bnb" }
 bollard_search = { path = "../bollard-search" }
+bollard_ls = { path = "../bollard-ls" }
 num-traits = "0.2.19"
 libc = "0.2.178"
 paste = "1.0.15"

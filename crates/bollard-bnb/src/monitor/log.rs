@@ -37,7 +37,7 @@ use crate::{
     state::SearchState,
     stats::BnbSolverStatistics,
 };
-use bollard_model::model::Model;
+use bollard_model::{model::Model, solution::Solution};
 use num_traits::{PrimInt, Signed};
 use std::time::{Duration, Instant};
 
@@ -201,12 +201,11 @@ where
 
     fn on_backtrack(&mut self, _state: &SearchState<T>, _statistics: &BnbSolverStatistics) {}
 
-    fn on_solution_found(
-        &mut self,
-        solution: &bollard_model::solution::Solution<T>,
-        _statistics: &BnbSolverStatistics,
-    ) {
+    fn on_solution_found(&mut self, solution: &Solution<T>, _statistics: &BnbSolverStatistics) {
         let obj = solution.objective_value();
         self.best_objective = Some(obj);
+    }
+
+    fn on_improvement_found(&mut self, _solution: &Solution<T>, _statistics: &BnbSolverStatistics) {
     }
 }

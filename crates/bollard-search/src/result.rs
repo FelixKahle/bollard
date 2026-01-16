@@ -97,6 +97,14 @@ where
             _ => panic!("called `SolverResult::unwrap_optimal()` on a non-optimal result"),
         }
     }
+
+    #[inline]
+    pub fn unwrap_feasible(&self) -> &Solution<T> {
+        match self {
+            SolverResult::Feasible(sol) => sol,
+            _ => panic!("called `SolverResult::unwrap_feasible()` on a non-feasible result"),
+        }
+    }
 }
 
 /// The reason for the solver's termination.
@@ -106,6 +114,8 @@ pub enum TerminationReason {
     OptimalityProven,
     /// The solver proved that the problem is infeasible.
     InfeasibilityProven,
+    /// The solver converged to a point without global proof (e.g., local optimum or stationary point).
+    Converged(String),
     /// The solver aborted due to a search limit (time, iterations, etc.).
     /// The string contains information about the reason for abortion.
     Aborted(String),
@@ -116,7 +126,8 @@ impl std::fmt::Display for TerminationReason {
         match self {
             TerminationReason::OptimalityProven => write!(f, "Optimality Proven"),
             TerminationReason::InfeasibilityProven => write!(f, "Infeasibility Proven"),
-            TerminationReason::Aborted(index) => write!(f, "Aborted: {}", *index),
+            TerminationReason::Converged(msg) => write!(f, "Converged: {}", msg),
+            TerminationReason::Aborted(msg) => write!(f, "Aborted: {}", msg),
         }
     }
 }

@@ -43,6 +43,7 @@
 //! 3.  **Fail-Fast**: Builders and constructors validate inputs eagerly to ensure the solver never encounters an invalid state.
 
 pub mod index;
+pub mod loading;
 pub mod model;
 pub mod solution;
 pub mod time;

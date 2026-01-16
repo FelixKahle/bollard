@@ -44,7 +44,7 @@ use bollard_search::monitor::search_monitor::SearchCommand;
 use num_traits::{PrimInt, Signed};
 
 /// Reasons for pruning a search state.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PruneReason {
     /// The subtree is infeasible.
     Infeasible,
@@ -118,6 +118,8 @@ where
     fn on_backtrack(&mut self, state: &SearchState<T>, statistics: &BnbSolverStatistics);
     /// Called when a new solution is found.
     fn on_solution_found(&mut self, solution: &Solution<T>, statistics: &BnbSolverStatistics);
+    /// Called when an improved solution is found.
+    fn on_improvement_found(&mut self, solution: &Solution<T>, statistics: &BnbSolverStatistics);
 }
 
 impl<T> std::fmt::Debug for dyn TreeSearchMonitor<T>

@@ -80,6 +80,7 @@ use std::{
 ///
 /// # Invariants
 /// `start_inclusive` must always be less than or equal to `end_exclusive`.
+#[repr(C)] // Needed to ensure predictable memory layout for FFI
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClosedOpenInterval<T>
 where

@@ -78,6 +78,7 @@
 //!             .map(|r| SearchCommand::Terminate(r.clone()))
 //!             .unwrap_or(SearchCommand::Continue)
 //!     }
+//!    fn on_improvement_found(&mut self, _solution: &Solution<T>) {}
 //! }
 //! ```
 
@@ -110,6 +111,7 @@ where
     fn on_solution_found(&mut self, solution: &Solution<T>);
     fn on_step(&mut self);
     fn search_command(&self) -> SearchCommand;
+    fn on_improvement_found(&mut self, solution: &Solution<T>);
 }
 
 impl<T> std::fmt::Debug for dyn SearchMonitor<T>
@@ -176,4 +178,6 @@ where
     fn search_command(&self) -> SearchCommand {
         SearchCommand::Continue
     }
+
+    fn on_improvement_found(&mut self, _solution: &Solution<T>) {}
 }

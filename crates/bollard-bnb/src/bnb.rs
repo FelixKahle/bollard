@@ -44,7 +44,7 @@ use crate::{
     fixed::FixedAssignment,
     incumbent::{IncumbentStore, NoSharedIncumbent, SharedIncumbentAdapter},
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
-    result::BnbSolverOutcome,
+    result::{BnbSolverOutcome, BnbTerminationReason},
     stack::SearchStack,
     state::SearchState,
     stats::BnbSolverStatistics,
@@ -54,9 +54,58 @@ use bollard_model::index::{BerthIndex, VesselIndex};
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{
     incumbent::SharedIncumbent, monitor::search_monitor::SearchCommand, num::SolverNumeric,
-    result::TerminationReason,
 };
 use num_traits::{PrimInt, Signed};
+
+/// Parameters for a Branch-and-Bound solver run.
+pub struct BnbSearchParams<'a, T, B, E, S>
+where
+    T: SolverNumeric,
+{
+    pub model: &'a Model<T>,
+    pub builder: &'a mut B,
+    pub evaluator: &'a mut E,
+    pub monitor: S,
+    pub fixed: Option<&'a [FixedAssignment<T>]>,
+}
+
+impl<'a, T, B, E, S> BnbSearchParams<'a, T, B, E, S>
+where
+    T: SolverNumeric,
+{
+    #[inline]
+    pub fn new(model: &'a Model<T>, builder: &'a mut B, evaluator: &'a mut E, monitor: S) -> Self {
+        Self {
+            model,
+            builder,
+            evaluator,
+            monitor,
+            fixed: None,
+        }
+    }
+
+    #[inline]
+    pub fn with_fixed_assignments(
+        model: &'a Model<T>,
+        builder: &'a mut B,
+        evaluator: &'a mut E,
+        monitor: S,
+        fixed: &'a [FixedAssignment<T>],
+    ) -> Self {
+        Self {
+            model,
+            builder,
+            evaluator,
+            monitor,
+            fixed: Some(fixed),
+        }
+    }
+
+    #[inline]
+    pub fn has_fixed_assignments(&self) -> bool {
+        self.fixed.is_some()
+    }
+}
 
 /// A constraint branch and bound solver for the berth scheduling problem using
 /// a backtracking search algorithm with constraint propagation and bounding.
@@ -115,18 +164,12 @@ where
         }
     }
 
-    /// Solve the given model using the provided `DecisionBuilder`,
-    /// `ObjectiveEvaluator`, and `TreeSearchMonitor`.
+    /// Solve the given model using the provided parameters.
+    ///
     /// This variant does not use a shared incumbent and thus
     /// acts as a standalone, single threaded solver.
     #[inline]
-    pub fn solve<B, E, S>(
-        &mut self,
-        model: &Model<T>,
-        builder: &mut B,
-        evaluator: &mut E,
-        monitor: S,
-    ) -> BnbSolverOutcome<T>
+    pub fn solve<B, E, S>(&mut self, params: BnbSearchParams<T, B, E, S>) -> BnbSolverOutcome<T>
     where
         B: DecisionBuilder<T, E>,
         E: ObjectiveEvaluator<T>,
@@ -134,11 +177,11 @@ where
         T: SolverNumeric,
     {
         let backing = NoSharedIncumbent::new();
-        self.solve_internal(model, &[], builder, evaluator, monitor, backing)
+        self.solve_internal(params, backing)
     }
 
-    /// Solve the given model using the provided `DecisionBuilder`,
-    /// `ObjectiveEvaluator`, `TreeSearchMonitor`, and `SharedIncumbent`.
+    /// Solve the given model using the provided parameters and a `SharedIncumbent`.
+    ///
     /// This variant uses the shared incumbent to synchronize
     /// the best known solution between different solver instances.
     /// The branch and bound algorithm will use the incumbent
@@ -146,10 +189,7 @@ where
     #[inline]
     pub fn solve_with_incumbent<B, E, S>(
         &mut self,
-        model: &Model<T>,
-        builder: &mut B,
-        evaluator: &mut E,
-        monitor: S,
+        params: BnbSearchParams<T, B, E, S>,
         incumbent: &SharedIncumbent<T>,
     ) -> BnbSolverOutcome<T>
     where
@@ -159,59 +199,7 @@ where
         T: SolverNumeric,
     {
         let backing = SharedIncumbentAdapter::new(incumbent);
-        self.solve_internal(model, &[], builder, evaluator, monitor, backing)
-    }
-
-    /// Solve the given model using the provided `DecisionBuilder`,
-    /// `ObjectiveEvaluator`, `TreeSearchMonitor`, and fixed assignments.
-    ///
-    /// This variant does not use a shared incumbent and thus
-    /// acts as a standalone, single threaded solver.
-    #[inline]
-    pub fn solve_with_fixed<B, E, S>(
-        &mut self,
-        model: &Model<T>,
-        builder: &mut B,
-        evaluator: &mut E,
-        monitor: S,
-        fixed: &[FixedAssignment<T>],
-    ) -> BnbSolverOutcome<T>
-    where
-        B: DecisionBuilder<T, E>,
-        E: ObjectiveEvaluator<T>,
-        S: TreeSearchMonitor<T>,
-        T: SolverNumeric,
-    {
-        let backing = NoSharedIncumbent::new();
-        self.solve_internal(model, fixed, builder, evaluator, monitor, backing)
-    }
-
-    /// Solve the given model using the provided `DecisionBuilder`,
-    /// `ObjectiveEvaluator`, `TreeSearchMonitor`, fixed assignments,
-    /// and `SharedIncumbent`.
-    ///
-    /// This variant uses the shared incumbent to synchronize
-    /// the best known solution between different solver instances.
-    /// The branch and bound algorithm will use the incumbent
-    /// to prune branches that cannot improve upon the shared best solution.
-    #[inline]
-    pub fn solve_with_fixed_and_incumbent<B, E, S>(
-        &mut self,
-        model: &Model<T>,
-        builder: &mut B,
-        evaluator: &mut E,
-        monitor: S,
-        fixed: &[FixedAssignment<T>],
-        incumbent: &SharedIncumbent<T>,
-    ) -> BnbSolverOutcome<T>
-    where
-        B: DecisionBuilder<T, E>,
-        E: ObjectiveEvaluator<T>,
-        S: TreeSearchMonitor<T>,
-        T: SolverNumeric,
-    {
-        let backing = SharedIncumbentAdapter::new(incumbent);
-        self.solve_internal(model, fixed, builder, evaluator, monitor, backing)
+        self.solve_internal(params, backing)
     }
 
     /// Internal solve method that takes an `IncumbentStore`,
@@ -224,11 +212,7 @@ where
     #[inline(always)]
     fn solve_internal<B, E, S, I>(
         &mut self,
-        model: &Model<T>,
-        fixed: &[FixedAssignment<T>],
-        builder: &mut B,
-        evaluator: &mut E,
-        mut monitor: S,
+        params: BnbSearchParams<T, B, E, S>,
         backing: I,
     ) -> BnbSolverOutcome<T>
     where
@@ -238,16 +222,29 @@ where
         I: IncumbentStore<T>,
         T: SolverNumeric,
     {
+        let BnbSearchParams {
+            model,
+            builder,
+            evaluator,
+            mut monitor,
+            fixed,
+        } = params;
+
         debug_assert!(
             eval::validation::is_regular_evaluator_exhaustive(evaluator, model, 10_000),
             "ObjectiveEvaluator '{}' is not regular. Monotonicity violated.",
             evaluator.name()
         );
 
+        let fixed_assignments = match fixed {
+            Some(f) => f,
+            None => &[],
+        };
+
         let session = BnbSolverSearchSession::new(
             self,
             model,
-            fixed,
+            fixed_assignments,
             builder,
             evaluator,
             &mut monitor,
@@ -413,10 +410,10 @@ where
         if !self.initialize() {
             self.stats.set_total_time(self.start_time.elapsed());
             self.monitor.on_exit_search(&self.stats);
-            return self.finalize_result(TerminationReason::InfeasibilityProven);
+            return self.finalize_result(BnbTerminationReason::InfeasibilityProven);
         }
 
-        let termination_reason: TerminationReason = loop {
+        let termination_reason: BnbTerminationReason = loop {
             self.best_objective = self.incumbent.tighten(self.best_objective);
             self.monitor.on_step(&self.state, &self.stats);
             self.stats.on_step();
@@ -424,16 +421,16 @@ where
             if let SearchCommand::Terminate(msg) =
                 self.monitor.search_command(&self.state, &self.stats)
             {
-                break TerminationReason::Aborted(msg);
+                break BnbTerminationReason::Aborted(msg);
             }
 
             // Logic originally in step()
             if self.solver.stack.is_current_level_empty() {
                 if self.solver.stack.depth() <= 1 {
                     break if self.best_solution.is_some() {
-                        TerminationReason::OptimalityProven
+                        BnbTerminationReason::OptimalityProven
                     } else {
-                        TerminationReason::InfeasibilityProven
+                        BnbTerminationReason::InfeasibilityProven
                     };
                 }
                 self.backtrack_step();
@@ -456,17 +453,17 @@ where
     ///
     /// This consumes self.
     #[inline]
-    fn finalize_result(self, reason: TerminationReason) -> BnbSolverOutcome<T> {
+    fn finalize_result(self, reason: BnbTerminationReason) -> BnbSolverOutcome<T> {
         match reason {
-            TerminationReason::OptimalityProven => {
+            BnbTerminationReason::OptimalityProven => {
                 // Must have a solution when optimality is proven
                 let solution = self
                     .best_solution
                     .expect("expected an incumbent solution when termination is OptimalityProven");
                 BnbSolverOutcome::optimal(solution, self.stats)
             }
-            TerminationReason::InfeasibilityProven => BnbSolverOutcome::infeasible(self.stats),
-            TerminationReason::Aborted(msg) => {
+            BnbTerminationReason::InfeasibilityProven => BnbSolverOutcome::infeasible(self.stats),
+            BnbTerminationReason::Aborted(msg) => {
                 BnbSolverOutcome::aborted(self.best_solution, msg, self.stats)
             }
         }
@@ -706,6 +703,7 @@ where
                 self.incumbent.on_solution_found(&solution);
                 self.stats.on_solution_found();
                 self.monitor.on_solution_found(&solution, &self.stats);
+                self.monitor.on_improvement_found(&solution, &self.stats);
                 self.best_solution = Some(solution);
             } else {
                 self.stats.on_pruning_infeasible();
@@ -840,12 +838,13 @@ mod tests {
             HybridEvaluator::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
 
         // 1. Run the solver (timing is now handled internally in result.statistics)
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            LogTreeSearchMonitor::default(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: LogTreeSearchMonitor::default(),
+            fixed: None,
+        });
 
         // 2. Print the rich result (Outcome, Reason, Objective, Stats Table)
         // Print just the inner SolverResult summary
@@ -904,12 +903,13 @@ mod tests {
         );
 
         // Solve
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         // Unwrap solution from the inner result
         let solution = match outcome.result() {
@@ -950,12 +950,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         let solution = match outcome.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -999,12 +1000,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome1 = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome1 = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
         let sol1 = match outcome1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
             _ => panic!("first run should be feasible/optimal"),
@@ -1017,12 +1019,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome2 = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator2,
-            NoOperationMonitor::new(),
-        );
+        let outcome2 = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator2,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
         let sol2 = match outcome2.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
             _ => panic!("second run should be feasible/optimal"),
@@ -1057,10 +1060,13 @@ mod tests {
 
         // Solve with incumbent and no-op monitor
         let outcome = solver.solve_with_incumbent(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
+            BnbSearchParams {
+                model: &model,
+                builder: &mut builder,
+                evaluator: &mut evaluator,
+                monitor: NoOperationMonitor::new(),
+                fixed: None,
+            },
             &incumbent,
         );
 
@@ -1103,12 +1109,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         let solution = match outcome.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1190,12 +1197,13 @@ mod tests {
         );
 
         // Run a solve to exercise internals
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         let solution = match outcome.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1268,10 +1276,13 @@ mod tests {
 
         // Solve with incumbent; optimal 291 should overwrite 1000
         let outcome = solver.solve_with_incumbent(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
+            BnbSearchParams {
+                model: &model,
+                builder: &mut builder,
+                evaluator: &mut evaluator,
+                monitor: NoOperationMonitor::new(),
+                fixed: None,
+            },
             &incumbent,
         );
 
@@ -1303,12 +1314,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         let solution = match outcome.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1345,12 +1357,13 @@ mod tests {
                 model.num_vessels(),
             );
 
-            let outcome = solver.solve(
-                &model,
-                &mut builder,
-                &mut evaluator,
-                NoOperationMonitor::new(),
-            );
+            let outcome = solver.solve(BnbSearchParams {
+                model: &model,
+                builder: &mut builder,
+                evaluator: &mut evaluator,
+                monitor: NoOperationMonitor::new(),
+                fixed: None,
+            });
 
             let solution = match outcome.result() {
                 SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1403,12 +1416,13 @@ mod tests {
             model.num_berths(),
             model.num_vessels(),
         );
-        let outcome1 = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator1,
-            NoOperationMonitor::new(),
-        );
+        let outcome1 = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator1,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
         let sol1 = match outcome1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
             _ => panic!("first run should be feasible or optimal"),
@@ -1419,12 +1433,13 @@ mod tests {
             model.num_berths(),
             model.num_vessels(),
         );
-        let outcome2 = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator2,
-            NoOperationMonitor::new(),
-        );
+        let outcome2 = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator2,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
         let sol2 = match outcome2.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
             _ => panic!("second run should be feasible or optimal"),
@@ -1452,12 +1467,13 @@ mod tests {
                 model.num_vessels(),
             );
 
-            let outcome = solver.solve(
-                &model,
-                &mut builder,
-                &mut evaluator,
-                NoOperationMonitor::new(),
-            );
+            let outcome = solver.solve(BnbSearchParams {
+                model: &model,
+                builder: &mut builder,
+                evaluator: &mut evaluator,
+                monitor: NoOperationMonitor::new(),
+                fixed: None,
+            });
 
             let solution = match outcome.result() {
                 SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1517,10 +1533,13 @@ mod tests {
 
         // First solve installs the true optimum 291
         let outcome1 = solver.solve_with_incumbent(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
+            BnbSearchParams {
+                model: &model,
+                builder: &mut builder,
+                evaluator: &mut evaluator,
+                monitor: NoOperationMonitor::new(),
+                fixed: None,
+            },
             &incumbent,
         );
 
@@ -1548,10 +1567,13 @@ mod tests {
         );
 
         let outcome2 = solver.solve_with_incumbent(
-            &model,
-            &mut builder,
-            &mut evaluator2,
-            NoOperationMonitor::new(),
+            BnbSearchParams {
+                model: &model,
+                builder: &mut builder,
+                evaluator: &mut evaluator2,
+                monitor: NoOperationMonitor::new(),
+                fixed: None,
+            },
             &incumbent,
         );
 
@@ -1609,12 +1631,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         let solution = match outcome.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1654,12 +1677,13 @@ mod tests {
                 model.num_vessels(),
             );
 
-            let outcome = solver.solve(
-                &model,
-                &mut builder,
-                &mut evaluator,
-                NoOperationMonitor::new(),
-            );
+            let outcome = solver.solve(BnbSearchParams {
+                model: &model,
+                builder: &mut builder,
+                evaluator: &mut evaluator,
+                monitor: NoOperationMonitor::new(),
+                fixed: None,
+            });
 
             let solution = match outcome.result() {
                 SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1696,12 +1720,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         let solution = match outcome.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1751,12 +1776,13 @@ mod tests {
         let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut evaluator = WeightedFlowTimeEvaluator::default(); // simplistic
 
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         match outcome.result() {
             SolverResult::Infeasible => { /* Success */ }
@@ -1782,12 +1808,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome_cold = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator_cold,
-            NoOperationMonitor::new(),
-        );
+        let outcome_cold = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator_cold,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         // Extract the best solution from the cold run
         let best_sol = match outcome_cold.result() {
@@ -1817,10 +1844,13 @@ mod tests {
         );
 
         let outcome_warm = solver.solve_with_incumbent(
-            &model,
-            &mut builder,
-            &mut evaluator_warm,
-            NoOperationMonitor::new(),
+            BnbSearchParams {
+                model: &model,
+                builder: &mut builder,
+                evaluator: &mut evaluator_warm,
+                monitor: NoOperationMonitor::new(),
+                fixed: None,
+            },
             &incumbent,
         );
 
@@ -1906,10 +1936,13 @@ mod tests {
 
         // Solve with incumbent
         let outcome = solver.solve_with_incumbent(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
+            BnbSearchParams {
+                model: &model,
+                builder: &mut builder,
+                evaluator: &mut evaluator,
+                monitor: NoOperationMonitor::new(),
+                fixed: None,
+            },
             &incumbent,
         );
 
@@ -1953,12 +1986,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         // Extract the solution to ensure we solved the instance
         let solution = match outcome.result() {
@@ -2002,12 +2036,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome1 = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator1,
-            NoOperationMonitor::new(),
-        );
+        let outcome1 = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator1,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
         let baseline = match outcome1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.clone(),
             _ => panic!("expected feasible or optimal solution"),
@@ -2042,12 +2077,13 @@ mod tests {
             model_a.num_vessels(),
         );
 
-        let out_a = solver.solve(
-            &model_a,
-            &mut builder,
-            &mut evaluator_a,
-            NoOperationMonitor::new(),
-        );
+        let out_a = solver.solve(BnbSearchParams {
+            model: &model_a,
+            builder: &mut builder,
+            evaluator: &mut evaluator_a,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
         let sol_a = match out_a.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
             _ => panic!("expected solution for model A"),
@@ -2067,12 +2103,13 @@ mod tests {
             model_b.num_berths(),
             model_b.num_vessels(),
         );
-        let out_b = solver.solve(
-            &model_b,
-            &mut builder,
-            &mut evaluator_b,
-            NoOperationMonitor::new(),
-        );
+        let out_b = solver.solve(BnbSearchParams {
+            model: &model_b,
+            builder: &mut builder,
+            evaluator: &mut evaluator_b,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
 
         match out_b.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => {
@@ -2096,12 +2133,13 @@ mod tests {
             model.num_berths(),
             model.num_vessels(),
         );
-        let out1 = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator1,
-            NoOperationMonitor::new(),
-        );
+        let out1 = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator1,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
         let sol1 = match out1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.clone(),
             _ => panic!("first run should return a solution"),
@@ -2111,12 +2149,13 @@ mod tests {
             model.num_berths(),
             model.num_vessels(),
         );
-        let out2 = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator2,
-            NoOperationMonitor::new(),
-        );
+        let out2 = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator2,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
         let sol2 = match out2.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.clone(),
             _ => panic!("second run should return a solution"),
@@ -2185,12 +2224,13 @@ mod tests {
             model.num_vessels(),
         );
 
-        let outcome = solver.solve(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: None,
+        });
         let solution = outcome.result().unwrap_optimal();
 
         assert_eq!(
@@ -2239,13 +2279,13 @@ mod tests {
             FixedAssignment::new(3, BerthIndex::new(1), VesselIndex::new(1)),
         ];
 
-        let outcome = solver.solve_with_fixed(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-            &fixed,
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: Some(&fixed),
+        });
         let solution = outcome.result().unwrap_optimal();
 
         assert_eq!(
@@ -2273,13 +2313,13 @@ mod tests {
             FixedAssignment::new(10, BerthIndex::new(1), VesselIndex::new(1)),
         ];
 
-        let outcome = solver.solve_with_fixed(
-            &model,
-            &mut builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-            &fixed,
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: Some(&fixed),
+        });
         let solution = outcome.result().unwrap_optimal();
 
         assert_eq!(
@@ -2325,13 +2365,13 @@ mod tests {
         let mut evaluator = HybridEvaluator::<IntegerType>::preallocated(2, 1);
         let mut decision_builder = RegretHeuristicBuilder::preallocated(2, 1);
 
-        let outcome = solver.solve_with_fixed(
-            &model,
-            &mut decision_builder,
-            &mut evaluator,
-            NoOperationMonitor::new(),
-            &fixed,
-        );
+        let outcome = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut decision_builder,
+            evaluator: &mut evaluator,
+            monitor: NoOperationMonitor::new(),
+            fixed: Some(&fixed),
+        });
 
         match outcome.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => {

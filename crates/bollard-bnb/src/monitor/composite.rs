@@ -215,7 +215,7 @@ where
         statistics: &BnbSolverStatistics,
     ) {
         for monitor in &mut self.monitors {
-            monitor.on_prune(state, reason.clone(), statistics);
+            monitor.on_prune(state, reason, statistics);
         }
     }
 
@@ -254,6 +254,12 @@ where
     fn on_backtrack(&mut self, state: &SearchState<T>, statistics: &BnbSolverStatistics) {
         for monitor in &mut self.monitors {
             monitor.on_backtrack(state, statistics);
+        }
+    }
+
+    fn on_improvement_found(&mut self, solution: &Solution<T>, statistics: &BnbSolverStatistics) {
+        for monitor in &mut self.monitors {
+            monitor.on_improvement_found(solution, statistics);
         }
     }
 }

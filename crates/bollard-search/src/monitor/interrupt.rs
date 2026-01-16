@@ -101,6 +101,8 @@ where
             SearchCommand::Continue
         }
     }
+
+    fn on_improvement_found(&mut self, _solution: &Solution<T>) {}
 }
 
 #[cfg(test)]

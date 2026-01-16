@@ -30,7 +30,7 @@ The crate is organized into three primary modules:
 * **`iter`**: Iterator wrappers like `MaybeIter<I>`.
 * **`marker`**: Marker types such as `Brand<'x>`.
 
-
+4. **`algorithm`**: Common algorithms.
 
 ## Quick Start
 

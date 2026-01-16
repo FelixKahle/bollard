@@ -56,7 +56,7 @@ impl<'a, T> WrapperMonitor<'a, T> {
     where
         T: PrimInt + Signed,
     {
-        let name = format!("WrapperMonitor({})", inner.name());
+        let name = format!("TreeSearchWrapperMonitor({})", inner.name());
         Self { inner, name }
     }
 }
@@ -137,5 +137,9 @@ where
         _count: usize,
         _statistics: &BnbSolverStatistics,
     ) {
+    }
+
+    fn on_improvement_found(&mut self, solution: &Solution<T>, _statistics: &BnbSolverStatistics) {
+        self.inner.on_improvement_found(solution);
     }
 }

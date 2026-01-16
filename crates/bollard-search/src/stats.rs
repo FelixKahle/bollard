@@ -74,8 +74,8 @@ impl std::fmt::Display for SolverStatistics {
         writeln!(f, "   Used Threads: {}", self.used_threads)?;
         writeln!(
             f,
-            "   Solve Duration (secs): {:.3}",
-            self.solve_duration.as_secs_f64()
+            "   Solve Duration (ms): {:.3}",
+            self.solve_duration.as_millis()
         )
     }
 }
@@ -179,7 +179,7 @@ mod tests {
         // Duration line should be formatted to three decimals
         // 1.2345 rounded to 1.235
         assert!(
-            rendered.contains("Solve Duration (secs): 1.234"),
+            rendered.contains("Solve Duration (ms): 1234"),
             "duration not formatted to 3 decimals"
         );
     }
@@ -196,6 +196,6 @@ mod tests {
 
         assert!(rendered.contains("Solutions Found: 0"));
         assert!(rendered.contains("Used Threads: 1"));
-        assert!(rendered.contains("Solve Duration (secs): 0.000"));
+        assert!(rendered.contains("Solve Duration (ms): 0"));
     }
 }

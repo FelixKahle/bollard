@@ -136,4 +136,7 @@ where
         _statistics: &BnbSolverStatistics,
     ) {
     }
+
+    fn on_improvement_found(&mut self, _solution: &Solution<T>, _statistics: &BnbSolverStatistics) {
+    }
 }
