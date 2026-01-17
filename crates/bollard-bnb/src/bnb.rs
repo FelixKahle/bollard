@@ -44,7 +44,7 @@ use crate::{
     fixed::FixedAssignment,
     incumbent::{IncumbentStore, NoSharedIncumbent, SharedIncumbentAdapter},
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
-    params::{self, BnbSearchParams},
+    params::BnbSearchParams,
     result::{BnbSolverOutcome, BnbTerminationReason},
     stack::SearchStack,
     state::SearchState,
@@ -174,15 +174,6 @@ where
         T: SolverNumeric,
     {
         let (model, builder, evaluator, mut monitor, fixed, initial_solution) = params.into_inner();
-
-        if let (Some(f), Some(s)) = (fixed, initial_solution) {
-            assert!(
-                params::validate_fixed_solution(f, s).is_ok(),
-                "called `BnbSolver::solve_internal` with inconsistent `fixed` assignments and \
-            initial solution: the initial solution must respect all fixed assignments (berth and start_time \
-            for every fixed vessel)"
-            )
-        };
 
         debug_assert!(
             eval::validation::is_regular_evaluator_exhaustive(evaluator, model, 10_000),
