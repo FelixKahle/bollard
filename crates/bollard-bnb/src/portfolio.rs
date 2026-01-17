@@ -42,10 +42,8 @@
 //! - Accessors expose the inner solver, builder, and evaluator for inspection.
 
 use crate::{
-    bnb::{BnbSearchParams, BnbSolver},
-    branching::decision::DecisionBuilder,
-    eval::evaluator::ObjectiveEvaluator,
-    monitor::wrapper::WrapperMonitor,
+    bnb::BnbSolver, branching::decision::DecisionBuilder, eval::evaluator::ObjectiveEvaluator,
+    monitor::wrapper::WrapperMonitor, params::BnbSearchParams,
 };
 use bollard_search::{
     neighborhood::neighborhoods::Neighborhoods,

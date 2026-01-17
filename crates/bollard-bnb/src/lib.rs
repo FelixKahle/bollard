@@ -61,6 +61,7 @@ pub mod eval;
 pub mod fixed;
 mod incumbent;
 pub mod monitor;
+pub mod params;
 pub mod portfolio;
 pub mod result;
 mod stack;

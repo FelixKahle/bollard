@@ -19,10 +19,11 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use bollard_bnb::bnb::{BnbSearchParams, BnbSolver};
+use bollard_bnb::bnb::BnbSolver;
 use bollard_bnb::branching::edf::EarliestDeadlineFirstBuilder;
 use bollard_bnb::eval::hybrid::HybridEvaluator;
 use bollard_bnb::monitor::solution::SolutionLimitMonitor;
+use bollard_bnb::params::BnbSearchParams;
 use bollard_ls::decoder::{Decoder, GreedyDecoder};
 use bollard_ls::eval::wft::WeightedFlowTimeEvaluator;
 use bollard_ls::memory::SearchMemory;

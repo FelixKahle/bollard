@@ -406,9 +406,8 @@ mod tests {
         result::LocalSearchTerminationReason,
     };
     use bollard_bnb::{
-        bnb::{BnbSearchParams, BnbSolver},
-        branching::edf::EarliestDeadlineFirstBuilder,
-        eval::hybrid::HybridEvaluator,
+        bnb::BnbSolver, branching::edf::EarliestDeadlineFirstBuilder,
+        eval::hybrid::HybridEvaluator, params::BnbSearchParams,
     };
     use bollard_model::{
         index::{BerthIndex, VesselIndex},

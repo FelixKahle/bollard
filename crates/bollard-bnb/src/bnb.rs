@@ -44,6 +44,7 @@ use crate::{
     fixed::FixedAssignment,
     incumbent::{IncumbentStore, NoSharedIncumbent, SharedIncumbentAdapter},
     monitor::tree_search_monitor::{PruneReason, TreeSearchMonitor},
+    params::{self, BnbSearchParams},
     result::{BnbSolverOutcome, BnbTerminationReason},
     stack::SearchStack,
     state::SearchState,
@@ -56,59 +57,6 @@ use bollard_search::{
     incumbent::SharedIncumbent, monitor::search_monitor::SearchCommand, num::SolverNumeric,
 };
 use num_traits::{PrimInt, Signed};
-
-/// Parameters for a Branch-and-Bound solver run.
-pub struct BnbSearchParams<'a, T, B, E, S>
-where
-    T: SolverNumeric,
-{
-    pub model: &'a Model<T>,
-    pub builder: &'a mut B,
-    pub evaluator: &'a mut E,
-    pub monitor: S,
-    pub fixed: Option<&'a [FixedAssignment<T>]>,
-    pub initial_solution: Option<&'a Solution<T>>,
-}
-
-impl<'a, T, B, E, S> BnbSearchParams<'a, T, B, E, S>
-where
-    T: SolverNumeric,
-{
-    #[inline]
-    pub fn new(model: &'a Model<T>, builder: &'a mut B, evaluator: &'a mut E, monitor: S) -> Self {
-        Self {
-            model,
-            builder,
-            evaluator,
-            monitor,
-            fixed: None,
-            initial_solution: None,
-        }
-    }
-
-    #[inline]
-    pub fn with_fixed_assignments(
-        model: &'a Model<T>,
-        builder: &'a mut B,
-        evaluator: &'a mut E,
-        monitor: S,
-        fixed: &'a [FixedAssignment<T>],
-    ) -> Self {
-        Self {
-            model,
-            builder,
-            evaluator,
-            monitor,
-            fixed: Some(fixed),
-            initial_solution: None,
-        }
-    }
-
-    #[inline]
-    pub fn has_fixed_assignments(&self) -> bool {
-        self.fixed.is_some()
-    }
-}
 
 /// A constraint branch and bound solver for the berth scheduling problem using
 /// a backtracking search algorithm with constraint propagation and bounding.
@@ -233,6 +181,15 @@ where
             fixed,
             initial_solution,
         } = params;
+
+        if let (Some(f), Some(s)) = (fixed, initial_solution) {
+            assert!(
+                params::validate_fixed_solution(f, s).is_ok(),
+                "called `BnbSolver::solve_internal` with inconsistent `fixed` assignments and \
+            initial solution: the initial solution must respect all fixed assignments (berth and start_time \
+            for every fixed vessel)"
+            )
+        };
 
         debug_assert!(
             eval::validation::is_regular_evaluator_exhaustive(evaluator, model, 10_000),

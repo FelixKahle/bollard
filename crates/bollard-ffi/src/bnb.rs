@@ -21,7 +21,7 @@
 
 use crate::result::BollardFfiSolverResult;
 use bollard_bnb::{
-    bnb::{BnbSearchParams, BnbSolver},
+    bnb::BnbSolver,
     branching::{
         chronological::ChronologicalExhaustiveBuilder, decision::DecisionBuilder,
         edf::EarliestDeadlineFirstBuilder, fcfs::FcfsHeuristicBuilder, lpt::LptHeuristicBuilder,
@@ -37,6 +37,7 @@ use bollard_bnb::{
         composite::CompositeTreeSearchMonitor, log::LogTreeSearchMonitor,
         solution::SolutionLimitMonitor, time::TimeLimitMonitor,
     },
+    params::BnbSearchParams,
     result::BnbSolverOutcome,
     stats::BnbSolverStatistics,
 };

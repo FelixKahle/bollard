@@ -20,10 +20,8 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bollard_bnb::{
-    bnb::{BnbSearchParams, BnbSolver},
-    branching::edf::EarliestDeadlineFirstBuilder,
-    eval::hybrid::HybridEvaluator,
-    monitor::solution::SolutionLimitMonitor,
+    bnb::BnbSolver, branching::edf::EarliestDeadlineFirstBuilder, eval::hybrid::HybridEvaluator,
+    monitor::solution::SolutionLimitMonitor, params::BnbSearchParams,
 };
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::num::SolverNumeric;
