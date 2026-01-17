@@ -91,6 +91,14 @@ where
     }
 
     #[inline]
+    pub fn unwrap(&self) -> &Solution<T> {
+        match self {
+            SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
+            _ => panic!("called `SolverResult::unwrap()` on a result without a solution"),
+        }
+    }
+
+    #[inline]
     pub fn unwrap_optimal(&self) -> &Solution<T> {
         match self {
             SolverResult::Optimal(sol) => sol,

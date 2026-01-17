@@ -21,7 +21,7 @@
 
 use crate::result::BollardFfiSolverResult;
 use bollard_bnb::{
-    bnb::{BnbSearchParams, BnbSolver},
+    bnb::BnbSolver,
     branching::{
         chronological::ChronologicalExhaustiveBuilder, decision::DecisionBuilder,
         edf::EarliestDeadlineFirstBuilder, fcfs::FcfsHeuristicBuilder, lpt::LptHeuristicBuilder,
@@ -37,6 +37,7 @@ use bollard_bnb::{
         composite::CompositeTreeSearchMonitor, log::LogTreeSearchMonitor,
         solution::SolutionLimitMonitor, time::TimeLimitMonitor,
     },
+    params::BnbSearchParams,
     result::BnbSolverOutcome,
     stats::BnbSolverStatistics,
 };
@@ -731,13 +732,10 @@ where
         monitor.add_monitor(LogTreeSearchMonitor::default());
     }
 
-    let params = BnbSearchParams {
-        model,
-        builder: &mut builder,
-        evaluator: &mut evaluator,
-        monitor,
-        fixed: Some(fixed_assignments),
-    };
+    let params = BnbSearchParams::builder(model, &mut builder, &mut evaluator, monitor)
+        .with_fixed_assignments(fixed_assignments)
+        .build()
+        .unwrap();
 
     solver.solve(params)
 }

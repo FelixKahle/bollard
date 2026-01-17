@@ -20,10 +20,8 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bollard_bnb::{
-    bnb::{BnbSearchParams, BnbSolver},
-    branching::edf::EarliestDeadlineFirstBuilder,
-    eval::hybrid::HybridEvaluator,
-    monitor::solution::SolutionLimitMonitor,
+    bnb::BnbSolver, branching::edf::EarliestDeadlineFirstBuilder, eval::hybrid::HybridEvaluator,
+    monitor::solution::SolutionLimitMonitor, params::BnbSearchParams,
 };
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::num::SolverNumeric;
@@ -44,13 +42,10 @@ where
     let mut evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
     let solution_limit_monitor = SolutionLimitMonitor::new(1);
 
-    let params = BnbSearchParams {
-        model,
-        builder: &mut builder,
-        evaluator: &mut evaluator,
-        monitor: solution_limit_monitor,
-        fixed: None,
-    };
+    // We don't use any solution nor fixed assignments
+    let params =
+        BnbSearchParams::builder(model, &mut builder, &mut evaluator, solution_limit_monitor)
+            .build_unchecked();
 
     let outcome = bnb_solver.solve(params);
 

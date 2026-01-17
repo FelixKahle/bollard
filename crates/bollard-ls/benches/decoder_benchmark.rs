@@ -19,10 +19,11 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use bollard_bnb::bnb::{BnbSearchParams, BnbSolver};
+use bollard_bnb::bnb::BnbSolver;
 use bollard_bnb::branching::edf::EarliestDeadlineFirstBuilder;
 use bollard_bnb::eval::hybrid::HybridEvaluator;
 use bollard_bnb::monitor::solution::SolutionLimitMonitor;
+use bollard_bnb::params::BnbSearchParams;
 use bollard_ls::decoder::{Decoder, GreedyDecoder};
 use bollard_ls::eval::wft::WeightedFlowTimeEvaluator;
 use bollard_ls::memory::SearchMemory;
@@ -89,13 +90,10 @@ fn find_feasible_solution(model: &Model<i64>) -> Solution<i64> {
     let mut evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
     let solution_limit_monitor = SolutionLimitMonitor::new(1);
 
-    let params = BnbSearchParams {
-        model,
-        builder: &mut builder,
-        evaluator: &mut evaluator,
-        monitor: solution_limit_monitor,
-        fixed: None,
-    };
+    let params =
+        BnbSearchParams::builder(model, &mut builder, &mut evaluator, solution_limit_monitor)
+            .build()
+            .unwrap();
 
     let outcome = bnb_solver.solve(params);
 
