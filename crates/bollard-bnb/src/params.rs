@@ -173,8 +173,8 @@ where
 /// create a [`BnbSearchParamsBuilder`], configure your parameters, and call `.build()`.
 ///
 /// The `.build()` method ensures that the configuration is valid (e.g., that
-/// the initial solution respects fixed assignments) and panics with a descriptive
-/// message if it is not.
+/// the initial solution respects fixed assignments). If validation fails, it
+/// returns an [`Err`] with a descriptive error explaining the problem.
 pub struct BnbSearchParams<'a, T, B, E, S>
 where
     T: SolverNumeric,
