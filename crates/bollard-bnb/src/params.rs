@@ -237,6 +237,17 @@ where
         })
     }
 
+    /// Consumes the builder and produces a [`BnbSearchParams`] object without validating
+    /// consistency between fixed assignments and the initial solution.
+    ///
+    /// This is useful when the caller has already performed the necessary checks or when
+    /// neither fixed assignments nor an initial solution are provided.
+    ///
+    /// # Safety
+    ///
+    /// It is the caller's responsibility to ensure that any fixed assignments are compatible
+    /// with the initial solution. If they are inconsistent, the solver may behave incorrectly,
+    /// fail to find feasible solutions, or panic at runtime.
     pub fn build_unchecked(self) -> BnbSearchParams<'a, T, B, E, S> {
         BnbSearchParams {
             model: self.model,
