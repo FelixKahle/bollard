@@ -748,6 +748,7 @@ mod tests {
     use super::*;
     use crate::branching::edf::EarliestDeadlineFirstBuilder;
     use crate::branching::regret::RegretHeuristicBuilder;
+    use crate::branching::wspt::WsptHeuristicBuilder;
     use crate::eval::hybrid::HybridEvaluator;
     use crate::eval::wtft::WeightedFlowTimeEvaluator;
     use crate::monitor::no_op::NoOperationMonitor;
@@ -826,8 +827,13 @@ mod tests {
 
         let initial = solver.solve(params);
 
+        println!(
+            "Initial solution {}",
+            initial.result().unwrap().objective_value()
+        );
+
         let mut builder =
-            RegretHeuristicBuilder::preallocated(model.num_berths(), model.num_vessels());
+            WsptHeuristicBuilder::preallocated(model.num_berths(), model.num_vessels());
 
         // Run the solver using the params builder with an initial solution
         let outcome = solver.solve(

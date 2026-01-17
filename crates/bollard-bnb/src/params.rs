@@ -27,10 +27,6 @@ use bollard_model::{
 };
 use bollard_search::num::SolverNumeric;
 
-// ============================================================================
-//  Error Types & Validation Logic (Unchanged)
-// ============================================================================
-
 /// Error: a fixed vessel index is not present in a solution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MissingVesselInSolutionError {
@@ -168,10 +164,6 @@ where
 
     Ok(())
 }
-
-// ============================================================================
-//  Parameters & Builder Pattern
-// ============================================================================
 
 /// Parameters for a Branch-and-Bound solver run.
 ///
