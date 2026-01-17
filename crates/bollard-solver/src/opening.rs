@@ -50,6 +50,7 @@ where
         evaluator: &mut evaluator,
         monitor: solution_limit_monitor,
         fixed: None,
+        initial_solution: None,
     };
 
     let outcome = bnb_solver.solve(params);

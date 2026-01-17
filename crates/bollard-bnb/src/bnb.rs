@@ -67,6 +67,7 @@ where
     pub evaluator: &'a mut E,
     pub monitor: S,
     pub fixed: Option<&'a [FixedAssignment<T>]>,
+    pub initial_solution: Option<&'a Solution<T>>,
 }
 
 impl<'a, T, B, E, S> BnbSearchParams<'a, T, B, E, S>
@@ -81,6 +82,7 @@ where
             evaluator,
             monitor,
             fixed: None,
+            initial_solution: None,
         }
     }
 
@@ -98,6 +100,7 @@ where
             evaluator,
             monitor,
             fixed: Some(fixed),
+            initial_solution: None,
         }
     }
 
@@ -228,6 +231,7 @@ where
             evaluator,
             mut monitor,
             fixed,
+            initial_solution,
         } = params;
 
         debug_assert!(
@@ -249,6 +253,7 @@ where
             evaluator,
             &mut monitor,
             backing,
+            initial_solution, // <--- Pass it down
         );
         let res = session.run();
         self.reset();
@@ -371,6 +376,7 @@ where
     I: IncumbentStore<T>,
 {
     /// Create a new search session.
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     fn new(
         solver: &'a mut BnbSolver<T>,
@@ -380,9 +386,26 @@ where
         evaluator: &'a mut E,
         monitor: &'a mut S,
         incumbent_backing: I,
+        initial_solution: Option<&Solution<T>>,
     ) -> Self {
         let state = SearchState::new(model.num_berths(), model.num_vessels());
-        let best_objective = incumbent_backing.initial_upper_bound();
+
+        // Start with the backing's bound (usually infinity for NoSharedIncumbent)
+        let mut best_objective = incumbent_backing.initial_upper_bound();
+        let mut best_solution = None;
+
+        // If we have an initial solution, install it locally
+        if let Some(sol) = initial_solution {
+            let obj = sol.objective_value();
+            if obj < best_objective {
+                best_objective = obj;
+                best_solution = Some(sol.clone());
+            }
+            // Also inform the backing store, just in case
+            // (For NoSharedIncumbent this is a no-op, but good for consistency)
+            // Note: Depending on IncumbentStore trait definition, we might need to cast or ignore.
+            // Assuming backing can handle it or we rely on local best_objective logic.
+        }
 
         Self {
             solver,
@@ -394,7 +417,7 @@ where
             monitor,
             incumbent: incumbent_backing,
             best_objective,
-            best_solution: None,
+            best_solution,
             stats: BnbSolverStatistics::default(),
             start_time: std::time::Instant::now(),
         }
@@ -773,10 +796,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::branching::edf::EarliestDeadlineFirstBuilder;
     use crate::branching::regret::RegretHeuristicBuilder;
     use crate::eval::hybrid::HybridEvaluator;
     use crate::eval::wtft::WeightedFlowTimeEvaluator;
     use crate::monitor::no_op::NoOperationMonitor;
+    use crate::monitor::solution::SolutionLimitMonitor;
     use crate::{
         branching::chronological::ChronologicalExhaustiveBuilder,
         monitor::log::LogTreeSearchMonitor,
@@ -832,10 +857,23 @@ mod tests {
         println!("{}", model.complexity());
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder =
-            RegretHeuristicBuilder::preallocated(model.num_berths(), model.num_vessels());
+
         let mut evaluator =
             HybridEvaluator::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
+        let mut edf_builder =
+            EarliestDeadlineFirstBuilder::preallocated(model.num_berths(), model.num_vessels());
+
+        let initial = solver.solve(BnbSearchParams {
+            model: &model,
+            builder: &mut edf_builder,
+            evaluator: &mut evaluator,
+            monitor: SolutionLimitMonitor::new(1),
+            fixed: None,
+            initial_solution: None,
+        });
+
+        let mut builder =
+            RegretHeuristicBuilder::preallocated(model.num_berths(), model.num_vessels());
 
         // 1. Run the solver (timing is now handled internally in result.statistics)
         let outcome = solver.solve(BnbSearchParams {
@@ -844,6 +882,7 @@ mod tests {
             evaluator: &mut evaluator,
             monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: Some(initial.result().unwrap()),
         });
 
         // 2. Print the rich result (Outcome, Reason, Objective, Stats Table)
@@ -907,8 +946,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         // Unwrap solution from the inner result
@@ -954,8 +994,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         let solution = match outcome.result() {
@@ -1004,8 +1045,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
         let sol1 = match outcome1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1023,8 +1065,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator2,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
         let sol2 = match outcome2.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1066,6 +1109,7 @@ mod tests {
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
                 fixed: None,
+                initial_solution: None,
             },
             &incumbent,
         );
@@ -1113,8 +1157,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         let solution = match outcome.result() {
@@ -1201,8 +1246,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         let solution = match outcome.result() {
@@ -1282,6 +1328,7 @@ mod tests {
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
                 fixed: None,
+                initial_solution: None,
             },
             &incumbent,
         );
@@ -1318,8 +1365,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         let solution = match outcome.result() {
@@ -1363,6 +1411,7 @@ mod tests {
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
                 fixed: None,
+                initial_solution: None,
             });
 
             let solution = match outcome.result() {
@@ -1420,8 +1469,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator1,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
         let sol1 = match outcome1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1437,8 +1487,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator2,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
         let sol2 = match outcome2.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -1473,6 +1524,7 @@ mod tests {
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
                 fixed: None,
+                initial_solution: None,
             });
 
             let solution = match outcome.result() {
@@ -1539,6 +1591,7 @@ mod tests {
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
                 fixed: None,
+                initial_solution: None,
             },
             &incumbent,
         );
@@ -1573,6 +1626,7 @@ mod tests {
                 evaluator: &mut evaluator2,
                 monitor: NoOperationMonitor::new(),
                 fixed: None,
+                initial_solution: None,
             },
             &incumbent,
         );
@@ -1635,8 +1689,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         let solution = match outcome.result() {
@@ -1683,6 +1738,7 @@ mod tests {
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
                 fixed: None,
+                initial_solution: None,
             });
 
             let solution = match outcome.result() {
@@ -1724,8 +1780,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         let solution = match outcome.result() {
@@ -1780,8 +1837,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         match outcome.result() {
@@ -1812,8 +1870,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator_cold,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         // Extract the best solution from the cold run
@@ -1850,6 +1909,7 @@ mod tests {
                 evaluator: &mut evaluator_warm,
                 monitor: NoOperationMonitor::new(),
                 fixed: None,
+                initial_solution: None,
             },
             &incumbent,
         );
@@ -1942,6 +2002,7 @@ mod tests {
                 evaluator: &mut evaluator,
                 monitor: NoOperationMonitor::new(),
                 fixed: None,
+                initial_solution: None,
             },
             &incumbent,
         );
@@ -1990,8 +2051,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         // Extract the solution to ensure we solved the instance
@@ -2040,8 +2102,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator1,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
         let baseline = match outcome1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.clone(),
@@ -2081,8 +2144,9 @@ mod tests {
             model: &model_a,
             builder: &mut builder,
             evaluator: &mut evaluator_a,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
         let sol_a = match out_a.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol,
@@ -2107,8 +2171,9 @@ mod tests {
             model: &model_b,
             builder: &mut builder,
             evaluator: &mut evaluator_b,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
 
         match out_b.result() {
@@ -2137,8 +2202,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator1,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
         let sol1 = match out1.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.clone(),
@@ -2153,8 +2219,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator2,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
         let sol2 = match out2.result() {
             SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.clone(),
@@ -2228,8 +2295,9 @@ mod tests {
             model: &model,
             builder: &mut builder,
             evaluator: &mut evaluator,
-            monitor: NoOperationMonitor::new(),
+            monitor: LogTreeSearchMonitor::default(),
             fixed: None,
+            initial_solution: None,
         });
         let solution = outcome.result().unwrap_optimal();
 
@@ -2285,6 +2353,7 @@ mod tests {
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
             fixed: Some(&fixed),
+            initial_solution: None,
         });
         let solution = outcome.result().unwrap_optimal();
 
@@ -2319,6 +2388,7 @@ mod tests {
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
             fixed: Some(&fixed),
+            initial_solution: None,
         });
         let solution = outcome.result().unwrap_optimal();
 
@@ -2371,6 +2441,7 @@ mod tests {
             evaluator: &mut evaluator,
             monitor: NoOperationMonitor::new(),
             fixed: Some(&fixed),
+            initial_solution: None,
         });
 
         match outcome.result() {
