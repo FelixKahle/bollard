@@ -156,12 +156,13 @@ where
     ) -> PortfolioSolverResult<T> {
         let monitor = WrapperMonitor::new(context.monitor);
 
-        let params = BnbSearchParams::new(
+        let params = BnbSearchParams::builder(
             context.model,
             &mut self.decision_builder,
             &mut self.evaluator,
             monitor,
-        );
+        )
+        .build_unchecked();
 
         let outcome = self.inner.solve_with_incumbent(params, context.incumbent);
 

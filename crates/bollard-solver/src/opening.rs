@@ -42,14 +42,10 @@ where
     let mut evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
     let solution_limit_monitor = SolutionLimitMonitor::new(1);
 
-    let params = BnbSearchParams {
-        model,
-        builder: &mut builder,
-        evaluator: &mut evaluator,
-        monitor: solution_limit_monitor,
-        fixed: None,
-        initial_solution: None,
-    };
+    // We dont use any solution nor fixed assignments
+    let params =
+        BnbSearchParams::builder(model, &mut builder, &mut evaluator, solution_limit_monitor)
+            .build_unchecked();
 
     let outcome = bnb_solver.solve(params);
 

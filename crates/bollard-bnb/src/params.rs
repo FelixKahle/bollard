@@ -27,18 +27,9 @@ use bollard_model::{
 };
 use bollard_search::num::SolverNumeric;
 
-/// Parameters for a Branch-and-Bound solver run.
-pub struct BnbSearchParams<'a, T, B, E, S>
-where
-    T: SolverNumeric,
-{
-    pub model: &'a Model<T>,
-    pub builder: &'a mut B,
-    pub evaluator: &'a mut E,
-    pub monitor: S,
-    pub fixed: Option<&'a [FixedAssignment<T>]>,
-    pub initial_solution: Option<&'a Solution<T>>,
-}
+// ============================================================================
+//  Error Types & Validation Logic (Unchanged)
+// ============================================================================
 
 /// Error: a fixed vessel index is not present in a solution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,13 +169,110 @@ where
     Ok(())
 }
 
+// ============================================================================
+//  Parameters & Builder Pattern
+// ============================================================================
+
+/// Parameters for a Branch-and-Bound solver run.
+///
+/// # Construction
+///
+/// This struct cannot be constructed directly. Use [`BnbSearchParams::builder`] to
+/// create a [`BnbSearchParamsBuilder`], configure your parameters, and call `.build()`.
+///
+/// The `.build()` method ensures that the configuration is valid (e.g., that
+/// the initial solution respects fixed assignments) and panics with a descriptive
+/// message if it is not.
+pub struct BnbSearchParams<'a, T, B, E, S>
+where
+    T: SolverNumeric,
+{
+    model: &'a Model<T>,
+    builder: &'a mut B,
+    evaluator: &'a mut E,
+    monitor: S,
+    fixed: Option<&'a [FixedAssignment<T>]>,
+    initial_solution: Option<&'a Solution<T>>,
+}
+
+/// A builder for [`BnbSearchParams`].
+///
+/// This struct allows optional configuration of fixed assignments and initial solutions
+/// before constructing the final parameter object.
+pub struct BnbSearchParamsBuilder<'a, T, B, E, S>
+where
+    T: SolverNumeric,
+{
+    model: &'a Model<T>,
+    builder: &'a mut B,
+    evaluator: &'a mut E,
+    monitor: S,
+    fixed: Option<&'a [FixedAssignment<T>]>,
+    initial_solution: Option<&'a Solution<T>>,
+}
+
+impl<'a, T, B, E, S> BnbSearchParamsBuilder<'a, T, B, E, S>
+where
+    T: SolverNumeric,
+{
+    /// Sets the fixed assignments for the solver.
+    #[inline]
+    pub fn with_fixed_assignments(mut self, fixed: &'a [FixedAssignment<T>]) -> Self {
+        self.fixed = Some(fixed);
+        self
+    }
+
+    /// Attach an initial solution to warm-start the solver.
+    #[inline]
+    pub fn with_initial_solution(mut self, initial: &'a Solution<T>) -> Self {
+        self.initial_solution = Some(initial);
+        self
+    }
+
+    /// Consumes the builder and produces a validated [`BnbSearchParams`] object.
+    pub fn build(self) -> Result<BnbSearchParams<'a, T, B, E, S>, FixedSolutionError<T>> {
+        if let (Some(f), Some(s)) = (self.fixed, self.initial_solution) {
+            validate_fixed_solution(f, s)?;
+        }
+
+        Ok(BnbSearchParams {
+            model: self.model,
+            builder: self.builder,
+            evaluator: self.evaluator,
+            monitor: self.monitor,
+            fixed: self.fixed,
+            initial_solution: self.initial_solution,
+        })
+    }
+
+    pub fn build_unchecked(self) -> BnbSearchParams<'a, T, B, E, S> {
+        BnbSearchParams {
+            model: self.model,
+            builder: self.builder,
+            evaluator: self.evaluator,
+            monitor: self.monitor,
+            fixed: self.fixed,
+            initial_solution: self.initial_solution,
+        }
+    }
+}
+
 impl<'a, T, B, E, S> BnbSearchParams<'a, T, B, E, S>
 where
     T: SolverNumeric,
 {
+    /// Creates a new builder for search parameters.
+    ///
+    /// Requires the mandatory dependencies (model, decision builder, evaluator, monitor).
+    /// Optional parameters (fixed assignments, initial solution) can be added via the returned builder.
     #[inline]
-    pub fn new(model: &'a Model<T>, builder: &'a mut B, evaluator: &'a mut E, monitor: S) -> Self {
-        Self {
+    pub fn builder(
+        model: &'a Model<T>,
+        builder: &'a mut B,
+        evaluator: &'a mut E,
+        monitor: S,
+    ) -> BnbSearchParamsBuilder<'a, T, B, E, S> {
+        BnbSearchParamsBuilder {
             model,
             builder,
             evaluator,
@@ -195,28 +283,42 @@ where
     }
 
     #[inline]
-    pub fn with_fixed_assignments(
-        model: &'a Model<T>,
-        builder: &'a mut B,
-        evaluator: &'a mut E,
-        monitor: S,
-        fixed: &'a [FixedAssignment<T>],
-    ) -> Self {
-        Self {
-            model,
-            builder,
-            evaluator,
-            monitor,
-            fixed: Some(fixed),
-            initial_solution: None,
-        }
+    pub fn model(&self) -> &'a Model<T> {
+        self.model
     }
 
-    /// Attach an initial solution (builder/evaluator/monitor are consumed by value already).
+    /// Returns a mutable reference to the decision builder.
     #[inline]
-    pub fn with_initial_solution(mut self, initial: &'a Solution<T>) -> Self {
-        self.initial_solution = Some(initial);
-        self
+    pub fn builder_mut(&mut self) -> &mut B {
+        self.builder
+    }
+
+    /// Returns a mutable reference to the evaluator.
+    #[inline]
+    pub fn evaluator_mut(&mut self) -> &mut E {
+        self.evaluator
+    }
+
+    /// Returns a mutable reference to the monitor.
+    #[inline]
+    pub fn monitor_mut(&mut self) -> &mut S {
+        &mut self.monitor
+    }
+
+    /// Consumes the params and returns the monitor.
+    #[inline]
+    pub fn into_monitor(self) -> S {
+        self.monitor
+    }
+
+    #[inline]
+    pub fn fixed_assignments(&self) -> Option<&'a [FixedAssignment<T>]> {
+        self.fixed
+    }
+
+    #[inline]
+    pub fn initial_solution(&self) -> Option<&'a Solution<T>> {
+        self.initial_solution
     }
 
     #[inline]
@@ -227,6 +329,27 @@ where
     #[inline]
     pub fn has_initial_solution(&self) -> bool {
         self.initial_solution.is_some()
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn into_inner(
+        self,
+    ) -> (
+        &'a Model<T>,
+        &'a mut B,
+        &'a mut E,
+        S,
+        Option<&'a [FixedAssignment<T>]>,
+        Option<&'a Solution<T>>,
+    ) {
+        (
+            self.model,
+            self.builder,
+            self.evaluator,
+            self.monitor,
+            self.fixed,
+            self.initial_solution,
+        )
     }
 }
 
@@ -314,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bnb_search_params_flags_and_validation() {
+    fn test_bnb_search_params_builder() {
         struct DummyBuilder;
         struct DummyEvaluator;
         struct DummyMonitor;
@@ -326,40 +449,56 @@ mod tests {
         let mut evaluator = DummyEvaluator;
         let monitor = DummyMonitor;
 
-        // Base params
-        let params = BnbSearchParams::new(&model, &mut builder, &mut evaluator, monitor);
+        // 1. Basic build
+        let params = BnbSearchParams::builder(&model, &mut builder, &mut evaluator, monitor)
+            .build()
+            .unwrap();
         assert!(!params.has_fixed_assignments());
         assert!(!params.has_initial_solution());
 
-        // With fixed only.
+        // 2. With fixed only
         let mut builder2 = DummyBuilder;
         let mut evaluator2 = DummyEvaluator;
         let monitor2 = DummyMonitor;
         let fixed_assignments = [fixed(10, 0, 0)];
-        let params2 = BnbSearchParams::with_fixed_assignments(
-            &model,
-            &mut builder2,
-            &mut evaluator2,
-            monitor2,
-            &fixed_assignments,
-        );
+
+        let params2 = BnbSearchParams::builder(&model, &mut builder2, &mut evaluator2, monitor2)
+            .with_fixed_assignments(&fixed_assignments)
+            .build()
+            .unwrap();
+
         assert!(params2.has_fixed_assignments());
         assert!(!params2.has_initial_solution());
 
-        // With initial solution attached that violates fixed.
+        // 3. With valid initial solution
         let mut builder3 = DummyBuilder;
         let mut evaluator3 = DummyEvaluator;
         let monitor3 = DummyMonitor;
-        let sol = Solution::new(0, vec![bi(0)], vec![5]);
-        let params3 = BnbSearchParams::with_fixed_assignments(
-            &model,
-            &mut builder3,
-            &mut evaluator3,
-            monitor3,
-            &fixed_assignments,
-        )
-        .with_initial_solution(&sol);
+        let valid_sol = Solution::new(0, vec![bi(0)], vec![10]);
+
+        let params3 = BnbSearchParams::builder(&model, &mut builder3, &mut evaluator3, monitor3)
+            .with_fixed_assignments(&fixed_assignments)
+            .with_initial_solution(&valid_sol)
+            .build()
+            .unwrap();
+
         assert!(params3.has_fixed_assignments());
         assert!(params3.has_initial_solution());
+
+        // 4. Validation Failure (Result)
+        let mut builder4 = DummyBuilder;
+        let mut evaluator4 = DummyEvaluator;
+        let monitor4 = DummyMonitor;
+        let invalid_sol = Solution::new(0, vec![bi(0)], vec![999]); // Mismatch: start time 10 vs 999
+
+        let result = BnbSearchParams::builder(&model, &mut builder4, &mut evaluator4, monitor4)
+            .with_fixed_assignments(&fixed_assignments)
+            .with_initial_solution(&invalid_sol)
+            .build();
+
+        assert!(
+            result.is_err(),
+            "build() should return Err when initial solution conflicts with fixed assignments"
+        );
     }
 }

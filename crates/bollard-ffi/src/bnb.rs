@@ -732,14 +732,10 @@ where
         monitor.add_monitor(LogTreeSearchMonitor::default());
     }
 
-    let params = BnbSearchParams {
-        model,
-        builder: &mut builder,
-        evaluator: &mut evaluator,
-        monitor,
-        fixed: Some(fixed_assignments),
-        initial_solution: None,
-    };
+    let params = BnbSearchParams::builder(model, &mut builder, &mut evaluator, monitor)
+        .with_fixed_assignments(fixed_assignments)
+        .build()
+        .unwrap();
 
     solver.solve(params)
 }

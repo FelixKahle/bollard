@@ -90,14 +90,10 @@ fn find_feasible_solution(model: &Model<i64>) -> Solution<i64> {
     let mut evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
     let solution_limit_monitor = SolutionLimitMonitor::new(1);
 
-    let params = BnbSearchParams {
-        model,
-        builder: &mut builder,
-        evaluator: &mut evaluator,
-        monitor: solution_limit_monitor,
-        fixed: None,
-        initial_solution: None,
-    };
+    let params =
+        BnbSearchParams::builder(model, &mut builder, &mut evaluator, solution_limit_monitor)
+            .build()
+            .unwrap();
 
     let outcome = bnb_solver.solve(params);
 
