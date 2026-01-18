@@ -22,26 +22,7 @@
 use bollard_model::index::{BerthIndex, VesselIndex};
 use bollard_model::solution::Solution;
 
-/// FFI-compatible wrapper around `Solution<i64>`.
-#[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct BollardFfiSolution {
-    inner: Solution<i64>,
-}
-
-impl From<Solution<i64>> for BollardFfiSolution {
-    fn from(sol: Solution<i64>) -> Self {
-        BollardFfiSolution { inner: sol }
-    }
-}
-
-impl From<&Solution<i64>> for BollardFfiSolution {
-    fn from(sol: &Solution<i64>) -> Self {
-        BollardFfiSolution { inner: sol.clone() }
-    }
-}
-
-/// Creates a new `BollardFfiSolution`.
+/// Creates a new `Solution`.
 ///
 /// # Panics
 ///
@@ -57,7 +38,7 @@ pub unsafe extern "C" fn bollard_solution_new(
     berths_ptr: *const usize,
     start_times_ptr: *const i64,
     len: usize,
-) -> *mut BollardFfiSolution {
+) -> *mut Solution<i64> {
     assert!(
         !berths_ptr.is_null(),
         "called `bollard_solution_new` with `berths_ptr` as null pointer"
@@ -73,17 +54,17 @@ pub unsafe extern "C" fn bollard_solution_new(
     let berths: Vec<BerthIndex> = berths_usize.iter().map(|&b| BerthIndex::new(b)).collect();
 
     let inner = Solution::<i64>::new(objective, berths, start_times.to_vec());
-    Box::into_raw(Box::new(BollardFfiSolution { inner }))
+    Box::into_raw(Box::new(inner))
 }
 
-/// Frees a `BollardFfiSolution`.
+/// Frees a `Solution`.
 ///
 /// # Safety
 ///
-/// The caller must ensure that `ptr` is a valid pointer to a `BollardFfiSolution`
+/// The caller must ensure that `ptr` is a valid pointer to a `Solution`
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_solution_free(ptr: *mut BollardFfiSolution) {
+pub unsafe extern "C" fn bollard_solution_free(ptr: *mut Solution<i64>) {
     if ptr.is_null() {
         return;
     }
@@ -98,14 +79,14 @@ pub unsafe extern "C" fn bollard_solution_free(ptr: *mut BollardFfiSolution) {
 ///
 /// # Safety
 ///
-/// The caller must ensure that `ptr` is a valid pointer to a `BollardFfiSolution`.
+/// The caller must ensure that `ptr` is a valid pointer to a `Solution`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_solution_objective(ptr: *const BollardFfiSolution) -> i64 {
+pub unsafe extern "C" fn bollard_solution_objective(ptr: *const Solution<i64>) -> i64 {
     assert!(
         !ptr.is_null(),
         "called `bollard_solution_objective` with `ptr` as null pointer"
     );
-    (&*ptr).inner.objective_value()
+    (&*ptr).objective_value()
 }
 
 /// Accesses the number of vessels in the solution.
@@ -116,14 +97,14 @@ pub unsafe extern "C" fn bollard_solution_objective(ptr: *const BollardFfiSoluti
 ///
 /// # Safety
 ///
-/// The caller must ensure that `ptr` is a valid pointer to a `BollardFfiSolution`.
+/// The caller must ensure that `ptr` is a valid pointer to a `Solution`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_solution_num_vessels(ptr: *const BollardFfiSolution) -> usize {
+pub unsafe extern "C" fn bollard_solution_num_vessels(ptr: *const Solution<i64>) -> usize {
     assert!(
         !ptr.is_null(),
         "called `bollard_solution_num_vessels` with `ptr` as null pointer"
     );
-    (&*ptr).inner.num_vessels()
+    (&*ptr).num_vessels()
 }
 
 /// Accesses the berth assigned to a specific vessel.
@@ -134,17 +115,17 @@ pub unsafe extern "C" fn bollard_solution_num_vessels(ptr: *const BollardFfiSolu
 ///
 /// # Safety
 ///
-/// The caller must ensure that `ptr` is a valid pointer to a `BollardFfiSolution`.
+/// The caller must ensure that `ptr` is a valid pointer to a `Solution`.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_solution_berth(
-    ptr: *const BollardFfiSolution,
+    ptr: *const Solution<i64>,
     vessel_index: usize,
 ) -> usize {
     assert!(
         !ptr.is_null(),
         "called `bollard_solution_berth` with null pointer"
     );
-    let sol = &(&*ptr).inner;
+    let sol = &(&*ptr);
 
     assert!(
         vessel_index < sol.num_vessels(),
@@ -164,17 +145,17 @@ pub unsafe extern "C" fn bollard_solution_berth(
 ///
 /// # Safety
 ///
-/// The caller must ensure that `ptr` is a valid pointer to a `BollardFfiSolution`.
+/// The caller must ensure that `ptr` is a valid pointer to a `Solution`.
 #[no_mangle]
 pub unsafe extern "C" fn bollard_solution_start_time(
-    ptr: *const BollardFfiSolution,
+    ptr: *const Solution<i64>,
     vessel_idx: usize,
 ) -> i64 {
     assert!(
         !ptr.is_null(),
         "called `bollard_solution_start_time` with `ptr` as null pointer"
     );
-    let sol = &(&*ptr).inner;
+    let sol = &(&*ptr);
 
     assert!(
         vessel_idx < sol.num_vessels(),
@@ -194,15 +175,15 @@ pub unsafe extern "C" fn bollard_solution_start_time(
 ///
 /// # Safety
 ///
-/// The caller must ensure that `ptr` is a valid pointer to a `BollardFfiSolution`.
+/// The caller must ensure that `ptr` is a valid pointer to a `Solution`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_solution_berths(ptr: *const BollardFfiSolution) -> *const usize {
+pub unsafe extern "C" fn bollard_solution_berths(ptr: *const Solution<i64>) -> *const usize {
     assert!(
         !ptr.is_null(),
         "called `bollard_solution_berths` with `ptr` as null pointer"
     );
 
-    let sol = &(&*ptr).inner;
+    let sol = &(&*ptr);
 
     debug_assert_eq!(
         std::mem::size_of::<BerthIndex>(),
@@ -224,17 +205,15 @@ pub unsafe extern "C" fn bollard_solution_berths(ptr: *const BollardFfiSolution)
 ///
 /// # Safety
 ///
-/// The caller must ensure that `ptr` is a valid pointer to a `BollardFfiSolution`.
+/// The caller must ensure that `ptr` is a valid pointer to a `Solution`.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_solution_start_times(
-    ptr: *const BollardFfiSolution,
-) -> *const i64 {
+pub unsafe extern "C" fn bollard_solution_start_times(ptr: *const Solution<i64>) -> *const i64 {
     assert!(
         !ptr.is_null(),
         "called `bollard_solution_start_times` with `ptr` as null pointer"
     );
 
-    let sol = &(&*ptr).inner;
+    let sol = &(&*ptr);
     sol.start_times().as_ptr()
 }
 
