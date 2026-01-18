@@ -51,12 +51,41 @@ pub trait IncumbentStore<T>
 where
     T: SolverNumeric,
 {
-    /// Returns the initial upper bound for the incumbent solution.
+    /// Returns the initial upper bound for the incumbent objective.
+    ///
+    /// For purely local stores this is typically `T::MAX` (meaning “no incumbent yet”).
+    /// For shared stores it should reflect the current global upper bound so that
+    /// new search sessions can immediately prune against the best known value.
     fn initial_upper_bound(&self) -> T;
-    /// Synchronizes the current local best solution with the shared incumbent.
+
+    /// Reconciles a local best objective with the backing store and returns
+    /// a tightened upper bound.
+    ///
+    /// Implementations should combine `current_local_best` with any shared/global
+    /// information (for example, taking the minimum of the shared upper bound and
+    /// the local value) so callers can use the result as an up‑to‑date pruning bound.
     fn tighten(&self, current_local_best: T) -> T;
-    /// Notifies the backing that a new solution has been found.
+
+    /// Notifies the backing store that a new incumbent solution has been found.
+    ///
+    /// Implementations may update shared state, broadcast the new solution to
+    /// other solvers, or ignore it entirely (in the purely local case).
+    /// This is the primary hook for publishing improvements discovered during search.
     fn on_solution_found(&self, solution: &Solution<T>);
+
+    /// Returns a cloned handle to the current incumbent solution, if any.
+    ///
+    /// Implementations are free to source this from a local store or from a
+    /// shared concurrent container. Callers receive an owned `Solution<T>`
+    /// so they are not tied to any internal locking or lifetimes.
+    fn pull_solution(&self) -> Option<Solution<T>>;
+
+    /// Returns `true` if an incumbent solution is currently installed.
+    ///
+    /// This is intended as a cheap presence check that may avoid unnecessary
+    /// cloning when callers only need to know whether a solution exists
+    /// (for example, when deciding how to initialize a search session).
+    fn has_solution(&self) -> bool;
 }
 
 /// An `IncumbentBacking` implementation that does not share the incumbent
@@ -101,6 +130,16 @@ where
 
     #[inline(always)]
     fn on_solution_found(&self, _: &Solution<T>) {}
+
+    #[inline(always)]
+    fn pull_solution(&self) -> Option<Solution<T>> {
+        None
+    }
+
+    #[inline(always)]
+    fn has_solution(&self) -> bool {
+        false
+    }
 }
 
 /// An `IncumbentBacking` implementation that shares the incumbent
@@ -138,6 +177,16 @@ where
     #[inline(always)]
     fn on_solution_found(&self, solution: &Solution<T>) {
         self.inner.try_install(solution);
+    }
+
+    #[inline(always)]
+    fn pull_solution(&self) -> Option<Solution<T>> {
+        self.inner.snapshot()
+    }
+
+    #[inline(always)]
+    fn has_solution(&self) -> bool {
+        self.inner.has_solution()
     }
 }
 
