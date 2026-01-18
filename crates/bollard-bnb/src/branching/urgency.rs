@@ -166,19 +166,18 @@ where
                         state,
                         evaluator,
                     )
+                } && let Some(duration) = unsafe {
+                    model
+                        .vessel_processing_time_unchecked(vessel_index, berth_index)
+                        .into()
+                } {
+                    let finish = decision.start_time() + duration;
+                    let deadline =
+                        unsafe { model.vessel_latest_departure_time_unchecked(vessel_index) };
+                    // Calculate Decision Slack
+                    let slack = deadline.saturating_sub(finish);
+                    self.scratch_options.push((decision, slack));
                 }
-                    && let Some(duration) = unsafe {
-                        model
-                            .vessel_processing_time_unchecked(vessel_index, berth_index)
-                            .into()
-                    } {
-                        let finish = decision.start_time() + duration;
-                        let deadline =
-                            unsafe { model.vessel_latest_departure_time_unchecked(vessel_index) };
-                        // Calculate Decision Slack
-                        let slack = deadline.saturating_sub(finish);
-                        self.scratch_options.push((decision, slack));
-                    }
             }
 
             if self.scratch_options.is_empty() {
