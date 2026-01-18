@@ -173,29 +173,31 @@ where
         I: IncumbentStore<T>,
         T: SolverNumeric,
     {
-        let (model, builder, evaluator, mut monitor, fixed, initial_solution) = params.into_inner();
+        let mut p = params.into_inner();
 
         debug_assert!(
-            eval::validation::is_regular_evaluator_exhaustive(evaluator, model, 10_000),
+            eval::validation::is_regular_evaluator_exhaustive(p.evaluator, p.model, 10_000),
             "ObjectiveEvaluator '{}' is not regular. Monotonicity violated.",
-            evaluator.name()
+            p.evaluator.name()
         );
 
-        let fixed_assignments = match fixed {
+        let fixed_assignments = match p.fixed {
             Some(f) => f,
             None => &[],
         };
 
-        let session = BnbSolverSearchSession::new(
-            self,
-            model,
-            fixed_assignments,
-            builder,
-            evaluator,
-            &mut monitor,
-            backing,
-            initial_solution, // <--- Pass it down
-        );
+        let params = BnbSolverSearchSessionParams {
+            solver: self,
+            model: p.model,
+            fixed: fixed_assignments,
+            builder: p.builder,
+            evaluator: p.evaluator,
+            monitor: &mut p.monitor,
+            incumbent_backing: backing,
+            initial_solution: p.initial_solution,
+        };
+
+        let session = BnbSolverSearchSession::new(params);
         let res = session.run();
         self.reset();
         res
@@ -244,6 +246,32 @@ where
             self.new_objective
         )
     }
+}
+
+/// Construction-time parameters for a `BnbSolverSearchSession`.
+///
+/// This struct collects all references and auxiliary objects needed to run a
+/// single branch-and-bound search over a given model. It is typically consumed
+/// by `BnbSolverSearchSession::new` to build an initialized search session.
+///
+/// The lifetime `'a` ties all borrowed data (solver, model, fixed assignments,
+/// builder, evaluator, monitor, and optional initial solution) to the caller.
+struct BnbSolverSearchSessionParams<'a, T, B, E, S, I>
+where
+    T: SolverNumeric,
+    B: DecisionBuilder<T, E>,
+    E: ObjectiveEvaluator<T>,
+    S: TreeSearchMonitor<T>,
+    I: IncumbentStore<T>,
+{
+    solver: &'a mut BnbSolver<T>,
+    model: &'a Model<T>,
+    fixed: &'a [FixedAssignment<T>],
+    builder: &'a mut B,
+    evaluator: &'a mut E,
+    monitor: &'a mut S,
+    incumbent_backing: I,
+    initial_solution: Option<&'a Solution<T>>,
 }
 
 /// A search session for the constraint solver.
@@ -317,36 +345,50 @@ where
     I: IncumbentStore<T>,
 {
     /// Create a new search session.
-    #[allow(clippy::too_many_arguments)]
     #[inline]
-    fn new(
-        solver: &'a mut BnbSolver<T>,
-        model: &'a Model<T>,
-        fixed: &'a [FixedAssignment<T>],
-        builder: &'a mut B,
-        evaluator: &'a mut E,
-        monitor: &'a mut S,
-        incumbent_backing: I,
-        initial_solution: Option<&Solution<T>>,
-    ) -> Self {
+    fn new(params: BnbSolverSearchSessionParams<'a, T, B, E, S, I>) -> Self {
+        let BnbSolverSearchSessionParams {
+            solver,
+            model,
+            fixed,
+            builder,
+            evaluator,
+            monitor,
+            incumbent_backing,
+            initial_solution,
+        } = params;
+
         let state = SearchState::new(model.num_berths(), model.num_vessels());
 
-        // Start with the backing's bound (usually infinity for NoSharedIncumbent)
-        let mut best_objective = incumbent_backing.initial_upper_bound();
-        let mut best_solution = None;
+        // Pull incumbent solution from the backing, if any.
+        let incumbent_solution = if incumbent_backing.has_solution() {
+            incumbent_backing.pull_solution()
+        } else {
+            None
+        };
 
-        // If we have an initial solution, install it locally
-        if let Some(sol) = initial_solution {
-            let obj = sol.objective_value();
-            if obj < best_objective {
-                best_objective = obj;
-                best_solution = Some(sol.clone());
+        // Explicit initial solution as another candidate (owned).
+        let initial_candidate = initial_solution.cloned();
+
+        // Pick the strictly better of the two candidates, if any.
+        let best_solution: Option<Solution<T>> = match (incumbent_solution, initial_candidate) {
+            (None, s) => s,
+            (s, None) => s,
+            (Some(inc), Some(init)) => {
+                if init.objective_value() < inc.objective_value() {
+                    Some(init)
+                } else {
+                    Some(inc)
+                }
             }
-            // Also inform the backing store, just in case
-            // (For NoSharedIncumbent this is a no-op, but good for consistency)
-            // Note: Depending on IncumbentStore trait definition, we might need to cast or ignore.
-            // Assuming backing can handle it or we rely on local best_objective logic.
-        }
+        };
+
+        // If we have a concrete best solution, its objective is the true upper bound.
+        // Otherwise, use the store's initial bound (T::MAX for NoSharedIncumbent or shared UB).
+        let best_objective = best_solution
+            .as_ref()
+            .map(|s| s.objective_value())
+            .unwrap_or_else(|| incumbent_backing.initial_upper_bound());
 
         Self {
             solver,

@@ -46,4 +46,5 @@ pub mod lpt;
 pub mod regret;
 pub mod slack;
 pub mod spt;
+pub mod urgency;
 pub mod wspt;

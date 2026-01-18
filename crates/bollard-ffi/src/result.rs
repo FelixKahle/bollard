@@ -19,7 +19,7 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::solution::BollardFfiSolution;
+use bollard_model::solution::Solution;
 use bollard_search::result::SolverResult;
 use std::ffi::{c_char, CString};
 
@@ -39,7 +39,7 @@ pub enum BollardFfiStatus {
 pub struct BollardFfiSolverResult {
     pub status_string: CString,
     pub status: BollardFfiStatus,
-    pub solution: *mut BollardFfiSolution,
+    pub solution: *mut Solution<i64>,
     pub has_solution: bool,
 }
 
@@ -49,13 +49,13 @@ impl From<SolverResult<i64>> for BollardFfiSolverResult {
             SolverResult::Optimal(sol) => BollardFfiSolverResult {
                 status_string: CString::new("Optimal").expect("`CString::new` should not fail"),
                 status: BollardFfiStatus::Optimal,
-                solution: Box::into_raw(Box::new(BollardFfiSolution::from(sol))),
+                solution: Box::into_raw(Box::new(sol)),
                 has_solution: true,
             },
             SolverResult::Feasible(sol) => BollardFfiSolverResult {
                 status_string: CString::new("Feasible").expect("`CString::new` should not fail"),
                 status: BollardFfiStatus::Feasible,
-                solution: Box::into_raw(Box::new(BollardFfiSolution::from(sol))),
+                solution: Box::into_raw(Box::new(sol)),
                 has_solution: true,
             },
             SolverResult::Infeasible => BollardFfiSolverResult {
@@ -160,7 +160,7 @@ pub unsafe extern "C" fn bollard_ffi_solver_result_has_solution(
 #[no_mangle]
 pub unsafe extern "C" fn bollard_ffi_solver_result_solution(
     result: *const BollardFfiSolverResult,
-) -> *mut BollardFfiSolution {
+) -> *mut Solution<i64> {
     assert!(
         !result.is_null(),
         "called `bollard_ffi_solver_result_solution` with `ptr` as null pointer"
@@ -329,7 +329,7 @@ mod tests {
                 bollard_solution_free, bollard_solution_num_vessels, bollard_solution_objective,
             };
 
-            let sol_ptr = ffi.solution as *const BollardFfiSolution;
+            let sol_ptr = ffi.solution as *const Solution<i64>;
             assert_eq!(bollard_solution_objective(sol_ptr), 123_i64);
             assert_eq!(bollard_solution_num_vessels(sol_ptr), 2);
 
@@ -365,7 +365,7 @@ mod tests {
                 bollard_solution_free, bollard_solution_num_vessels, bollard_solution_objective,
             };
 
-            let sol_ptr = ffi.solution as *const BollardFfiSolution;
+            let sol_ptr = ffi.solution as *const Solution<i64>;
             assert_eq!(bollard_solution_objective(sol_ptr), 77_i64);
             assert_eq!(bollard_solution_num_vessels(sol_ptr), 1);
 

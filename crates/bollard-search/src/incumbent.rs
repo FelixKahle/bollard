@@ -64,7 +64,33 @@
 
 use bollard_model::solution::Solution;
 use num_traits::{PrimInt, Signed};
-use std::sync::{Mutex, atomic::AtomicI64};
+use std::{
+    ops::Deref,
+    sync::{Mutex, MutexGuard, atomic::AtomicI64},
+};
+
+/// A guard giving read access to the incumbent `Solution<T>` while holding the mutex.
+///
+/// As long as this guard is alive, the underlying `Mutex` is locked.
+/// The inner reference is `Option<&Solution<T>>` to reflect absence of an incumbent.
+pub struct SolutionGuard<'a, T> {
+    guard: MutexGuard<'a, Option<Solution<T>>>,
+}
+
+impl<'a, T> SolutionGuard<'a, T> {
+    /// Returns `Some(&Solution<T>)` if an incumbent is installed, else `None`.
+    pub fn get(&self) -> Option<&Solution<T>> {
+        self.guard.as_ref()
+    }
+}
+
+impl<'a, T> Deref for SolutionGuard<'a, T> {
+    type Target = Option<Solution<T>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
 
 /// A concurrent holder for the best (incumbent) solution found during search.
 ///
@@ -147,6 +173,17 @@ impl<T> SharedIncumbent<T> {
         T::try_from(val)
     }
 
+    /// Returns a guard that allows read access to the stored incumbent solution.
+    ///
+    /// The mutex is held for the lifetime of the returned guard. Use this when you
+    /// want to avoid cloning the solution and are OK with holding the lock briefly.
+    #[inline]
+    pub fn solution_ref(&self) -> SolutionGuard<'_, T> {
+        SolutionGuard {
+            guard: self.solution.lock().unwrap(),
+        }
+    }
+
     /// Returns a snapshot of the current incumbent solution, if any.
     #[inline]
     pub fn snapshot(&self) -> Option<Solution<T>>
@@ -155,6 +192,17 @@ impl<T> SharedIncumbent<T> {
     {
         let guard = self.solution.lock().unwrap();
         guard.clone()
+    }
+
+    /// Returns `true` if an incumbent solution is currently installed.
+    ///
+    /// This is a cheap presence check that avoids cloning the stored solution.
+    /// Internally it acquires the mutex protecting the incumbent slot and
+    /// tests whether it contains `Some(Solution<T>)` or `None`.
+    #[inline]
+    pub fn has_solution(&self) -> bool {
+        let guard = self.solution.lock().unwrap();
+        guard.is_some()
     }
 
     /// Attempts to install the given candidate solution as the new incumbent.

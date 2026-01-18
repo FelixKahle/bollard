@@ -23,9 +23,8 @@
 // Termination Reason
 // ----------------------------------------------------------------
 
-use crate::solution::BollardFfiSolution;
 use bollard_ls::{engine::LocalSearchEngine, stats::LocalSearchStatistics};
-use bollard_model::model::Model;
+use bollard_model::{model::Model, solution::Solution};
 use bollard_search::neighborhood::{
     dynamic::DynamicNeighborhoods, neighborhoods::FullNeighborhoods, topology::StaticTopology,
 };
@@ -329,7 +328,7 @@ pub struct LocalSearchFfiOutcome {
     /// The termination information.
     pub termination: *mut LocalSearchFfiTermination,
     /// The solver result.
-    pub solution: *mut BollardFfiSolution, // Local Search will always carry a solution, because it starts from one.
+    pub solution: *mut Solution<i64>, // Local Search will always carry a solution, because it starts from one.
     /// The solver statistics.
     pub statistics: *mut LocalSearchFfiStatistics,
 }
@@ -343,7 +342,7 @@ impl From<bollard_ls::result::LocalSearchEngineOutcome<i64>> for LocalSearchFfiO
 
         Self {
             termination: Box::into_raw(termination_ffi),
-            solution: Box::into_raw(Box::new(BollardFfiSolution::from(solution))),
+            solution: Box::into_raw(Box::new(solution)),
             statistics: Box::into_raw(statistics_ffi),
         }
     }
@@ -400,7 +399,7 @@ pub unsafe extern "C" fn bollard_ls_outcome_termination(
 #[no_mangle]
 pub unsafe extern "C" fn bollard_ls_outcome_solution(
     outcome: *const LocalSearchFfiOutcome,
-) -> *mut BollardFfiSolution {
+) -> *mut Solution<i64> {
     assert!(
         !outcome.is_null(),
         "called `bollard_ls_outcome_solution` with `outcome` as null pointer",

@@ -44,6 +44,7 @@ use bollard_bnb::{
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
+    solution::Solution,
 };
 use num_traits::ToPrimitive;
 use std::{
@@ -710,6 +711,7 @@ fn solve<B, E>(
     solution_limit: usize,
     time_limit_ms: i64,
     enable_log: bool,
+    initial_solution: Option<&Solution<i64>>,
     fixed_assignments: &[FixedAssignment<i64>],
 ) -> BnbSolverOutcome<i64>
 where
@@ -732,10 +734,21 @@ where
         monitor.add_monitor(LogTreeSearchMonitor::default());
     }
 
-    let params = BnbSearchParams::builder(model, &mut builder, &mut evaluator, monitor)
-        .with_fixed_assignments(fixed_assignments)
-        .build()
-        .unwrap();
+    let base = BnbSearchParams::builder(model, &mut builder, &mut evaluator, monitor);
+
+    let builder = if let Some(solution) = initial_solution {
+        base.with_initial_solution(solution)
+    } else {
+        base
+    };
+
+    let builder = if !fixed_assignments.is_empty() {
+        builder.with_fixed_assignments(fixed_assignments)
+    } else {
+        builder
+    };
+
+    let params = builder.build().unwrap();
 
     solver.solve(params)
 }
@@ -747,6 +760,7 @@ unsafe fn dispatch_solve(
     model: &Model<i64>,
     builder_type: BnbSolverFfiDecisionBuilderType,
     evaluator_type: BnbSolverFfiObjectiveEvaluatorType,
+    initial_solution: Option<&Solution<i64>>,
     fixed_assignments: &[FixedAssignment<i64>], // Passed as slice
     solution_limit: usize,
     time_limit_ms: i64,
@@ -771,6 +785,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -790,6 +805,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -809,6 +825,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -828,6 +845,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -847,6 +865,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -866,6 +885,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -885,6 +905,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -904,6 +925,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -923,6 +945,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -942,6 +965,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -961,6 +985,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -980,6 +1005,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -999,6 +1025,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1018,6 +1045,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1037,6 +1065,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1056,6 +1085,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1075,6 +1105,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1094,6 +1125,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1113,6 +1145,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1132,6 +1165,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1151,6 +1185,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1170,6 +1205,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1189,6 +1225,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1208,6 +1245,7 @@ unsafe fn dispatch_solve(
                 solution_limit,
                 time_limit_ms,
                 enable_log,
+                initial_solution,
                 fixed_assignments, // With fixed assignments
             );
             BnbSolverFfiOutcome::from(outcome)
@@ -1259,6 +1297,7 @@ pub unsafe extern "C" fn bollard_bnb_solver_solve(
         model,
         builder_type,
         evaluator_type,
+        None,
         &[], // No fixed assignments
         solution_limit,
         time_limit_ms,
@@ -1340,7 +1379,164 @@ pub unsafe extern "C" fn bollard_bnb_solver_solve_with_fixed_assignments(
         model,
         builder_type,
         evaluator_type,
+        None,
         &fixed_assignments, // With fixed assignments
+        solution_limit,
+        time_limit_ms,
+        enable_log,
+    )
+}
+
+/// Solves the given model using the specified decision builder and objective evaluator types,
+/// with respect to an initial solution.
+///
+/// The caller can control the number of solutions to find, time limit, and logging options.
+/// When `solution_limit` is 0, there is no limit on the number of solutions to find,
+/// and when `time_limit_ms` is 0, there is no time limit.
+/// Set `enable_log` to true to enable logging during the solving process.
+///
+/// # Panics
+///
+/// This function will panic if `solver_ptr`, `model_ptr`, or `initial_solution` is null.
+///
+/// # Safety
+///
+/// The caller must ensure that `solver_ptr` is a valid pointer to a `BnbSolver<i64>`
+/// and `model_ptr` is a valid pointer to a `Model<i64>`.
+/// The caller must also ensure that `initial_solution` is a valid pointer to a `Solution<i64>`
+/// that is compatible with the given model (same dimensions and consistent indices).
+#[no_mangle]
+pub unsafe extern "C" fn bollard_bnb_solver_solve_with_initial_solution(
+    solver_ptr: *mut BnbSolver<i64>,
+    model_ptr: *const Model<i64>,
+    builder_type: BnbSolverFfiDecisionBuilderType,
+    evaluator_type: BnbSolverFfiObjectiveEvaluatorType,
+    solution_limit: usize, // 0 means no limit
+    time_limit_ms: i64,    // 0 means no limit
+    enable_log: bool,      // whether to enable logging
+    initial_solution: *const Solution<i64>,
+) -> *mut BnbSolverFfiOutcome {
+    assert!(
+        !solver_ptr.is_null(),
+        "called `bollard_bnb_solver_solve_with_initial_solution` with `solver_ptr` as null pointer"
+    );
+    assert!(
+        !model_ptr.is_null(),
+        "called `bollard_bnb_solver_solve_with_initial_solution` with `model_ptr` as null pointer"
+    );
+    assert!(
+        !initial_solution.is_null(),
+        "called `bollard_bnb_solver_solve_with_initial_solution` with `initial_solution` as null pointer"
+    );
+
+    let solver = &mut *solver_ptr;
+    let model = &*model_ptr;
+    let solution = &*initial_solution;
+
+    dispatch_solve(
+        solver,
+        model,
+        builder_type,
+        evaluator_type,
+        Some(solution),
+        &[], // No fixed assignments
+        solution_limit,
+        time_limit_ms,
+        enable_log,
+    )
+}
+
+/// Solves the given model using the specified decision builder and objective evaluator types,
+/// with respect to an initial solution and a set of fixed assignments.
+///
+/// The caller can control the number of solutions to find, time limit, and logging options.
+/// When `solution_limit` is 0, there is no limit on the number of solutions to find,
+/// and when `time_limit_ms` is 0, there is no time limit.
+/// Set `enable_log` to true to enable logging during the solving process.
+///
+/// The initial solution and fixed assignments are passed through to the underlying solver as a
+/// warm start and hard constraints, respectively. The solver will validate that the initial
+/// solution is compatible with the fixed assignments and may abort if they are inconsistent.
+///
+/// # Panics
+///
+/// This function will panic if `solver_ptr`, `model_ptr`, `initial_solution_ptr` are null.
+/// It will also panic if `fixed_assignments_ptr` is null while `num_fixed_assignments` is non-zero.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+///
+/// - `solver_ptr` is a valid pointer to a `BnbSolver<i64>`.
+/// - `model_ptr` is a valid pointer to a `Model<i64>`.
+/// - `initial_solution_ptr` is a valid pointer to a `Solution<i64>` that is compatible with
+///   the given model (same dimensions and consistent indices).
+/// - If `num_fixed_assignments > 0`, then `fixed_assignments_ptr` points to an array of
+///   `BnbFfiFixedAssignment` of length `num_fixed_assignments`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_bnb_solver_solve_with_initial_solution_and_fixed_assignments(
+    solver_ptr: *mut BnbSolver<i64>,
+    model_ptr: *const Model<i64>,
+    builder_type: BnbSolverFfiDecisionBuilderType,
+    evaluator_type: BnbSolverFfiObjectiveEvaluatorType,
+    solution_limit: usize, // 0 means no limit
+    time_limit_ms: i64,    // 0 means no limit
+    enable_log: bool,      // whether to enable logging
+    initial_solution: *const Solution<i64>,
+    fixed_assignments_ptr: *const BnbFfiFixedAssignment,
+    num_fixed_assignments: usize,
+) -> *mut BnbSolverFfiOutcome {
+    assert!(
+        !solver_ptr.is_null(),
+        "called `bollard_bnb_solver_solve_with_initial_solution_and_fixed_assignments` with `solver_ptr` as null pointer"
+    );
+    assert!(
+        !model_ptr.is_null(),
+        "called `bollard_bnb_solver_solve_with_initial_solution_and_fixed_assignments` with `model_ptr` as null pointer"
+    );
+    assert!(
+        !initial_solution.is_null(),
+        "called `bollard_bnb_solver_solve_with_initial_solution_and_fixed_assignments` with `initial_solution` as null pointer"
+    );
+
+    let solver = &mut *solver_ptr;
+    let model = &*model_ptr;
+    let solution = &*initial_solution;
+
+    if fixed_assignments_ptr.is_null() && num_fixed_assignments == 0 {
+        // No fixed assignments
+        return bollard_bnb_solver_solve_with_initial_solution(
+            solver_ptr,
+            model_ptr,
+            builder_type,
+            evaluator_type,
+            solution_limit,
+            time_limit_ms,
+            enable_log,
+            solution,
+        );
+    }
+
+    assert!(
+        !fixed_assignments_ptr.is_null(), // now num_fixed_assignments > 0
+        "called `bollard_bnb_solver_solve_with_initial_solution_and_fixed_assignments` with `fixed_assignments_ptr` as null pointer while `num_fixed_assignments` is non-zero"
+    );
+
+    let fixed_assignments_slice =
+        { std::slice::from_raw_parts(fixed_assignments_ptr, num_fixed_assignments) };
+
+    let fixed_assignments: Vec<FixedAssignment<i64>> = fixed_assignments_slice
+        .iter()
+        .map(|fa| (*fa).into())
+        .collect();
+
+    dispatch_solve(
+        solver,
+        model,
+        builder_type,
+        evaluator_type,
+        Some(solution),
+        &fixed_assignments,
         solution_limit,
         time_limit_ms,
         enable_log,

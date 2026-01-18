@@ -45,8 +45,10 @@ dependencies = [
  "bollard_core",
  "bollard_model",
  "bollard_search",
+ "criterion",
  "fixedbitset",
  "num-traits",
+ "regex",
  "tracing",
 ]
 
