@@ -19,6 +19,12 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+//! Search parameter bundle and fixed‑solution validation.
+//!
+//! This module defines the public configuration object used to launch a
+//! `BnbSolver` run, together with helpers for validating *fixed assignments*
+//! against an optional warm‑start solution.
+
 use crate::fixed::FixedAssignment;
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
