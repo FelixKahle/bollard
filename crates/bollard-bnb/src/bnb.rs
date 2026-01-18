@@ -173,28 +173,28 @@ where
         I: IncumbentStore<T>,
         T: SolverNumeric,
     {
-        let (model, builder, evaluator, mut monitor, fixed, initial_solution) = params.into_inner();
+        let mut p = params.into_inner();
 
         debug_assert!(
-            eval::validation::is_regular_evaluator_exhaustive(evaluator, model, 10_000),
+            eval::validation::is_regular_evaluator_exhaustive(p.evaluator, p.model, 10_000),
             "ObjectiveEvaluator '{}' is not regular. Monotonicity violated.",
-            evaluator.name()
+            p.evaluator.name()
         );
 
-        let fixed_assignments = match fixed {
+        let fixed_assignments = match p.fixed {
             Some(f) => f,
             None => &[],
         };
 
         let session = BnbSolverSearchSession::new(
             self,
-            model,
+            p.model,
             fixed_assignments,
-            builder,
-            evaluator,
-            &mut monitor,
+            p.builder,
+            p.evaluator,
+            &mut p.monitor,
             backing,
-            initial_solution, // <--- Pass it down
+            p.initial_solution,
         );
         let res = session.run();
         self.reset();

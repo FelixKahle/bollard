@@ -27,7 +27,7 @@ use bollard_model::{
 };
 use bollard_search::num::SolverNumeric;
 
-/// Error: a fixed vessel index is not present in a solution.
+/// A fixed vessel index is not present in a solution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MissingVesselInSolutionError {
     pub vessel_index: VesselIndex,
@@ -46,7 +46,7 @@ impl std::fmt::Display for MissingVesselInSolutionError {
 
 impl std::error::Error for MissingVesselInSolutionError {}
 
-/// Error: the berth in a solution does not match the fixed berth.
+/// The berth in a solution does not match the fixed berth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BerthMismatchError {
     pub vessel_index: VesselIndex,
@@ -66,7 +66,7 @@ impl std::fmt::Display for BerthMismatchError {
 
 impl std::error::Error for BerthMismatchError {}
 
-/// Error: the start time in a solution does not match the fixed start time.
+/// The start time in a solution does not match the fixed start time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StartTimeMismatchError<T> {
     pub vessel_index: VesselIndex,
@@ -113,7 +113,7 @@ where
 
 impl<T> std::error::Error for FixedSolutionError<T> where T: std::fmt::Display + std::fmt::Debug {}
 
-/// Validate that a concrete `solution` satisfies all `fixed` assignments.
+/// Validate that a concrete `Solution` satisfies all `FixedAssignment`s.
 ///
 /// This is a pure, allocation-free check.
 pub fn validate_fixed_solution<T>(
@@ -169,12 +169,13 @@ where
 ///
 /// # Construction
 ///
-/// This struct cannot be constructed directly. Use [`BnbSearchParams::builder`] to
-/// create a [`BnbSearchParamsBuilder`], configure your parameters, and call `.build()`.
+/// This struct cannot be constructed directly. Use `BnbSearchParams::builder` to
+/// create a `BnbSearchParamsBuilder` to configure your parameters, and call `.build()`.
 ///
 /// The `.build()` method ensures that the configuration is valid (e.g., that
 /// the initial solution respects fixed assignments). If validation fails, it
-/// returns an [`Err`] with a descriptive error explaining the problem.
+/// returns an Err with a descriptive error explaining the problem.
+#[derive(Debug)]
 pub struct BnbSearchParams<'a, T, B, E, S>
 where
     T: SolverNumeric,
@@ -187,7 +188,7 @@ where
     initial_solution: Option<&'a Solution<T>>,
 }
 
-/// A builder for [`BnbSearchParams`].
+/// A builder for `BnbSearchParams`.
 ///
 /// This struct allows optional configuration of fixed assignments and initial solutions
 /// before constructing the final parameter object.
@@ -221,7 +222,7 @@ where
         self
     }
 
-    /// Consumes the builder and produces a validated [`BnbSearchParams`] object.
+    /// Consumes the builder and produces a validated BnbSearchParams object.
     pub fn build(self) -> Result<BnbSearchParams<'a, T, B, E, S>, FixedSolutionError<T>> {
         if let (Some(f), Some(s)) = (self.fixed, self.initial_solution) {
             validate_fixed_solution(f, s)?;
@@ -237,7 +238,7 @@ where
         })
     }
 
-    /// Consumes the builder and produces a [`BnbSearchParams`] object without validating
+    /// Consumes the builder and produces a `BnbSearchParams` object without validating
     /// consistency between fixed assignments and the initial solution.
     ///
     /// This is useful when the caller has already performed the necessary checks or when
@@ -258,6 +259,24 @@ where
             initial_solution: self.initial_solution,
         }
     }
+}
+
+/// Fully-expanded, internal search configuration used by `BnbSolver`.
+///
+/// This is the concrete parameter bundle produced by `BnbSearchParams::into_inner`
+/// and consumed by the low-level search session. It mirrors `BnbSearchParams`
+/// but exposes all fields directly for internal use:
+#[derive(Debug)]
+pub(crate) struct SearchParams<'a, T, B, E, S>
+where
+    T: SolverNumeric,
+{
+    pub(crate) model: &'a Model<T>,
+    pub(crate) builder: &'a mut B,
+    pub(crate) evaluator: &'a mut E,
+    pub(crate) monitor: S,
+    pub(crate) fixed: Option<&'a [FixedAssignment<T>]>,
+    pub(crate) initial_solution: Option<&'a Solution<T>>,
 }
 
 impl<'a, T, B, E, S> BnbSearchParams<'a, T, B, E, S>
@@ -285,6 +304,7 @@ where
         }
     }
 
+    /// Returns the model.
     #[inline]
     pub fn model(&self) -> &'a Model<T> {
         self.model
@@ -314,45 +334,40 @@ where
         self.monitor
     }
 
+    /// All fixed assignments.
     #[inline]
     pub fn fixed_assignments(&self) -> Option<&'a [FixedAssignment<T>]> {
         self.fixed
     }
 
+    /// The initial solution.
     #[inline]
     pub fn initial_solution(&self) -> Option<&'a Solution<T>> {
         self.initial_solution
     }
 
+    /// Checks if there are any fixed assignments.
     #[inline]
     pub fn has_fixed_assignments(&self) -> bool {
         self.fixed.is_some()
     }
 
+    /// Checks if there is an initial solution.
     #[inline]
     pub fn has_initial_solution(&self) -> bool {
         self.initial_solution.is_some()
     }
 
-    #[allow(clippy::type_complexity)]
-    pub fn into_inner(
-        self,
-    ) -> (
-        &'a Model<T>,
-        &'a mut B,
-        &'a mut E,
-        S,
-        Option<&'a [FixedAssignment<T>]>,
-        Option<&'a Solution<T>>,
-    ) {
-        (
-            self.model,
-            self.builder,
-            self.evaluator,
-            self.monitor,
-            self.fixed,
-            self.initial_solution,
-        )
+    /// Consumes the object.
+    pub(crate) fn into_inner(self) -> SearchParams<'a, T, B, E, S> {
+        SearchParams {
+            model: self.model,
+            builder: self.builder,
+            evaluator: self.evaluator,
+            monitor: self.monitor,
+            fixed: self.fixed,
+            initial_solution: self.initial_solution,
+        }
     }
 }
 
