@@ -274,7 +274,7 @@ where
                             tentative_start,
                             processing_time,
                         )
-                        .map(|start| start + processing_time)
+                        .map(|start| start.saturating_add_val(processing_time))
                 };
 
                 if let Some(finish) = possible_finish {

@@ -31,3 +31,12 @@ bollard_search = { path = "../bollard-search" }
 num-traits = "0.2.19"
 fixedbitset = "0.5.7"
 tracing = "0.1.43"
+
+[dev-dependencies]
+criterion = "0.8.1"
+regex = "1.12.2"
+
+[[bench]]
+name = "bnb_opening_benchmark"
+harness = false
+path = "benches/bnb_opening_benchmark.rs"

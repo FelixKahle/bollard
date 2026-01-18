@@ -113,6 +113,11 @@ where
             _ => panic!("called `SolverResult::unwrap_feasible()` on a non-feasible result"),
         }
     }
+
+    #[inline]
+    pub fn has_solution(&self) -> bool {
+        matches!(self, SolverResult::Optimal(_) | SolverResult::Feasible(_))
+    }
 }
 
 /// The reason for the solver's termination.
