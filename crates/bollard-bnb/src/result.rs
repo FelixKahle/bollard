@@ -119,7 +119,7 @@ impl<T> BnbSolverOutcome<T> {
 
         let result = match solution {
             Some(sol) => SolverResult::Feasible(sol),
-            None => SolverResult::Infeasible,
+            None => SolverResult::Unknown,
         };
 
         Self {
