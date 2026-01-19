@@ -183,6 +183,36 @@ impl GeometricCooling {
             min_temp,
         }
     }
+
+    /// Resets the temperature to its initial value.
+    #[inline]
+    pub fn reset(&mut self) {
+        self.current = self.initial;
+    }
+
+    /// Returns the minimum temperature.
+    #[inline]
+    pub fn min_temperature(&self) -> f64 {
+        self.min_temp
+    }
+
+    /// Returns the current temperature.
+    #[inline]
+    pub fn current_temperature(&self) -> f64 {
+        self.current
+    }
+
+    /// Returns the decay rate.
+    #[inline]
+    pub fn alpha(&self) -> f64 {
+        self.alpha
+    }
+
+    /// Returns the initial temperature.
+    #[inline]
+    pub fn initial_temperature(&self) -> f64 {
+        self.initial
+    }
 }
 
 impl CoolingSchedule for GeometricCooling {
@@ -231,6 +261,36 @@ impl LinearCooling {
             decrement,
             min_temp,
         }
+    }
+
+    /// Resets the temperature to its initial value.
+    #[inline]
+    pub fn reset(&mut self) {
+        self.current = self.initial;
+    }
+
+    /// Resets the temperature to its initial value.
+    #[inline]
+    pub fn initial_temperature(&self) -> f64 {
+        self.initial
+    }
+
+    /// Returns the current temperature.
+    #[inline]
+    pub fn current_temperature(&self) -> f64 {
+        self.current
+    }
+
+    /// Returns the minimum temperature.
+    #[inline]
+    pub fn min_temperature(&self) -> f64 {
+        self.min_temp
+    }
+
+    /// Returns the temperature decrement.
+    #[inline]
+    pub fn temperature_decrease(&self) -> f64 {
+        self.decrement
     }
 }
 

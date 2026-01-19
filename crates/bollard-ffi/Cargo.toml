@@ -36,6 +36,7 @@ bollard_ls = { path = "../bollard-ls" }
 num-traits = "0.2.19"
 libc = "0.2.178"
 paste = "1.0.15"
+rand = "0.9.2"
 
 [profile.release]
 panic = "abort"

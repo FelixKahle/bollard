@@ -838,7 +838,7 @@ mod tests {
 
     #[test]
     fn test_solver_with_berths_vessels() {
-        let model = build_model(2, 10);
+        let model = build_model(2, 10); // 4, 17 -> 1595
         println!("{}", model.complexity());
 
         let mut solver = BnbSolver::<IntegerType>::new();

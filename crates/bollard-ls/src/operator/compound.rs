@@ -50,6 +50,7 @@ use crate::{
 };
 use bollard_model::solution::Solution;
 use bollard_search::{neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric};
+use rand::SeedableRng;
 use std::cmp::Ordering;
 
 /// A compound operator that selects one random sub-operator for each local search iteration.
@@ -87,6 +88,21 @@ where
         Self {
             operators,
             rng,
+            current_index: 0,
+        }
+    }
+}
+
+impl<'a, T, N> RandomCompoundOperator<'a, T, N, rand::rngs::StdRng>
+where
+    T: SolverNumeric,
+    N: Neighborhoods,
+{
+    #[inline]
+    pub fn empty() -> Self {
+        Self {
+            operators: Vec::new(),
+            rng: rand::rngs::StdRng::from_os_rng(),
             current_index: 0,
         }
     }
@@ -192,6 +208,15 @@ where
             operators,
             current_index: 0,
             op_started: vec![false; len],
+        }
+    }
+
+    #[inline]
+    pub fn empty() -> Self {
+        Self {
+            operators: Vec::new(),
+            current_index: 0,
+            op_started: Vec::new(),
         }
     }
 }
@@ -383,6 +408,11 @@ where
             op_started: vec![false; n],
             last_obj: None,
         }
+    }
+
+    #[inline]
+    pub fn empty(memory_coeff: f64, exploration_coeff: f64) -> Self {
+        Self::new(vec![], memory_coeff, exploration_coeff)
     }
 
     #[inline]

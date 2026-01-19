@@ -23,12 +23,33 @@
 // Termination Reason
 // ----------------------------------------------------------------
 
-use bollard_ls::{engine::LocalSearchEngine, stats::LocalSearchStatistics};
+use bollard_ls::{
+    decoder::GreedyDecoder,
+    engine::{LocalSearchEngine, LocalSearchParams},
+    meta::dynamic::DynamicMetaheuristic,
+    monitor::{
+        composite::CompositeLocalSearchMonitor, logging::LogLocalSearchMonitor,
+        solution::SolutionLimitMonitor, time::TimeLimitMonitor,
+    },
+    operator::{
+        compound::{
+            MultiArmedBanditCompoundOperator, RandomCompoundOperator, RoundRobinCompoundOperator,
+        },
+        dynamic::DynamicLocalSearchOperator,
+        local_search_operator::LocalSearchOperator,
+        scramble::ScrambleOperator,
+        shift::ShiftOperator,
+        swap::SwapOperator,
+        two_opt::TwoOptOperator,
+    },
+    stats::LocalSearchStatistics,
+};
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::neighborhood::{
     dynamic::DynamicNeighborhoods, neighborhoods::FullNeighborhoods, topology::StaticTopology,
 };
 use num_traits::ToPrimitive;
+use rand::SeedableRng;
 use std::ffi::{c_char, CString};
 
 #[repr(C)]
@@ -499,21 +520,264 @@ pub unsafe extern "C" fn bollard_ls_neighborhoods_free(
 }
 
 // ----------------------------------------------------------------
-// Engine
+// Operators
 // ----------------------------------------------------------------
 
-/// The Local Search engine instance.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalSearchFfiEngine {
-    inner: LocalSearchEngine<i64>,
+// ----------------------------------------------------------------
+// Operators
+// ----------------------------------------------------------------
+
+/// Unsafe helper to convert a C-style array of operator pointers into a Rust Vector of trait objects.
+///
+/// # Safety
+/// - Assumes ownership of the pointers in the array.
+/// - Does NOT free the array itself.
+unsafe fn consume_operator_array(
+    operators_ptr: *const *mut DynamicLocalSearchOperator<
+        'static,
+        i64,
+        DynamicNeighborhoods<'static>,
+    >,
+    operators_len: usize,
+) -> Vec<Box<dyn LocalSearchOperator<i64, DynamicNeighborhoods<'static>>>> {
+    if operators_len == 0 {
+        return Vec::new();
+    }
+
+    assert!(
+        !operators_ptr.is_null(),
+        "Operator array pointer is null but length > 0"
+    );
+
+    let raw_slice = std::slice::from_raw_parts(operators_ptr, operators_len);
+
+    raw_slice
+        .iter()
+        .map(|&ptr| {
+            assert!(!ptr.is_null(), "Found null pointer in operator array");
+            // Recover concrete Box
+            let concrete_box = Box::from_raw(ptr);
+            // Cast to Trait Object
+            concrete_box as Box<dyn LocalSearchOperator<i64, DynamicNeighborhoods<'static>>>
+        })
+        .collect()
 }
 
-impl LocalSearchFfiEngine {
-    #[inline]
-    fn new(engine: LocalSearchEngine<i64>) -> Self {
-        Self { inner: engine }
+/// Creates a new `DynamicLocalSearchOperator` using the Swap strategy.
+///
+/// # Safety
+///
+/// The caller is responsible for freeing the allocated memory using
+/// `bollard_ls_free_dynamic_local_search_operator` when it is no longer needed.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_ls_swap_operator_new(
+) -> *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods<'static>> {
+    Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(
+        SwapOperator::new(),
+    ))))
+}
+
+/// Creates a new `DynamicLocalSearchOperator` using the Shift strategy.
+///
+/// # Safety
+///
+/// The caller is responsible for freeing the allocated memory using
+/// `bollard_ls_free_dynamic_local_search_operator` when it is no longer needed.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_ls_shift_operator_new(
+) -> *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods<'static>> {
+    Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(
+        ShiftOperator::new(),
+    ))))
+}
+
+/// Creates a new `DynamicLocalSearchOperator` using the Scramble strategy with a random seed.
+///
+/// # Safety
+///
+/// The caller is responsible for freeing the allocated memory using
+/// `bollard_ls_free_dynamic_local_search_operator` when it is no longer needed.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_ls_scramble_operator_new(
+) -> *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods<'static>> {
+    let rng = rand::rngs::StdRng::from_os_rng();
+    Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(
+        ScrambleOperator::new(rng),
+    ))))
+}
+
+/// Creates a new `DynamicLocalSearchOperator` using the Scramble strategy with a specific seed.
+///
+/// # Safety
+///
+/// The caller is responsible for freeing the allocated memory using
+/// `bollard_ls_free_dynamic_local_search_operator` when it is no longer needed.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_ls_scramble_operator_new_with_seed(
+    seed: u64,
+) -> *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods<'static>> {
+    let rng = rand::rngs::StdRng::seed_from_u64(seed);
+    Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(
+        ScrambleOperator::new(rng),
+    ))))
+}
+
+/// Creates a new `DynamicLocalSearchOperator` using the 2-Opt strategy.
+///
+/// # Safety
+///
+/// The caller is responsible for freeing the allocated memory using
+/// `bollard_ls_free_dynamic_local_search_operator` when it is no longer needed.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_ls_two_opt_operator_new(
+) -> *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods<'static>> {
+    Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(
+        TwoOptOperator::new(),
+    ))))
+}
+
+// ----------------------------------------------------------------
+// Compound Operators
+// ----------------------------------------------------------------
+
+/// Creates a new compound operator that selects sub-operators in a Round-Robin fashion.
+///
+/// # Ownership Contract
+///
+/// This function **takes ownership** of the operators pointed to by the `operators_ptr` array.
+/// The caller **must not free** the individual operators passed to this function.
+/// However, the caller **must still free** the `operators_ptr` array itself.
+///
+/// # Panics
+///
+/// This function will panic if `operators_ptr` is null but `operators_len` is greater than 0,
+/// or if any pointer inside the array is null.
+///
+/// # Safety
+///
+/// The caller must ensure that `operators_ptr` points to a valid array of
+/// `operators_len` pointers to `DynamicLocalSearchOperator`.
+/// The caller is responsible for freeing the returned pointer using
+/// `bollard_ls_free_dynamic_local_search_operator`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_ls_round_robin_operator_new(
+    operators_ptr: *const *mut DynamicLocalSearchOperator<
+        'static,
+        i64,
+        DynamicNeighborhoods<'static>,
+    >,
+    operators_len: usize,
+) -> *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods<'static>> {
+    let operators = consume_operator_array(operators_ptr, operators_len);
+
+    if operators.is_empty() {
+        let op = RoundRobinCompoundOperator::empty();
+        return Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(op))));
+    }
+
+    let op = RoundRobinCompoundOperator::new(operators);
+    Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(op))))
+}
+
+/// Creates a new compound operator that selects sub-operators randomly.
+///
+/// # Ownership Contract
+///
+/// This function **takes ownership** of the operators pointed to by the `operators_ptr` array.
+/// The caller **must not free** the individual operators passed to this function.
+/// However, the caller **must still free** the `operators_ptr` array itself.
+///
+/// # Panics
+///
+/// This function will panic if `operators_ptr` is null but `operators_len` is greater than 0,
+/// or if any pointer inside the array is null.
+///
+/// # Safety
+///
+/// The caller must ensure that `operators_ptr` points to a valid array of
+/// `operators_len` pointers to `DynamicLocalSearchOperator`.
+/// The caller is responsible for freeing the returned pointer using
+/// `bollard_ls_free_dynamic_local_search_operator`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_ls_random_compound_operator_new(
+    operators_ptr: *const *mut DynamicLocalSearchOperator<
+        'static,
+        i64,
+        DynamicNeighborhoods<'static>,
+    >,
+    operators_len: usize,
+) -> *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods<'static>> {
+    let operators = consume_operator_array(operators_ptr, operators_len);
+
+    if operators.is_empty() {
+        let op = RandomCompoundOperator::empty();
+        return Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(op))));
+    }
+
+    let rng = rand::rngs::StdRng::from_os_rng();
+    let op = RandomCompoundOperator::new(operators, rng);
+    Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(op))))
+}
+
+/// Creates a new compound operator that selects sub-operators using a Multi-Armed Bandit (MAB) strategy.
+///
+/// # Ownership Contract
+///
+/// This function **takes ownership** of the operators pointed to by the `operators_ptr` array.
+/// The caller **must not free** the individual operators passed to this function.
+/// However, the caller **must still free** the `operators_ptr` array itself.
+///
+/// # Panics
+///
+/// This function will panic if `operators_ptr` is null but `operators_len` is greater than 0,
+/// or if any pointer inside the array is null.
+///
+/// # Safety
+///
+/// The caller must ensure that `operators_ptr` points to a valid array of
+/// `operators_len` pointers to `DynamicLocalSearchOperator`.
+/// The caller is responsible for freeing the returned pointer using
+/// `bollard_ls_free_dynamic_local_search_operator`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_ls_new_multi_armed_bandit_compound_operator(
+    operators_ptr: *const *mut DynamicLocalSearchOperator<
+        'static,
+        i64,
+        DynamicNeighborhoods<'static>,
+    >,
+    operators_len: usize,
+    memory_coeff: f64,
+    exploration_coeff: f64,
+) -> *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods<'static>> {
+    let operators = consume_operator_array(operators_ptr, operators_len);
+
+    if operators.is_empty() {
+        let op = MultiArmedBanditCompoundOperator::empty(memory_coeff, exploration_coeff);
+        return Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(op))));
+    }
+
+    let op = MultiArmedBanditCompoundOperator::new(operators, memory_coeff, exploration_coeff);
+    Box::into_raw(Box::new(DynamicLocalSearchOperator::new(Box::new(op))))
+}
+
+/// Frees a `DynamicLocalSearchOperator` previously allocated by Bollard.
+///
+/// # Safety
+///
+/// The caller must ensure that `ptr` is a valid pointer to a `DynamicLocalSearchOperator`
+/// allocated by Bollard.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_ls_free_dynamic_local_search_operator(
+    ptr: *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods<'static>>,
+) {
+    if !ptr.is_null() {
+        drop(Box::from_raw(ptr));
     }
 }
+
+// ----------------------------------------------------------------
+// Engine
+// ----------------------------------------------------------------
 
 /// Creates a new `LocalSearchFfiEngine` instance and returns a pointer to it.
 ///
@@ -522,9 +786,9 @@ impl LocalSearchFfiEngine {
 /// The caller is responsible for freeing the allocated memory using
 /// `bollard_ls_engine_free` when it is no longer needed.
 #[no_mangle]
-pub extern "C" fn bollard_ls_engine_new() -> *mut LocalSearchFfiEngine {
+pub extern "C" fn bollard_ls_engine_new() -> *mut LocalSearchEngine<i64> {
     let engine = LocalSearchEngine::default();
-    Box::into_raw(Box::new(LocalSearchFfiEngine::new(engine)))
+    Box::into_raw(Box::new(engine))
 }
 
 /// Creates a new `LocalSearchFfiEngine` instance with preallocated memory for the given number of vessels
@@ -537,9 +801,9 @@ pub extern "C" fn bollard_ls_engine_new() -> *mut LocalSearchFfiEngine {
 #[no_mangle]
 pub unsafe extern "C" fn bollard_ls_engine_preallocated(
     num_vessels: usize,
-) -> *mut LocalSearchFfiEngine {
+) -> *mut LocalSearchEngine<i64> {
     let engine = LocalSearchEngine::preallocated(num_vessels);
-    Box::into_raw(Box::new(LocalSearchFfiEngine::new(engine)))
+    Box::into_raw(Box::new(engine))
 }
 
 /// Frees a `LocalSearchFfiEngine` previously allocated by Bollard.
@@ -549,8 +813,94 @@ pub unsafe extern "C" fn bollard_ls_engine_preallocated(
 /// The caller must ensure that `engine` is a valid pointer to a `LocalSearchFfiEngine`
 /// allocated by Bollard.
 #[no_mangle]
-pub unsafe extern "C" fn bollard_ls_engine_free(engine: *mut LocalSearchFfiEngine) {
+pub unsafe extern "C" fn bollard_ls_engine_free(engine: *mut LocalSearchEngine<i64>) {
     if !engine.is_null() {
         drop(Box::from_raw(engine));
     }
+}
+
+/// Runs the local search engine with the given parameters.
+///
+/// # Panics
+///
+/// This function will panic if `engine`, `model`, `metaheuristic`, `neighborhood`, `operator`, or `initial_solution`
+/// are null pointers.
+///
+/// # Safety
+///
+/// The caller must ensure that `engine`, `model`, `metaheuristic`, `neighborhood`, `operator`, and `initial_solution`
+/// are valid pointers to their respective types.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_ls_engine_run(
+    engine: *mut LocalSearchEngine<i64>,
+    model: *const Model<i64>,
+    metaheuristic: *mut DynamicMetaheuristic<i64>,
+    neighborhood: *const DynamicNeighborhoods<'static>,
+    operator: *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods>,
+    initial_solution: *const Solution<i64>,
+    time_limit_ms: u64,  // 0 for unlimited
+    solution_limit: u64, // 0 for unlimited
+    log: bool,
+) -> LocalSearchFfiOutcome {
+    assert!(
+        !engine.is_null(),
+        "called `bollard_ls_engine_run` with `engine` as null pointer"
+    );
+    assert!(
+        !model.is_null(),
+        "called `bollard_ls_engine_run` with `model` as null pointer"
+    );
+    assert!(
+        !metaheuristic.is_null(),
+        "called `bollard_ls_engine_run` with `metaheuristic` as null pointer"
+    );
+    assert!(
+        !neighborhood.is_null(),
+        "called `bollard_ls_engine_run` with `neighborhood` as null pointer"
+    );
+    assert!(
+        !operator.is_null(),
+        "called `bollard_ls_engine_run` with `operator` as null pointer"
+    );
+    assert!(
+        !initial_solution.is_null(),
+        "called `bollard_ls_engine_run` with `initial_solution` as null pointer"
+    );
+
+    let model = &*model;
+    let engine = &mut *engine;
+    let metaheuristic = &mut *metaheuristic;
+    let neighborhood = &*neighborhood;
+    let operator = &mut *operator;
+    let initial_solution = &*initial_solution;
+    let mut decoder = GreedyDecoder::preallocated(model.num_berths());
+
+    let mut monitor = CompositeLocalSearchMonitor::with_capacity(3);
+    if log {
+        monitor.add_monitor(LogLocalSearchMonitor::new(std::time::Duration::from_secs(
+            1,
+        )));
+    }
+
+    if time_limit_ms > 0 {
+        monitor.add_monitor(TimeLimitMonitor::new(std::time::Duration::from_millis(
+            time_limit_ms,
+        )));
+    }
+
+    if solution_limit > 0 {
+        monitor.add_monitor(SolutionLimitMonitor::new(solution_limit));
+    }
+
+    let params = LocalSearchParams {
+        model,
+        metaheuristic,
+        neighborhood,
+        operator,
+        decoder: &mut decoder,
+        monitor,
+        initial_solution,
+    };
+
+    engine.run(params).into()
 }
