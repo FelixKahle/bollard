@@ -84,14 +84,14 @@ pub trait CoolingSchedule: Send + Sync + std::fmt::Debug {
 /// name for logging and diagnostics. The wrapper owns the cooling schedule
 /// as a boxed trait object and forwards all orchestration and temperature
 /// management to the inner implementation.
-pub struct DynamicCoolingSchedule {
-    inner: Box<dyn CoolingSchedule>,
+pub struct DynamicCoolingSchedule<'a> {
+    inner: Box<dyn CoolingSchedule + 'a>,
 }
 
-impl DynamicCoolingSchedule {
+impl<'a> DynamicCoolingSchedule<'a> {
     /// Creates a new DynamicCoolingSchedule from a boxed CoolingSchedule.
     #[inline]
-    pub fn new(inner: Box<dyn CoolingSchedule>) -> Self {
+    pub fn new(inner: Box<dyn CoolingSchedule + 'a>) -> Self {
         Self { inner }
     }
 
@@ -99,7 +99,7 @@ impl DynamicCoolingSchedule {
     #[inline]
     pub fn from_schedule<S>(schedule: S) -> Self
     where
-        S: CoolingSchedule + 'static,
+        S: CoolingSchedule + 'a,
     {
         Self {
             inner: Box::new(schedule),
@@ -113,7 +113,7 @@ impl DynamicCoolingSchedule {
     }
 }
 
-impl std::fmt::Debug for DynamicCoolingSchedule {
+impl<'a> std::fmt::Debug for DynamicCoolingSchedule<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DynamicCoolingSchedule")
             .field("inner", &self.inner)
@@ -121,13 +121,13 @@ impl std::fmt::Debug for DynamicCoolingSchedule {
     }
 }
 
-impl std::fmt::Display for DynamicCoolingSchedule {
+impl<'a> std::fmt::Display for DynamicCoolingSchedule<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "DynamicCoolingSchedule")
     }
 }
 
-impl CoolingSchedule for DynamicCoolingSchedule {
+impl<'a> CoolingSchedule for DynamicCoolingSchedule<'a> {
     #[inline]
     fn on_start(&mut self) {
         self.inner.on_start();
@@ -146,6 +146,47 @@ impl CoolingSchedule for DynamicCoolingSchedule {
     #[inline]
     fn is_frozen(&self) -> bool {
         self.inner.is_frozen()
+    }
+}
+
+#[derive(Debug)]
+pub struct CoolingScheduleRefMut<'a> {
+    inner: &'a mut dyn CoolingSchedule,
+}
+
+impl<'a> CoolingScheduleRefMut<'a> {
+    #[inline]
+    pub fn new(inner: &'a mut dyn CoolingSchedule) -> Self {
+        Self { inner }
+    }
+
+    #[inline]
+    pub fn from_ref(inner: &'a mut dyn CoolingSchedule) -> Self {
+        Self { inner }
+    }
+}
+
+impl<'a> CoolingSchedule for CoolingScheduleRefMut<'a> {
+    fn on_start(&mut self) {
+        self.inner.on_start()
+    }
+
+    fn update(&mut self) {
+        self.inner.update()
+    }
+
+    fn current(&self) -> f64 {
+        self.inner.current()
+    }
+
+    fn is_frozen(&self) -> bool {
+        self.inner.is_frozen()
+    }
+}
+
+impl<'a> From<&'a mut DynamicCoolingSchedule<'a>> for CoolingScheduleRefMut<'a> {
+    fn from(dynamic: &'a mut DynamicCoolingSchedule<'a>) -> Self {
+        Self::new(dynamic)
     }
 }
 
