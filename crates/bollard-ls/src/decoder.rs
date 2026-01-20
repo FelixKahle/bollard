@@ -270,6 +270,7 @@ where
         evaluator: F,
     ) -> bool
     where
+        Self: Sized,
         F: Fn(&Model<T>, VesselIndex, BerthIndex, T) -> Option<Evaluation<T>>,
     {
         let num_berths = model.num_berths();
@@ -395,6 +396,7 @@ where
         evaluator: F,
     ) -> bool
     where
+        Self: Sized,
         F: Fn(&Model<T>, VesselIndex, BerthIndex, T) -> Option<Evaluation<T>>,
     {
         let num_berths = model.num_berths();
