@@ -309,7 +309,7 @@ impl LinearCooling {
         self.current = self.initial;
     }
 
-    /// Resets the temperature to its initial value.
+    /// Returns the initial temperature.
     #[inline]
     pub fn initial_temperature(&self) -> f64 {
         self.initial
