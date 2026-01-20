@@ -48,7 +48,6 @@
 //! before applying more exploratory metaheuristics, or to serve as a deterministic
 //! fallback when diversification is not required.
 
-use crate::eval::DefaultAssignmentEvaluator;
 use crate::meta::metaheuristic::Metaheuristic;
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
@@ -64,30 +63,23 @@ use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric}
 /// * **Acceptance:** Strict improvement (`candidate < current`).
 /// * **Termination:** Natural exhaustion (Local Optimum).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GreedyDescent<T>
-where
-    T: SolverNumeric,
-{
-    evaluator: DefaultAssignmentEvaluator<T>,
+pub struct GreedyDescent<T> {
+    _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T> Default for GreedyDescent<T>
-where
-    T: SolverNumeric,
-{
+impl<T> Default for GreedyDescent<T> {
     fn default() -> Self {
-        Self::new()
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
     }
 }
 
-impl<T> GreedyDescent<T>
-where
-    T: SolverNumeric,
-{
+impl<T> GreedyDescent<T> {
     /// Creates a new `GreedyDescent` that runs until a local optimum is reached.
     pub fn new() -> Self {
         Self {
-            evaluator: DefaultAssignmentEvaluator::new(),
+            _phantom: std::marker::PhantomData,
         }
     }
 }
@@ -96,8 +88,6 @@ impl<T> Metaheuristic<T> for GreedyDescent<T>
 where
     T: SolverNumeric,
 {
-    type Evaluator = DefaultAssignmentEvaluator<T>;
-
     fn name(&self) -> &str {
         "GreedyDescent"
     }
@@ -143,10 +133,6 @@ where
     fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Solution<T>) {
         // No internal state to update.
     }
-
-    fn evaluator(&self) -> &DefaultAssignmentEvaluator<T> {
-        &self.evaluator
-    }
 }
 
 #[cfg(test)]
@@ -166,9 +152,6 @@ mod tests {
         let b: GreedyDescent<i64> = GreedyDescent::new();
         assert_eq!(a.name(), "GreedyDescent");
         assert_eq!(b.name(), "GreedyDescent");
-        // Evaluator presence check
-        let _ea = a.evaluator();
-        let _eb = b.evaluator();
     }
 
     #[test]
@@ -229,8 +212,5 @@ mod tests {
         mh.on_accept(&model, &s1);
         mh.on_reject(&model, &s0);
         mh.on_new_best(&model, &s1);
-
-        // evaluator remains accessible
-        let _e = mh.evaluator();
     }
 }

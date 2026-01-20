@@ -31,7 +31,6 @@
 
 pub mod decoder;
 pub mod engine;
-pub mod eval;
 mod incumbent;
 pub mod memory;
 pub mod meta;

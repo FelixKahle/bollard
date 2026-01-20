@@ -49,7 +49,6 @@
 //! comparison is `WeightedFlowTimeEvaluator`, keeping scoring consistent with other
 //! metaheuristics in this crate.
 
-use crate::eval::DefaultAssignmentEvaluator;
 use crate::meta::metaheuristic::Metaheuristic;
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
@@ -325,13 +324,10 @@ impl CoolingSchedule for LinearCooling {
 /// It uses the **Metropolis Criterion** to decide whether to accept a move:
 /// $$ P(\text{accept}) = \exp\left(\frac{-(C_{\text{new}} - C_{\text{old}})}{T}\right) $$
 #[derive(Debug, Clone)]
-pub struct SimulatedAnnealing<T, R, C>
-where
-    T: SolverNumeric,
-{
+pub struct SimulatedAnnealing<T, R, C> {
     cooling_schedule: C, // The cooling schedule managing temperature decay
     rng: R,              // Random number generator for stochastic acceptance
-    evaluator: DefaultAssignmentEvaluator<T>, // Evaluator for objective calculation
+    _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T, R, C> SimulatedAnnealing<T, R, C>
@@ -353,7 +349,7 @@ where
         Self {
             cooling_schedule,
             rng,
-            evaluator: DefaultAssignmentEvaluator::new(),
+            _phantom: std::marker::PhantomData,
         }
     }
 }
@@ -432,8 +428,6 @@ where
     R: Rng + Send + Sync,
     C: CoolingSchedule,
 {
-    type Evaluator = DefaultAssignmentEvaluator<T>;
-
     fn name(&self) -> &str {
         "SimulatedAnnealing"
     }
@@ -513,10 +507,6 @@ where
         // Standard SA does not react specially to new bests.
         // Adaptive variants could implement reheating here.
     }
-
-    fn evaluator(&self) -> &DefaultAssignmentEvaluator<T> {
-        &self.evaluator
-    }
 }
 
 #[cfg(test)]
@@ -544,7 +534,6 @@ mod tests {
         let sa: SimulatedAnnealing<i64, _, _> = SimulatedAnnealing::new(cooling, rng);
 
         assert_eq!(sa.name(), "SimulatedAnnealing");
-        let _eval = sa.evaluator();
     }
 
     #[test]

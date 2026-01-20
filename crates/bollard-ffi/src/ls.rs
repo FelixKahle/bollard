@@ -24,13 +24,7 @@
 // ----------------------------------------------------------------
 
 use bollard_ls::{
-    decoder::GreedyDecoder,
-    engine::{LocalSearchEngine, LocalSearchParams},
-    meta::dynamic::DynamicMetaheuristic,
-    monitor::{
-        composite::CompositeLocalSearchMonitor, logging::LogLocalSearchMonitor,
-        solution::SolutionLimitMonitor, time::TimeLimitMonitor,
-    },
+    engine::LocalSearchEngine,
     operator::{
         compound::{
             MultiArmedBanditCompoundOperator, RandomCompoundOperator, RoundRobinCompoundOperator,
@@ -776,6 +770,10 @@ pub unsafe extern "C" fn bollard_ls_free_dynamic_local_search_operator(
 }
 
 // ----------------------------------------------------------------
+// Metaheuristic
+// ----------------------------------------------------------------
+
+// ----------------------------------------------------------------
 // Engine
 // ----------------------------------------------------------------
 
@@ -817,90 +815,4 @@ pub unsafe extern "C" fn bollard_ls_engine_free(engine: *mut LocalSearchEngine<i
     if !engine.is_null() {
         drop(Box::from_raw(engine));
     }
-}
-
-/// Runs the local search engine with the given parameters.
-///
-/// # Panics
-///
-/// This function will panic if `engine`, `model`, `metaheuristic`, `neighborhood`, `operator`, or `initial_solution`
-/// are null pointers.
-///
-/// # Safety
-///
-/// The caller must ensure that `engine`, `model`, `metaheuristic`, `neighborhood`, `operator`, and `initial_solution`
-/// are valid pointers to their respective types.
-#[no_mangle]
-pub unsafe extern "C" fn bollard_ls_engine_run(
-    engine: *mut LocalSearchEngine<i64>,
-    model: *const Model<i64>,
-    metaheuristic: *mut DynamicMetaheuristic<i64>,
-    neighborhood: *const DynamicNeighborhoods<'static>,
-    operator: *mut DynamicLocalSearchOperator<'static, i64, DynamicNeighborhoods>,
-    initial_solution: *const Solution<i64>,
-    time_limit_ms: u64,  // 0 for unlimited
-    solution_limit: u64, // 0 for unlimited
-    log: bool,
-) -> LocalSearchFfiOutcome {
-    assert!(
-        !engine.is_null(),
-        "called `bollard_ls_engine_run` with `engine` as null pointer"
-    );
-    assert!(
-        !model.is_null(),
-        "called `bollard_ls_engine_run` with `model` as null pointer"
-    );
-    assert!(
-        !metaheuristic.is_null(),
-        "called `bollard_ls_engine_run` with `metaheuristic` as null pointer"
-    );
-    assert!(
-        !neighborhood.is_null(),
-        "called `bollard_ls_engine_run` with `neighborhood` as null pointer"
-    );
-    assert!(
-        !operator.is_null(),
-        "called `bollard_ls_engine_run` with `operator` as null pointer"
-    );
-    assert!(
-        !initial_solution.is_null(),
-        "called `bollard_ls_engine_run` with `initial_solution` as null pointer"
-    );
-
-    let model = &*model;
-    let engine = &mut *engine;
-    let metaheuristic = &mut *metaheuristic;
-    let neighborhood = &*neighborhood;
-    let operator = &mut *operator;
-    let initial_solution = &*initial_solution;
-    let mut decoder = GreedyDecoder::preallocated(model.num_berths());
-
-    let mut monitor = CompositeLocalSearchMonitor::with_capacity(3);
-    if log {
-        monitor.add_monitor(LogLocalSearchMonitor::new(std::time::Duration::from_secs(
-            1,
-        )));
-    }
-
-    if time_limit_ms > 0 {
-        monitor.add_monitor(TimeLimitMonitor::new(std::time::Duration::from_millis(
-            time_limit_ms,
-        )));
-    }
-
-    if solution_limit > 0 {
-        monitor.add_monitor(SolutionLimitMonitor::new(solution_limit));
-    }
-
-    let params = LocalSearchParams {
-        model,
-        metaheuristic,
-        neighborhood,
-        operator,
-        decoder: &mut decoder,
-        monitor,
-        initial_solution,
-    };
-
-    engine.run(params).into()
 }

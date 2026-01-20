@@ -37,7 +37,7 @@ where
     T: SolverNumeric,
     N: Neighborhoods,
     H: Metaheuristic<T>,
-    D: Decoder<T, H::Evaluator>,
+    D: Decoder<T>,
     O: LocalSearchOperator<T, N>,
 {
     metaheuristic: H,
@@ -53,7 +53,7 @@ where
     T: SolverNumeric,
     N: Neighborhoods,
     H: Metaheuristic<T>,
-    D: Decoder<T, H::Evaluator>,
+    D: Decoder<T>,
     O: LocalSearchOperator<T, N>,
 {
     #[inline]
@@ -104,7 +104,7 @@ where
     T: SolverNumeric,
     N: Neighborhoods + Send + Sync,
     H: Metaheuristic<T> + Send + Sync,
-    D: Decoder<T, H::Evaluator> + Send + Sync,
+    D: Decoder<T> + Send + Sync,
     O: LocalSearchOperator<T, N> + Send + Sync,
 {
     fn invoke<'ctx>(

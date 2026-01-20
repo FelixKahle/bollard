@@ -34,13 +34,17 @@ use crate::{
     decoder::Decoder,
     incumbent::NoSharedIncumbent,
     memory::SearchMemory,
-    meta::metaheuristic::Metaheuristic,
+    meta::metaheuristic::{Evaluation, Metaheuristic},
     monitor::local_search_monitor::LocalSearchMonitor,
     operator::local_search_operator::LocalSearchOperator,
     result::{LocalSearchEngineOutcome, LocalSearchTerminationReason},
     stats::LocalSearchStatistics,
 };
-use bollard_model::{model::Model, solution::Solution};
+use bollard_model::{
+    index::{BerthIndex, VesselIndex},
+    model::Model,
+    solution::Solution,
+};
 use bollard_search::{
     incumbent::SharedIncumbent, monitor::search_monitor::SearchCommand,
     neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric,
@@ -148,7 +152,7 @@ where
     where
         N: Neighborhoods,
         H: Metaheuristic<T>,
-        D: Decoder<T, H::Evaluator>,
+        D: Decoder<T>,
         O: LocalSearchOperator<T, N>,
         M: LocalSearchMonitor<T>,
     {
@@ -168,7 +172,7 @@ where
     where
         N: Neighborhoods,
         H: Metaheuristic<T>,
-        D: Decoder<T, H::Evaluator>,
+        D: Decoder<T>,
         O: LocalSearchOperator<T, N>,
         M: LocalSearchMonitor<T>,
     {
@@ -190,7 +194,7 @@ where
     where
         N: Neighborhoods,
         H: Metaheuristic<T>,
-        D: Decoder<T, H::Evaluator>,
+        D: Decoder<T>,
         O: LocalSearchOperator<T, N>,
         M: LocalSearchMonitor<T>,
         S: crate::incumbent::IncumbentStore<T>,
@@ -281,7 +285,15 @@ where
 
             let decoded = unsafe {
                 let (queue, candidate) = self.memory.evaluation_target();
-                let evaluator = metaheuristic.evaluator();
+
+                let evaluator = |m: &Model<T>,
+                                 v: VesselIndex,
+                                 b: BerthIndex,
+                                 start: T|
+                 -> Option<Evaluation<T>> {
+                    metaheuristic.evaluate_assignment_unchecked(m, v, b, start)
+                };
+
                 decoder.decode_unchecked(model, queue, candidate, evaluator)
             };
 
@@ -393,7 +405,6 @@ mod tests {
     use super::*;
     use crate::{
         decoder::GreedyDecoder,
-        eval::DefaultAssignmentEvaluator,
         meta::greedy_descent::GreedyDescent,
         monitor::{
             composite::CompositeLocalSearchMonitor, logging::LogLocalSearchMonitor,
@@ -475,8 +486,7 @@ mod tests {
         let topology = StaticTopology::from_model(&model);
 
         let mut mh: GreedyDescent<i64> = GreedyDescent::new();
-        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
-            GreedyDecoder::preallocated(model.num_berths());
+        let mut dec: GreedyDecoder<i64> = GreedyDecoder::preallocated(model.num_berths());
         let mut op: SwapOperator<i64, StaticTopology> = SwapOperator::new();
 
         let init = initial_solution_from_order(&model, &[2, 1, 0]);
@@ -511,8 +521,7 @@ mod tests {
         let model = build_basic_model();
         let topology = StaticTopology::from_model(&model);
         let mut mh: GreedyDescent<i64> = GreedyDescent::new();
-        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
-            GreedyDecoder::preallocated(model.num_berths());
+        let mut dec: GreedyDecoder<i64> = GreedyDecoder::preallocated(model.num_berths());
         let mut op: SwapOperator<i64, StaticTopology> = SwapOperator::new();
 
         let init = initial_solution_from_order(&model, &[0, 1, 2]);
@@ -557,8 +566,7 @@ mod tests {
         let model = build_basic_model();
         let topology = StaticTopology::from_model(&model);
         let mut mh: GreedyDescent<i64> = GreedyDescent::new();
-        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
-            GreedyDecoder::preallocated(model.num_berths());
+        let mut dec: GreedyDecoder<i64> = GreedyDecoder::preallocated(model.num_berths());
         let mut op: SwapOperator<i64, StaticTopology> = SwapOperator::new();
 
         let init = initial_solution_from_order(&model, &[0, 2, 1]);
@@ -597,8 +605,7 @@ mod tests {
         let topology = StaticTopology::from_model(&model);
 
         let mut mh: GreedyDescent<i64> = GreedyDescent::new();
-        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
-            GreedyDecoder::preallocated(model.num_berths());
+        let mut dec: GreedyDecoder<i64> = GreedyDecoder::preallocated(model.num_berths());
         let mut op: SwapOperator<i64, StaticTopology> = SwapOperator::new();
 
         let init = initial_solution_from_order(&model, &[2, 1, 0]);
@@ -633,8 +640,7 @@ mod tests {
         let topology = StaticTopology::from_model(&model);
 
         let mut mh: GreedyDescent<i64> = GreedyDescent::new();
-        let mut dec: GreedyDecoder<i64, DefaultAssignmentEvaluator<i64>> =
-            GreedyDecoder::preallocated(model.num_berths());
+        let mut dec: GreedyDecoder<i64> = GreedyDecoder::preallocated(model.num_berths());
 
         struct CountingSwap<T, N> {
             inner: SwapOperator<T, N>,
