@@ -132,11 +132,23 @@ where
     /// Called at the end of the search.
     fn on_end(&mut self, model: &Model<T>, final_solution: &Solution<T>);
 
+    /// Called when the neighbourhood of a solution has been exhausted.
+    /// This will return `true` if the search should continue, or `false` if it should terminate.
+    fn on_neighbourhood_exhausted(
+        &mut self,
+        _model: &Model<T>,
+        _current: &Solution<T>,
+        _best: &Solution<T>,
+    ) -> bool {
+        false
+    }
+
     /// Determines if the search should proceed to the next iteration.
     fn search_command(
         &mut self,
         iteration: u64,
         model: &Model<T>,
+        current_solution: &Solution<T>,
         best_solution: &Solution<T>,
     ) -> SearchCommand;
 

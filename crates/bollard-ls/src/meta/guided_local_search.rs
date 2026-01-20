@@ -301,8 +301,6 @@ where
     B: Unsigned + PrimInt,
 {
     lambda: f64,                  // Penalty scaling factor
-    stagnation_limit: u64,        // Limit before penalization
-    stagnation_counter: u64,      // Current stagnation counter
     current_augmented_score: f64, // Cached augmented score of current solution
     penalties: PenaltyMatrix<B>,
     _phantom: std::marker::PhantomData<T>,
@@ -315,12 +313,10 @@ where
 {
     /// Creates a new `GuidedLocalSearch` with the specified penalty scaling factor and stagnation limit.
     #[inline]
-    pub fn new(lambda: f64, stagnation_limit: u64) -> Self {
+    pub fn new(lambda: f64) -> Self {
         Self {
             lambda,
-            stagnation_limit,
             penalties: PenaltyMatrix::new(0, 0),
-            stagnation_counter: 0,
             current_augmented_score: f64::INFINITY,
             _phantom: std::marker::PhantomData,
         }
@@ -328,17 +324,10 @@ where
 
     /// Creates a new `GuidedLocalSearch` with preallocated penalty matrix dimensions.
     #[inline]
-    pub fn preallocated(
-        lambda: f64,
-        stagnation_limit: u64,
-        num_vessels: usize,
-        num_berths: usize,
-    ) -> Self {
+    pub fn preallocated(lambda: f64, num_vessels: usize, num_berths: usize) -> Self {
         Self {
             lambda,
-            stagnation_limit,
             penalties: PenaltyMatrix::new(num_vessels, num_berths),
-            stagnation_counter: 0,
             current_augmented_score: f64::INFINITY,
             _phantom: std::marker::PhantomData,
         }
@@ -359,20 +348,16 @@ where
         model: &Model<T>,
         initial_solution: &Solution<T>,
         alpha: f64,
-        stagnation_factor: f64,
     ) -> Self {
         let n = model.num_vessels() as f64;
 
         let obj = initial_solution.objective_value().to_f64().unwrap_or(1.0);
         let avg_contribution = if n > 0.0 { obj / n } else { 1.0 };
         let lambda = alpha * avg_contribution;
-        let stagnation_limit = (n * stagnation_factor) as u64;
 
         Self {
             lambda,
-            stagnation_limit: stagnation_limit.max(1),
             penalties: PenaltyMatrix::new(model.num_vessels(), model.num_berths()),
-            stagnation_counter: 0,
             current_augmented_score: f64::INFINITY,
             _phantom: std::marker::PhantomData,
         }
@@ -390,7 +375,7 @@ where
     pub fn with_defaults(model: &Model<T>, initial_solution: &Solution<T>) -> Self {
         // Alpha 15.0 is aggressive enough for weighted flow time.
         // Stagnation factor 1.0 means we wait for `num_vessels` iterations before kicking.
-        Self::with_heuristic_tuning(model, initial_solution, 15.0, 1.0)
+        Self::with_heuristic_tuning(model, initial_solution, 15.0)
     }
 
     /// Calculates the full augmented objective from scratch.
@@ -490,7 +475,6 @@ where
             .resize(model.num_vessels(), model.num_berths());
 
         self.penalties.reset();
-        self.stagnation_counter = 0;
 
         // Initialize cache
         self.current_augmented_score = self.calculate_augmented_score(initial_solution);
@@ -499,13 +483,24 @@ where
     fn on_end(&mut self, _model: &Model<T>, _final_solution: &Solution<T>) {
         // Reset
         self.penalties.reset();
-        self.stagnation_counter = 0;
+    }
+
+    fn on_neighbourhood_exhausted(
+        &mut self,
+        model: &Model<T>,
+        current: &Solution<T>,
+        _best: &Solution<T>,
+    ) -> bool {
+        self.penalize(model, current);
+        self.current_augmented_score = self.calculate_augmented_score(current);
+        true
     }
 
     fn search_command(
         &mut self,
         _iter: u64,
         _model: &Model<T>,
+        _current: &Solution<T>,
         _best: &Solution<T>,
     ) -> SearchCommand {
         SearchCommand::Continue
@@ -523,22 +518,10 @@ where
     }
 
     fn on_accept(&mut self, _model: &Model<T>, new_current: &Solution<T>) {
-        self.stagnation_counter = 0;
         self.current_augmented_score = self.calculate_augmented_score(new_current);
     }
 
-    fn on_reject(&mut self, model: &Model<T>, current_schedule: &Solution<T>) {
-        self.stagnation_counter += 1;
-        if self.stagnation_counter >= self.stagnation_limit {
-            self.penalize(model, current_schedule);
-            self.stagnation_counter = 0;
-
-            // The penalties changed, so the augmented score of the
-            // *current* solution (which hasn't moved) has increased.
-            // We must update the cache so future candidates are compared correctly.
-            self.current_augmented_score = self.calculate_augmented_score(current_schedule);
-        }
-    }
+    fn on_reject(&mut self, _model: &Model<T>, _current_schedule: &Solution<T>) {}
 
     fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Solution<T>) {}
 
@@ -647,14 +630,14 @@ mod tests {
 
     #[test]
     fn test_name_and_evaluator_access() {
-        let gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(1.0, 100);
+        let gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(1.0);
         assert_eq!(gls.name(), "GuidedLocalSearch");
     }
 
     #[test]
     fn test_constructors_new_and_preallocated() {
-        let gls_a: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.5, 50);
-        let gls_b: GuidedLocalSearch<i64> = GuidedLocalSearch::preallocated(0.5, 50, 0, 0);
+        let gls_a: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.5);
+        let gls_b: GuidedLocalSearch<i64> = GuidedLocalSearch::preallocated(0.5, 50, 0);
         assert_eq!(gls_a.name(), "GuidedLocalSearch");
         assert_eq!(gls_b.name(), "GuidedLocalSearch");
     }
@@ -668,7 +651,7 @@ mod tests {
         let s0 = sched(0_i64, vec![], vec![]);
         let s1 = sched(0_i64, vec![], vec![]);
 
-        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(1.0, 10);
+        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(1.0);
 
         // These should not panic and maintain internal consistency
         gls.on_start(&model, &s0);
@@ -679,14 +662,14 @@ mod tests {
 
     #[test]
     fn test_search_command_continue_under_neutral_conditions() {
-        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.1, 5);
+        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.1);
 
         // Empty model
         let model = ModelBuilder::<i64>::new(0, 0).build();
         let best = sched(0_i64, vec![], vec![]);
 
         // Under neutral conditions, search_command should continue
-        let cmd = gls.search_command(0, &model, &best);
+        let cmd = gls.search_command(0, &model, &best, &best);
         assert_eq!(cmd, SearchCommand::Continue);
     }
 
@@ -694,7 +677,7 @@ mod tests {
     fn test_should_accept_considers_candidate_vs_current_objective_basics() {
         // Guided Local Search augments objective with penalties. We don't assert
         // penalty-specific behavior here; just exercise the acceptance path with simple inputs.
-        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.5, 10);
+        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.5);
 
         // Model must match the schedule size; use 1 vessel, 1 berth
         let model = ModelBuilder::<i64>::new(1, 1).build();

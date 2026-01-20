@@ -444,6 +444,7 @@ where
         &mut self,
         _iteration: u64,
         _model: &Model<T>,
+        _current_solution: &Solution<T>,
         _best_solution: &Solution<T>,
     ) -> SearchCommand {
         SearchCommand::Continue

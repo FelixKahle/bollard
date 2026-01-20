@@ -160,7 +160,13 @@ where
         self.tabu_set.clear();
     }
 
-    fn search_command(&mut self, _: u64, _: &Model<T>, _: &Solution<T>) -> SearchCommand {
+    fn search_command(
+        &mut self,
+        _: u64,
+        _: &Model<T>,
+        _: &Solution<T>,
+        _: &Solution<T>,
+    ) -> SearchCommand {
         SearchCommand::Continue
     }
 
@@ -227,7 +233,10 @@ mod tests {
         let mut ts: TabuSearch<i64> = TabuSearch::new(3);
         let model = ModelBuilder::<i64>::new(1, 1).build();
         let best = sched(0_i64, vec![BerthIndex::new(0)], vec![0_i64]);
-        assert_eq!(ts.search_command(0, &model, &best), SearchCommand::Continue);
+        assert_eq!(
+            ts.search_command(0, &model, &best, &best),
+            SearchCommand::Continue
+        );
     }
 
     #[test]

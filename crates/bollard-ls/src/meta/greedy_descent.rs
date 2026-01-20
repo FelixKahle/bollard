@@ -104,6 +104,7 @@ where
         &mut self,
         _iteration: u64,
         _model: &Model<T>,
+        _current_solution: &Solution<T>,
         _best_solution: &Solution<T>,
     ) -> SearchCommand {
         SearchCommand::Continue
@@ -164,7 +165,7 @@ mod tests {
         // Using empty schedules for best/current context.
         let best = sched(0_i64, vec![], vec![]);
 
-        let cmd = mh.search_command(0, &model, &best);
+        let cmd = mh.search_command(0, &model, &best, &best);
         assert_eq!(cmd, SearchCommand::Continue);
     }
 

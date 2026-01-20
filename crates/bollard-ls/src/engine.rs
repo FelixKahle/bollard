@@ -268,6 +268,7 @@ where
                 stats.iterations,
                 model,
                 self.memory.current_schedule(),
+                &best_solution,
             ) {
                 break LocalSearchTerminationReason::Metaheuristic(reason);
             }
@@ -280,7 +281,17 @@ where
             };
 
             if !mutated {
-                break LocalSearchTerminationReason::LocalOptimum;
+                let kicked = metaheuristic.on_neighbourhood_exhausted(
+                    model,
+                    self.memory.current_schedule(),
+                    &best_solution,
+                );
+
+                if kicked {
+                    continue;
+                } else {
+                    break LocalSearchTerminationReason::LocalOptimum;
+                }
             }
 
             let decoded = unsafe {
