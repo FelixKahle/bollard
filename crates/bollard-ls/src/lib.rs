@@ -37,6 +37,7 @@ pub mod meta;
 pub mod monitor;
 pub mod mutator;
 pub mod operator;
+pub mod params;
 pub mod portfolio;
 pub mod queue;
 pub mod result;

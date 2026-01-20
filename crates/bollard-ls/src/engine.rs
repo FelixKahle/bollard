@@ -37,6 +37,7 @@ use crate::{
     meta::metaheuristic::{Evaluation, Metaheuristic},
     monitor::local_search_monitor::LocalSearchMonitor,
     operator::local_search_operator::LocalSearchOperator,
+    params::{LocalSearchParams, SearchParams},
     result::{LocalSearchEngineOutcome, LocalSearchTerminationReason},
     stats::LocalSearchStatistics,
 };
@@ -49,46 +50,6 @@ use bollard_search::{
     incumbent::SharedIncumbent, monitor::search_monitor::SearchCommand,
     neighborhood::neighborhoods::Neighborhoods, num::SolverNumeric,
 };
-
-/// Parameters for a local search run.
-pub struct LocalSearchParams<'a, T, N, H, D, O, M>
-where
-    T: SolverNumeric,
-{
-    pub model: &'a Model<T>,
-    pub decoder: &'a mut D,
-    pub neighborhood: &'a N,
-    pub operator: &'a mut O,
-    pub metaheuristic: &'a mut H,
-    pub monitor: M,
-    pub initial_solution: &'a Solution<T>,
-}
-
-impl<'a, T, N, H, D, O, M> LocalSearchParams<'a, T, N, H, D, O, M>
-where
-    T: SolverNumeric,
-{
-    #[inline]
-    pub fn new(
-        model: &'a Model<T>,
-        decoder: &'a mut D,
-        neighborhood: &'a N,
-        operator: &'a mut O,
-        metaheuristic: &'a mut H,
-        monitor: M,
-        initial_solution: &'a Solution<T>,
-    ) -> Self {
-        Self {
-            model,
-            decoder,
-            neighborhood,
-            operator,
-            metaheuristic,
-            monitor,
-            initial_solution,
-        }
-    }
-}
 
 /// Local search engine for berth scheduling.
 ///
@@ -141,8 +102,6 @@ where
     /// Runs with a shared incumbent: installs every new best immediately.
     ///
     /// Thin wrapper that forwards to the single internal implementation with a
-    /// `SharedIncumbentAdapter`, keeping code duplication minimal.
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn run_with_incumbent<N, H, D, O, M>(
         &mut self,
@@ -199,7 +158,7 @@ where
         M: LocalSearchMonitor<T>,
         S: crate::incumbent::IncumbentStore<T>,
     {
-        let LocalSearchParams {
+        let SearchParams {
             model,
             decoder,
             neighborhood,
@@ -207,21 +166,21 @@ where
             metaheuristic,
             mut monitor,
             initial_solution,
-        } = params;
+        } = params.into_inner();
 
-        assert!(
+        debug_assert!(
             model.num_vessels() == neighborhood.num_vessels(),
             "called `LocalSearchEngine::run_internal` with inconsistent number of vessels: model has {}, neighborhood has {}",
             model.num_vessels(),
             neighborhood.num_vessels()
         );
-        assert!(
+        debug_assert!(
             model.num_vessels() == initial_solution.num_vessels(),
             "called `LocalSearchEngine::run_internal` with inconsistent number of vessels: model has {}, initial solution has {}",
             model.num_vessels(),
             initial_solution.num_vessels()
         );
-        assert!(
+        debug_assert!(
             neighborhood.num_vessels() == initial_solution.num_vessels(),
             "called `LocalSearchEngine::run_internal` with inconsistent number of vessels: neighborhood has {}, initial solution has {}",
             neighborhood.num_vessels(),
@@ -504,15 +463,11 @@ mod tests {
         let composite = CompositeLocalSearchMonitor::<i64>::new();
 
         let mut engine = LocalSearchEngine::<i64>::new();
-        let params = LocalSearchParams {
-            model: &model,
-            decoder: &mut dec,
-            neighborhood: &topology,
-            operator: &mut op,
-            metaheuristic: &mut mh,
-            monitor: composite,
-            initial_solution: &init,
-        };
+        let params = LocalSearchParams::builder(
+            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
+        )
+        .build()
+        .unwrap();
         let out = engine.run(params);
 
         match out.termination_reason() {
@@ -543,15 +498,11 @@ mod tests {
         composite.add_monitor(limit_monitor);
 
         let mut engine = LocalSearchEngine::<i64>::new();
-        let params = LocalSearchParams {
-            model: &model,
-            decoder: &mut dec,
-            neighborhood: &topology,
-            operator: &mut op,
-            metaheuristic: &mut mh,
-            monitor: composite,
-            initial_solution: &init,
-        };
+        let params = LocalSearchParams::builder(
+            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
+        )
+        .build()
+        .unwrap();
         let out = engine.run(params);
 
         match out.termination_reason() {
@@ -588,15 +539,11 @@ mod tests {
         composite.add_monitor(tlm);
 
         let mut engine = LocalSearchEngine::<i64>::new();
-        let params = LocalSearchParams {
-            model: &model,
-            decoder: &mut dec,
-            neighborhood: &topology,
-            operator: &mut op,
-            metaheuristic: &mut mh,
-            monitor: composite,
-            initial_solution: &init,
-        };
+        let params = LocalSearchParams::builder(
+            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
+        )
+        .build()
+        .unwrap();
         let out = engine.run(params);
 
         match out.termination_reason() {
@@ -625,15 +572,11 @@ mod tests {
         let shared = SharedIncumbent::<i64>::new();
 
         let mut engine = LocalSearchEngine::<i64>::new();
-        let params = LocalSearchParams {
-            model: &model,
-            decoder: &mut dec,
-            neighborhood: &topology,
-            operator: &mut op,
-            metaheuristic: &mut mh,
-            monitor: composite,
-            initial_solution: &init,
-        };
+        let params = LocalSearchParams::builder(
+            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
+        )
+        .build()
+        .unwrap();
         let out = engine.run_with_incumbent(params, &shared);
 
         match out.termination_reason() {
@@ -703,15 +646,11 @@ mod tests {
         let composite = CompositeLocalSearchMonitor::<i64>::new();
 
         let mut engine = LocalSearchEngine::<i64>::new();
-        let params = LocalSearchParams {
-            model: &model,
-            decoder: &mut dec,
-            neighborhood: &topology,
-            operator: &mut op,
-            metaheuristic: &mut mh,
-            monitor: composite,
-            initial_solution: &init,
-        };
+        let params = LocalSearchParams::builder(
+            &model, &mut dec, &topology, &mut op, &mut mh, composite, &init,
+        )
+        .build()
+        .unwrap();
         let out = engine.run(params);
 
         assert!(op.prepares() >= 1, "operator.prepare was not called");
@@ -840,15 +779,17 @@ mod tests {
         composite.add_monitor(TimeLimitMonitor::new(std::time::Duration::from_secs(60)));
 
         let mut decoder = GreedyDecoder::preallocated(num_berths);
-        let params = LocalSearchParams {
-            model: &model,
-            decoder: &mut decoder,
-            neighborhood: &neighborhood,
-            operator: &mut operator,
-            metaheuristic: &mut sa,
-            monitor: composite,
-            initial_solution: &initial,
-        };
+        let params = LocalSearchParams::builder(
+            &model,
+            &mut decoder,
+            &neighborhood,
+            &mut operator,
+            &mut sa,
+            composite,
+            &initial,
+        )
+        .build()
+        .unwrap();
 
         let mut engine = LocalSearchEngine::preallocated(num_vessels);
         let outcome = engine.run(params);
