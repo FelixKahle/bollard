@@ -54,16 +54,15 @@
 //! throughout. The guided evaluator uses `T: FromPrimitive` to convert penalty costs back
 //! into `T`, and the metaheuristic layer also uses `ToPrimitive` for inspecting objectives.
 
-use crate::eval::DefaultAssignmentEvaluator;
-use crate::eval::evaluator::{AssignmentEvaluator, Evaluation};
-use crate::meta::metaheuristic::Metaheuristic;
+use crate::meta::metaheuristic::{Evaluation, Metaheuristic};
+use crate::meta::shared;
 use bollard_model::solution::Solution;
 use bollard_model::{
     index::{BerthIndex, VesselIndex},
     model::Model,
 };
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
-use num_traits::{PrimInt, ToPrimitive, Unsigned};
+use num_traits::{PrimInt, Unsigned};
 
 #[inline(always)]
 fn flatten_index(vessel: usize, berth: usize, num_berths: usize) -> usize {
@@ -285,141 +284,6 @@ where
     }
 }
 
-/// Augmented evaluator that adds GLS penalties to the base score.
-///
-/// This wrapper delegates base scoring to `DefaultAssignmentEvaluator` and adds a
-/// penalty term scaled by `lambda` for the specific `(vessel, berth)` assignment
-/// being evaluated. When `lambda` is zero or the penalty is zero, the inner score
-/// is returned unchanged. Conversions to and from `f64` are handled defensively;
-/// if a penalty cannot be represented, the evaluation returns `None` to signal that
-/// the candidate should be rejected by the caller. The `resize` method synchronizes
-/// the internal penalty matrix with the model dimensions at runtime.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GuidedEvaluator<T, B = u32>
-where
-    T: SolverNumeric,
-    B: Unsigned + PrimInt,
-{
-    inner: DefaultAssignmentEvaluator<T>, // Base evaluator
-    penalties: PenaltyMatrix<B>,          // Penalty counts
-    lambda: f64,                          // Penalty scaling factor
-}
-
-impl<T> GuidedEvaluator<T>
-where
-    T: SolverNumeric,
-{
-    /// Creates a new `GuidedEvaluator` with the specified dimensions and penalty scaling factor.
-    #[inline]
-    fn new(num_vessels: usize, num_berths: usize, lambda: f64) -> Self {
-        Self {
-            inner: DefaultAssignmentEvaluator::default(),
-            penalties: PenaltyMatrix::new(num_vessels, num_berths),
-            lambda,
-        }
-    }
-
-    /// Resizes the internal penalty matrix to match the specified dimensions.
-    #[inline]
-    fn resize(&mut self, num_vessels: usize, num_berths: usize) {
-        self.penalties.resize(num_vessels, num_berths);
-    }
-}
-
-impl<T, B> AssignmentEvaluator<T> for GuidedEvaluator<T, B>
-where
-    T: SolverNumeric + num_traits::FromPrimitive,
-    B: Unsigned + PrimInt + Send + Sync,
-{
-    fn name(&self) -> &str {
-        "GuidedEvaluator"
-    }
-
-    fn evaluate(
-        &self,
-        model: &Model<T>,
-        vessel_index: VesselIndex,
-        berth_index: BerthIndex,
-        start_time: T,
-    ) -> Option<Evaluation<T>> {
-        let inner_eval = self
-            .inner
-            .evaluate(model, vessel_index, berth_index, start_time)?;
-
-        // Fast path: no penalty or degenerate lambda
-        if self.lambda == 0.0 || !self.lambda.is_finite() {
-            return Some(inner_eval);
-        }
-        let penalty_count = self.penalties.get(vessel_index, berth_index);
-        if penalty_count == B::zero() {
-            return Some(inner_eval);
-        }
-
-        // Convert penalty_count -> f64 robustly
-        let count_f64 = match penalty_count.to_f64() {
-            Some(v) if v.is_finite() => v,
-            // If we can't represent the penalty, treat this move as invalid
-            _ => return None,
-        };
-
-        // Compute penalty cost; ensure it's finite and non-negative
-        let penalty_cost = self.lambda * count_f64;
-        if !penalty_cost.is_finite() || penalty_cost < 0.0 {
-            return None;
-        }
-
-        // Convert back to T; if it can't be represented, skip this move
-        let penalty = T::from_f64(penalty_cost)?;
-
-        Some(Evaluation {
-            score: inner_eval.score + penalty,
-            objective_delta: inner_eval.objective_delta,
-        })
-    }
-
-    unsafe fn evaluate_unchecked(
-        &self,
-        model: &Model<T>,
-        vessel_index: VesselIndex,
-        berth_index: BerthIndex,
-        start_time: T,
-    ) -> Option<Evaluation<T>> {
-        let inner_eval = unsafe {
-            self.inner
-                .evaluate_unchecked(model, vessel_index, berth_index, start_time)
-        }?;
-
-        // Fast path: no penalty or degenerate lambda
-        if self.lambda == 0.0 || !self.lambda.is_finite() {
-            return Some(inner_eval);
-        }
-        let penalty_count = self.penalties.get(vessel_index, berth_index);
-        if penalty_count == B::zero() {
-            return Some(inner_eval);
-        }
-
-        // Convert penalty_count -> f64 robustly
-        let count_f64 = match penalty_count.to_f64() {
-            Some(v) if v.is_finite() => v,
-            _ => return None,
-        };
-
-        // Compute penalty cost; ensure it's finite and non-negative
-        let penalty_cost = self.lambda * count_f64;
-        if !penalty_cost.is_finite() || penalty_cost < 0.0 {
-            return None;
-        }
-
-        // Convert back to T; if it can't be represented, skip this move
-        let penalty = T::from_f64(penalty_cost)?;
-
-        Some(Evaluation {
-            score: inner_eval.score + penalty,
-            objective_delta: inner_eval.objective_delta,
-        })
-    }
-}
-
 /// Guided Local Search controller.
 ///
 /// Implements the GLS metaheuristic over the solver’s neighborhood moves. The
@@ -431,49 +295,41 @@ where
 /// to compute utilities and augmented objectives are validated for finiteness to
 /// prevent undefined behavior from propagating through the search.
 #[derive(Debug, Clone, PartialEq)]
-pub struct GuidedLocalSearch<T>
+pub struct GuidedLocalSearch<T, B = u32>
 where
     T: SolverNumeric,
+    B: Unsigned + PrimInt,
 {
-    lambda: f64,                   // Penalty scaling factor
-    stagnation_limit: u64,         // Limit before penalization
-    stagnation_counter: u64,       // Current stagnation counter
-    evaluator: GuidedEvaluator<T>, // Guided evaluator with penalties
-    current_augmented_score: f64,  // Cached augmented score of current solution
+    lambda: f64,                  // Penalty scaling factor
+    current_augmented_score: f64, // Cached augmented score of current solution
+    penalties: PenaltyMatrix<B>,
+    _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T> GuidedLocalSearch<T>
+impl<T, B> GuidedLocalSearch<T, B>
 where
-    T: SolverNumeric + num_traits::ToPrimitive,
+    T: SolverNumeric,
+    B: Unsigned + PrimInt,
 {
     /// Creates a new `GuidedLocalSearch` with the specified penalty scaling factor and stagnation limit.
     #[inline]
-    pub fn new(lambda: f64, stagnation_limit: u64) -> Self {
-        let evaluator = GuidedEvaluator::new(0, 0, lambda);
+    pub fn new(lambda: f64) -> Self {
         Self {
             lambda,
-            stagnation_limit,
-            evaluator,
-            stagnation_counter: 0,
+            penalties: PenaltyMatrix::new(0, 0),
             current_augmented_score: f64::INFINITY,
+            _phantom: std::marker::PhantomData,
         }
     }
 
     /// Creates a new `GuidedLocalSearch` with preallocated penalty matrix dimensions.
     #[inline]
-    pub fn preallocated(
-        lambda: f64,
-        stagnation_limit: u64,
-        num_vessels: usize,
-        num_berths: usize,
-    ) -> Self {
-        let evaluator = GuidedEvaluator::new(num_vessels, num_berths, lambda);
+    pub fn preallocated(lambda: f64, num_vessels: usize, num_berths: usize) -> Self {
         Self {
             lambda,
-            stagnation_limit,
-            evaluator,
-            stagnation_counter: 0,
+            penalties: PenaltyMatrix::new(num_vessels, num_berths),
             current_augmented_score: f64::INFINITY,
+            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -492,23 +348,18 @@ where
         model: &Model<T>,
         initial_solution: &Solution<T>,
         alpha: f64,
-        stagnation_factor: f64,
     ) -> Self {
         let n = model.num_vessels() as f64;
 
         let obj = initial_solution.objective_value().to_f64().unwrap_or(1.0);
         let avg_contribution = if n > 0.0 { obj / n } else { 1.0 };
         let lambda = alpha * avg_contribution;
-        let stagnation_limit = (n * stagnation_factor) as u64;
-
-        let evaluator = GuidedEvaluator::new(model.num_vessels(), model.num_berths(), lambda);
 
         Self {
             lambda,
-            stagnation_limit: stagnation_limit.max(1),
-            evaluator,
-            stagnation_counter: 0,
+            penalties: PenaltyMatrix::new(model.num_vessels(), model.num_berths()),
             current_augmented_score: f64::INFINITY,
+            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -524,7 +375,7 @@ where
     pub fn with_defaults(model: &Model<T>, initial_solution: &Solution<T>) -> Self {
         // Alpha 15.0 is aggressive enough for weighted flow time.
         // Stagnation factor 1.0 means we wait for `num_vessels` iterations before kicking.
-        Self::with_heuristic_tuning(model, initial_solution, 15.0, 1.0)
+        Self::with_heuristic_tuning(model, initial_solution, 15.0)
     }
 
     /// Calculates the full augmented objective from scratch.
@@ -544,7 +395,7 @@ where
 
         for (vessel_index_raw, &assigned_berth) in schedule.berths().iter().enumerate() {
             let vessel_index = VesselIndex::new(vessel_index_raw);
-            let penalty_value = self.evaluator.penalties.get(vessel_index, assigned_berth);
+            let penalty_value = self.penalties.get(vessel_index, assigned_berth);
 
             let penalty = match penalty_value.to_f64() {
                 Some(p) if p.is_finite() => p,
@@ -580,7 +431,7 @@ where
 
             let feature_cost = weight * start_time;
 
-            let penalty_count = unsafe { self.evaluator.penalties.get_unchecked(vessel, berth) };
+            let penalty_count = unsafe { self.penalties.get_unchecked(vessel, berth) };
             let penalty = match penalty_count.to_f64() {
                 Some(p) if p.is_finite() => p,
                 _ => continue,
@@ -605,31 +456,25 @@ where
         }
 
         for (vessel, berth) in candidates {
-            unsafe { self.evaluator.penalties.increment_unchecked(vessel, berth) };
+            unsafe { self.penalties.increment_unchecked(vessel, berth) };
         }
     }
 }
 
-impl<T> Metaheuristic<T> for GuidedLocalSearch<T>
+impl<T, B> Metaheuristic<T> for GuidedLocalSearch<T, B>
 where
     T: SolverNumeric + num_traits::FromPrimitive + num_traits::ToPrimitive,
+    B: Unsigned + PrimInt + Send + Sync,
 {
-    type Evaluator = GuidedEvaluator<T>;
-
     fn name(&self) -> &str {
         "GuidedLocalSearch"
     }
 
-    fn evaluator(&self) -> &GuidedEvaluator<T> {
-        &self.evaluator
-    }
-
     fn on_start(&mut self, model: &Model<T>, initial_solution: &Solution<T>) {
-        self.evaluator
+        self.penalties
             .resize(model.num_vessels(), model.num_berths());
 
-        self.evaluator.penalties.reset();
-        self.stagnation_counter = 0;
+        self.penalties.reset();
 
         // Initialize cache
         self.current_augmented_score = self.calculate_augmented_score(initial_solution);
@@ -637,14 +482,25 @@ where
 
     fn on_end(&mut self, _model: &Model<T>, _final_solution: &Solution<T>) {
         // Reset
-        self.evaluator.penalties.reset();
-        self.stagnation_counter = 0;
+        self.penalties.reset();
+    }
+
+    fn on_neighbourhood_exhausted(
+        &mut self,
+        model: &Model<T>,
+        current: &Solution<T>,
+        _best: &Solution<T>,
+    ) -> bool {
+        self.penalize(model, current);
+        self.current_augmented_score = self.calculate_augmented_score(current);
+        true
     }
 
     fn search_command(
         &mut self,
         _iter: u64,
         _model: &Model<T>,
+        _current: &Solution<T>,
         _best: &Solution<T>,
     ) -> SearchCommand {
         SearchCommand::Continue
@@ -662,24 +518,100 @@ where
     }
 
     fn on_accept(&mut self, _model: &Model<T>, new_current: &Solution<T>) {
-        self.stagnation_counter = 0;
         self.current_augmented_score = self.calculate_augmented_score(new_current);
     }
 
-    fn on_reject(&mut self, model: &Model<T>, current_schedule: &Solution<T>) {
-        self.stagnation_counter += 1;
-        if self.stagnation_counter >= self.stagnation_limit {
-            self.penalize(model, current_schedule);
-            self.stagnation_counter = 0;
-
-            // The penalties changed, so the augmented score of the
-            // *current* solution (which hasn't moved) has increased.
-            // We must update the cache so future candidates are compared correctly.
-            self.current_augmented_score = self.calculate_augmented_score(current_schedule);
-        }
-    }
+    fn on_reject(&mut self, _model: &Model<T>, _current_schedule: &Solution<T>) {}
 
     fn on_new_best(&mut self, _model: &Model<T>, _new_best: &Solution<T>) {}
+
+    fn evaluate_assignment(
+        &self,
+        model: &Model<T>,
+        vessel_index: VesselIndex,
+        berth_index: BerthIndex,
+        start_time: T,
+    ) -> Option<super::metaheuristic::Evaluation<T>> {
+        let weigted_flow_time =
+            shared::calculate_weighted_flow_time(model, vessel_index, berth_index, start_time)?;
+
+        // Fast path: no penalty or degenerate lambda
+        if self.lambda == 0.0 || !self.lambda.is_finite() {
+            return Some(Evaluation::new(weigted_flow_time, weigted_flow_time));
+        }
+        let penalty_count = self.penalties.get(vessel_index, berth_index);
+        if penalty_count == B::zero() {
+            return Some(Evaluation::new(weigted_flow_time, weigted_flow_time));
+        }
+
+        // Convert penalty_count -> f64 robustly
+        let count_f64 = match penalty_count.to_f64() {
+            Some(v) if v.is_finite() => v,
+            // If we can't represent the penalty, treat this move as invalid
+            _ => return None,
+        };
+
+        // Compute penalty cost; ensure it's finite and non-negative
+        let penalty_cost = self.lambda * count_f64;
+        if !penalty_cost.is_finite() || penalty_cost < 0.0 {
+            return None;
+        }
+
+        // Convert back to T; if it can't be represented, skip this move
+        let penalty = T::from_f64(penalty_cost)?;
+
+        Some(Evaluation::new(
+            weigted_flow_time + penalty,
+            weigted_flow_time,
+        ))
+    }
+
+    unsafe fn evaluate_assignment_unchecked(
+        &self,
+        model: &Model<T>,
+        vessel_index: VesselIndex,
+        berth_index: BerthIndex,
+        start_time: T,
+    ) -> Option<super::metaheuristic::Evaluation<T>> {
+        let weigted_flow_time = unsafe {
+            shared::calculate_weighted_flow_time_unchecked(
+                model,
+                vessel_index,
+                berth_index,
+                start_time,
+            )
+        }?;
+
+        // Fast path: no penalty or degenerate lambda
+        if self.lambda == 0.0 || !self.lambda.is_finite() {
+            return Some(Evaluation::new(weigted_flow_time, weigted_flow_time));
+        }
+        let penalty_count = self.penalties.get(vessel_index, berth_index);
+        if penalty_count == B::zero() {
+            return Some(Evaluation::new(weigted_flow_time, weigted_flow_time));
+        }
+
+        // Convert penalty_count -> f64 robustly
+        let count_f64 = match penalty_count.to_f64() {
+            Some(v) if v.is_finite() => v,
+            // If we can't represent the penalty, treat this move as invalid
+            _ => return None,
+        };
+
+        // Compute penalty cost; ensure it's finite and non-negative
+        let penalty_cost = self.lambda * count_f64;
+        if !penalty_cost.is_finite() || penalty_cost < 0.0 {
+            return None;
+        }
+
+        // Convert back to T; if it can't be represented, skip this move
+        let penalty = T::from_f64(penalty_cost)?;
+
+        Some(Evaluation::new(
+            weigted_flow_time + penalty,
+            weigted_flow_time,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -698,15 +630,14 @@ mod tests {
 
     #[test]
     fn test_name_and_evaluator_access() {
-        let gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(1.0, 100);
+        let gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(1.0);
         assert_eq!(gls.name(), "GuidedLocalSearch");
-        let _eval = gls.evaluator();
     }
 
     #[test]
     fn test_constructors_new_and_preallocated() {
-        let gls_a: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.5, 50);
-        let gls_b: GuidedLocalSearch<i64> = GuidedLocalSearch::preallocated(0.5, 50, 0, 0);
+        let gls_a: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.5);
+        let gls_b: GuidedLocalSearch<i64> = GuidedLocalSearch::preallocated(0.5, 50, 0);
         assert_eq!(gls_a.name(), "GuidedLocalSearch");
         assert_eq!(gls_b.name(), "GuidedLocalSearch");
     }
@@ -720,28 +651,25 @@ mod tests {
         let s0 = sched(0_i64, vec![], vec![]);
         let s1 = sched(0_i64, vec![], vec![]);
 
-        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(1.0, 10);
+        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(1.0);
 
         // These should not panic and maintain internal consistency
         gls.on_start(&model, &s0);
         gls.on_accept(&model, &s1);
         gls.on_reject(&model, &s0);
         gls.on_new_best(&model, &s1);
-
-        // Evaluator remains accessible
-        let _eval = gls.evaluator();
     }
 
     #[test]
     fn test_search_command_continue_under_neutral_conditions() {
-        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.1, 5);
+        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.1);
 
         // Empty model
         let model = ModelBuilder::<i64>::new(0, 0).build();
         let best = sched(0_i64, vec![], vec![]);
 
         // Under neutral conditions, search_command should continue
-        let cmd = gls.search_command(0, &model, &best);
+        let cmd = gls.search_command(0, &model, &best, &best);
         assert_eq!(cmd, SearchCommand::Continue);
     }
 
@@ -749,7 +677,7 @@ mod tests {
     fn test_should_accept_considers_candidate_vs_current_objective_basics() {
         // Guided Local Search augments objective with penalties. We don't assert
         // penalty-specific behavior here; just exercise the acceptance path with simple inputs.
-        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.5, 10);
+        let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(0.5);
 
         // Model must match the schedule size; use 1 vessel, 1 berth
         let model = ModelBuilder::<i64>::new(1, 1).build();

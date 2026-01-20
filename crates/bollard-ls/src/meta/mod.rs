@@ -42,5 +42,6 @@ pub mod dynamic;
 pub mod greedy_descent;
 pub mod guided_local_search;
 pub mod metaheuristic;
+pub mod shared;
 pub mod simulated_annealing;
 pub mod tabu_search;

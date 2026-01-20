@@ -838,7 +838,7 @@ mod tests {
 
     #[test]
     fn test_solver_with_berths_vessels() {
-        let model = build_model(2, 10);
+        let model = build_model(2, 10); // 4, 17 -> 1595
         println!("{}", model.complexity());
 
         let mut solver = BnbSolver::<IntegerType>::new();
@@ -2308,6 +2308,164 @@ mod tests {
             281,
             "Objective should match Gurobi verification"
         );
+    }
+
+    #[test]
+    fn test_solver_many_fixed_assignments_with_local_free_window_two_phase() {
+        // 20 berths, 250 vessels
+        let num_berths = 20usize;
+        let num_vessels = 250usize;
+
+        let mut builder = ModelBuilder::<IntegerType>::new(num_berths, num_vessels);
+
+        // Basic arrival/weight pattern similar to other tests
+        for v in 0..num_vessels {
+            let vi = VesselIndex::new(v);
+            builder.set_vessel_arrival_time(vi, (v as IntegerType) * 3);
+            builder.set_vessel_weight(vi, 1 + (v as IntegerType % 5));
+        }
+
+        // Simple processing times: depends on (berth, vessel) but always feasible
+        for v in 0..num_vessels {
+            let vi = VesselIndex::new(v);
+            for b in 0..num_berths {
+                let bi = BerthIndex::new(b);
+                let base = if b % 2 == 0 { 8 } else { 6 };
+                let span = if b % 2 == 0 { 3 } else { 2 };
+                let duration = base + (v as IntegerType % span);
+                builder.set_vessel_processing_time(vi, bi, ProcessingTime::some(duration));
+            }
+        }
+
+        let model = builder.build();
+
+        // We will leave vessels [240..250) free for optimization and fix [0..240).
+        let free_start = 240usize;
+        let free_end = 250usize; // exclusive
+        let num_free = free_end - free_start;
+        assert_eq!(num_free, 10);
+
+        let mut fixed = Vec::with_capacity(num_vessels - num_free);
+
+        // Fix the first 240 vessels with a simple pattern:
+        //   - assign vessels in sequence to berths in round-robin
+        //   - start times spaced out so there is no overlap
+        for v in 0..free_start {
+            let vi = VesselIndex::new(v);
+            let berth_idx = v % num_berths;
+            let bi = BerthIndex::new(berth_idx);
+
+            // Simple non-overlapping schedule
+            let start_time: IntegerType = (v as IntegerType) * 50;
+
+            fixed.push(FixedAssignment::new(start_time, bi, vi));
+        }
+
+        //
+        // Phase 1: heuristic/EDF-like solve to get an incumbent
+        //
+        let mut solver_phase1 = BnbSolver::<IntegerType>::new();
+        let mut heuristic_builder =
+            EarliestDeadlineFirstBuilder::preallocated(model.num_berths(), model.num_vessels());
+        let mut heuristic_evaluator =
+            HybridEvaluator::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
+
+        let outcome_phase1 = solver_phase1.solve(
+            BnbSearchParams::builder(
+                &model,
+                &mut heuristic_builder,
+                &mut heuristic_evaluator,
+                SolutionLimitMonitor::new(1),
+            )
+            .with_fixed_assignments(&fixed)
+            .build()
+            .unwrap(),
+        );
+
+        // We accept any feasible or optimal solution as incumbent
+        let incumbent_solution = match outcome_phase1.result() {
+            SolverResult::Optimal(sol) | SolverResult::Feasible(sol) => sol.clone(),
+            SolverResult::Infeasible => {
+                panic!("Phase 1 (heuristic) returned Infeasible; expected at least feasible.")
+            }
+            SolverResult::Unknown => {
+                panic!("Phase 1 (heuristic) returned Unknown; cannot warm-start.")
+            }
+        };
+
+        println!(
+            "Initial solution {}",
+            outcome_phase1.result().unwrap().objective_value()
+        );
+
+        //
+        // Phase 2: exact BnB with chronological branching, warm-started from phase 1
+        //
+        let mut solver_phase2 = BnbSolver::<IntegerType>::new();
+        let mut exhaustive_builder = WsptHeuristicBuilder::new();
+        let mut exhaustive_evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+            model.num_berths(),
+            model.num_vessels(),
+        );
+
+        let outcome_phase2 = solver_phase2.solve(
+            BnbSearchParams::builder(
+                &model,
+                &mut exhaustive_builder,
+                &mut exhaustive_evaluator,
+                LogTreeSearchMonitor::new(std::time::Duration::from_secs(1)),
+            )
+            .with_fixed_assignments(&fixed)
+            .with_initial_solution(&incumbent_solution)
+            .build()
+            .unwrap(),
+        );
+
+        let solution = outcome_phase2.result().unwrap_optimal();
+
+        println!("Final solution {}", solution.objective_value());
+
+        // 1) All fixed vessels must be scheduled exactly as specified.
+        for assignment in &fixed {
+            let v = assignment.vessel_index;
+            let b = assignment.berth_index;
+            let t = assignment.start_time;
+
+            assert_eq!(
+                solution.berth_for_vessel(v),
+                b,
+                "Vessel {:?} should be fixed to berth {:?}",
+                v,
+                b
+            );
+            assert_eq!(
+                solution.start_time_for_vessel(v),
+                t,
+                "Vessel {:?} should be fixed to start time {}",
+                v,
+                t
+            );
+        }
+
+        // 2) The 10 free vessels must be assigned feasibly to some berth/time.
+        for v in free_start..free_end {
+            let vi = VesselIndex::new(v);
+            let b = solution.berth_for_vessel(vi);
+            let t = solution.start_time_for_vessel(vi);
+
+            assert!(
+                (b.get()) < num_berths,
+                "Free vessel {:?} must be assigned to a valid berth, got {:?}",
+                vi,
+                b
+            );
+            assert!(
+                t >= 0,
+                "Free vessel {:?} must start at a non-negative time, got {}",
+                vi,
+                t
+            );
+        }
     }
 
     #[test]

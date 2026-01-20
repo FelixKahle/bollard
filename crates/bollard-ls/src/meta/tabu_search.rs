@@ -37,7 +37,6 @@
 //! * **`tenure`:** The length of the memory. A value of $\sqrt{N}$ (where $N$
 //!   is the number of vessels) is a common rule of thumb.
 
-use crate::eval::DefaultAssignmentEvaluator;
 use crate::meta::metaheuristic::Metaheuristic;
 use bollard_model::model::Model;
 use bollard_model::solution::Solution;
@@ -56,14 +55,11 @@ use std::hash::{Hash, Hasher};
 /// remains standard (`WeightedFlowTimeEvaluator`), keeping scoring consistent
 /// across metaheuristics.
 #[derive(Debug, Clone)]
-pub struct TabuSearch<T>
-where
-    T: SolverNumeric,
-{
-    evaluator: DefaultAssignmentEvaluator<T>, // Evaluator for the objective
-    tenure: usize,                            // Size of the Tabu memory
-    tabu_queue: VecDeque<u64>,                // FIFO for expiring old entries
-    tabu_set: HashSet<u64>,                   // HashSet for O(1) lookups
+pub struct TabuSearch<T> {
+    tenure: usize,             // Size of the Tabu memory
+    tabu_queue: VecDeque<u64>, // FIFO for expiring old entries
+    tabu_set: HashSet<u64>,    // HashSet for O(1) lookups
+    _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T> TabuSearch<T>
@@ -77,11 +73,12 @@ where
     /// Panics if `tenure` is 0.
     pub fn new(tenure: usize) -> Self {
         assert!(tenure > 0, "called `TabuSearch::new()` with zero tenure");
+
         Self {
-            evaluator: DefaultAssignmentEvaluator::new(),
             tenure,
             tabu_queue: VecDeque::with_capacity(tenure),
             tabu_set: HashSet::with_capacity(tenure),
+            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -146,13 +143,8 @@ impl<T> Metaheuristic<T> for TabuSearch<T>
 where
     T: SolverNumeric + Hash,
 {
-    type Evaluator = DefaultAssignmentEvaluator<T>;
-
     fn name(&self) -> &str {
         "TabuSearch"
-    }
-    fn evaluator(&self) -> &Self::Evaluator {
-        &self.evaluator
     }
 
     fn on_start(&mut self, _model: &Model<T>, initial_solution: &Solution<T>) {
@@ -168,7 +160,13 @@ where
         self.tabu_set.clear();
     }
 
-    fn search_command(&mut self, _: u64, _: &Model<T>, _: &Solution<T>) -> SearchCommand {
+    fn search_command(
+        &mut self,
+        _: u64,
+        _: &Model<T>,
+        _: &Solution<T>,
+        _: &Solution<T>,
+    ) -> SearchCommand {
         SearchCommand::Continue
     }
 
@@ -235,7 +233,10 @@ mod tests {
         let mut ts: TabuSearch<i64> = TabuSearch::new(3);
         let model = ModelBuilder::<i64>::new(1, 1).build();
         let best = sched(0_i64, vec![BerthIndex::new(0)], vec![0_i64]);
-        assert_eq!(ts.search_command(0, &model, &best), SearchCommand::Continue);
+        assert_eq!(
+            ts.search_command(0, &model, &best, &best),
+            SearchCommand::Continue
+        );
     }
 
     #[test]

@@ -25,13 +25,15 @@ use bollard_bnb::eval::hybrid::HybridEvaluator;
 use bollard_bnb::monitor::solution::SolutionLimitMonitor;
 use bollard_bnb::params::BnbSearchParams;
 use bollard_ls::decoder::{Decoder, GreedyDecoder};
-use bollard_ls::eval::wft::WeightedFlowTimeEvaluator;
 use bollard_ls::memory::SearchMemory;
+use bollard_ls::meta::metaheuristic::Evaluation;
+use bollard_ls::meta::shared;
 use bollard_ls::queue::VesselPriorityQueue;
 use bollard_model::index::{BerthIndex, VesselIndex};
 use bollard_model::loading::ProblemLoader;
 use bollard_model::model::Model;
 use bollard_model::solution::Solution;
+use bollard_search::num::SolverNumeric;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use regex::Regex;
 use std::fs;
@@ -110,6 +112,21 @@ fn construct_queue(solution: &Solution<i64>) -> VesselPriorityQueue {
     q
 }
 
+fn eval<T>(
+    model: &Model<T>,
+    vessel_index: VesselIndex,
+    berth_index: BerthIndex,
+    start_time: T,
+) -> Option<Evaluation<T>>
+where
+    T: SolverNumeric,
+{
+    let weighted_flow_time =
+        shared::calculate_weighted_flow_time(model, vessel_index, berth_index, start_time)?;
+
+    Some(Evaluation::new(weighted_flow_time, weighted_flow_time))
+}
+
 fn bench_instances(c: &mut Criterion) {
     let files = get_instance_files();
     if files.is_empty() {
@@ -118,7 +135,6 @@ fn bench_instances(c: &mut Criterion) {
     }
 
     let loader = ProblemLoader::<i64>::new();
-    let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
     let group_re = Regex::new(r"f(\d+x\d+)").unwrap();
     let mut group = c.benchmark_group("decoder_benchmark");
 
@@ -161,7 +177,7 @@ fn bench_instances(c: &mut Criterion) {
                         black_box(&model),
                         black_box(&queue),
                         black_box(memory.candidate_schedule_mut()),
-                        black_box(&evaluator),
+                        eval
                     ) };
 
                     if !ok {

@@ -19,97 +19,31 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-//! Dynamic metaheuristics using trait objects.
-//!
-//! This module provides `DynamicMetaheuristic`, a type-erasing wrapper that allows metaheuristic
-//! implementations to be selected, composed, and exchanged at runtime without exposing their
-//! concrete types. It stores the inner metaheuristic as a boxed trait object and forwards all
-//! orchestration and search decisions to that implementation while preserving a readable name for
-//! logging and diagnostics. The wrapper integrates with `DynamicAssignmentEvaluator`, ensuring a
-//! cohesive dynamic pipeline across evaluation and search. This design is useful for configuration-
-//! driven solver setups, plugin-style architectures, and for crossing crate boundaries where
-//! stability and ABI-neutral interfaces are preferred.
-
-use crate::{eval::dynamic::DynamicAssignmentEvaluator, meta::metaheuristic::Metaheuristic};
-use bollard_model::{model::Model, solution::Solution};
+use crate::meta::metaheuristic::{Evaluation, Metaheuristic};
+use bollard_model::{
+    index::{BerthIndex, VesselIndex},
+    model::Model,
+    solution::Solution,
+};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
 
-/// A type-erasing wrapper around any `Metaheuristic` that operates with a
-/// `DynamicAssignmentEvaluator`.
-///
-/// This enables selecting and composing metaheuristics
-/// at runtime without exposing their concrete types, while preserving a human-readable
-/// name for logging and diagnostics. The wrapper owns the metaheuristic as a boxed
-/// trait object and forwards all orchestration and search logic to the inner
-/// implementation. The lifetime `'a` ties the wrapper to the lifetime of the inner
-/// metaheuristic and `T` denotes the solver’s numeric type.
-pub struct DynamicMetaheuristic<'a, T>
-where
-    T: SolverNumeric,
-{
-    inner: Box<dyn Metaheuristic<T, Evaluator = DynamicAssignmentEvaluator<'a, T>> + 'a>,
-    name: String,
+pub struct DynamicMetaheuristic<'a, T> {
+    inner: Box<dyn Metaheuristic<T> + 'a>,
 }
 
 impl<'a, T> DynamicMetaheuristic<'a, T>
 where
     T: SolverNumeric,
 {
-    /// Creates a new DynamicMetaheuristic from a boxed metaheuristic.
-    #[inline]
-    pub fn new(
-        inner: Box<dyn Metaheuristic<T, Evaluator = DynamicAssignmentEvaluator<'a, T>> + 'a>,
-    ) -> Self {
-        let name = format!("DynamicMetaheuristic({})", inner.name());
-
-        Self { inner, name }
+    pub fn new(inner: Box<dyn Metaheuristic<T> + 'a>) -> Self {
+        Self { inner }
     }
 
-    /// Creates a new DynamicMetaheuristic from a metaheuristic.
-    #[inline]
     pub fn from_metaheuristic<M>(metaheuristic: M) -> Self
     where
-        M: Metaheuristic<T, Evaluator = DynamicAssignmentEvaluator<'a, T>> + 'a,
+        M: Metaheuristic<T> + 'a,
     {
         Self::new(Box::new(metaheuristic))
-    }
-
-    /// Returns a reference to the inner metaheuristic.
-    #[inline]
-    pub fn inner(&self) -> &dyn Metaheuristic<T, Evaluator = DynamicAssignmentEvaluator<'a, T>> {
-        self.inner.as_ref()
-    }
-}
-
-impl<'a, T> From<Box<dyn Metaheuristic<T, Evaluator = DynamicAssignmentEvaluator<'a, T>> + 'a>>
-    for DynamicMetaheuristic<'a, T>
-where
-    T: SolverNumeric,
-{
-    fn from(
-        value: Box<dyn Metaheuristic<T, Evaluator = DynamicAssignmentEvaluator<'a, T>> + 'a>,
-    ) -> Self {
-        Self::new(value)
-    }
-}
-
-impl<'a, T> std::fmt::Debug for DynamicMetaheuristic<'a, T>
-where
-    T: SolverNumeric,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DynamicMetaheuristic")
-            .field("inner", &self.inner.name())
-            .finish()
-    }
-}
-
-impl<'a, T> std::fmt::Display for DynamicMetaheuristic<'a, T>
-where
-    T: SolverNumeric,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "DynamicMetaheuristic({})", self.inner.name())
     }
 }
 
@@ -117,14 +51,8 @@ impl<'a, T> Metaheuristic<T> for DynamicMetaheuristic<'a, T>
 where
     T: SolverNumeric,
 {
-    type Evaluator = DynamicAssignmentEvaluator<'a, T>;
-
     fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn evaluator(&self) -> &Self::Evaluator {
-        self.inner.evaluator()
+        self.inner.name()
     }
 
     fn on_start(&mut self, model: &Model<T>, initial_solution: &Solution<T>) {
@@ -139,9 +67,11 @@ where
         &mut self,
         iteration: u64,
         model: &Model<T>,
+        current_solution: &Solution<T>,
         best_solution: &Solution<T>,
     ) -> SearchCommand {
-        self.inner.search_command(iteration, model, best_solution)
+        self.inner
+            .search_command(iteration, model, current_solution, best_solution)
     }
 
     fn should_accept(
@@ -164,5 +94,39 @@ where
 
     fn on_new_best(&mut self, model: &Model<T>, new_best: &Solution<T>) {
         self.inner.on_new_best(model, new_best);
+    }
+
+    fn evaluate_assignment(
+        &self,
+        model: &Model<T>,
+        vessel_index: VesselIndex,
+        berth_index: BerthIndex,
+        start_time: T,
+    ) -> Option<Evaluation<T>> {
+        self.inner
+            .evaluate_assignment(model, vessel_index, berth_index, start_time)
+    }
+
+    unsafe fn evaluate_assignment_unchecked(
+        &self,
+        model: &Model<T>,
+        vessel_index: VesselIndex,
+        berth_index: BerthIndex,
+        start_time: T,
+    ) -> Option<Evaluation<T>> {
+        unsafe {
+            self.inner
+                .evaluate_assignment_unchecked(model, vessel_index, berth_index, start_time)
+        }
+    }
+
+    fn on_neighbourhood_exhausted(
+        &mut self,
+        _model: &Model<T>,
+        _current: &Solution<T>,
+        _best: &Solution<T>,
+    ) -> bool {
+        self.inner
+            .on_neighbourhood_exhausted(_model, _current, _best)
     }
 }

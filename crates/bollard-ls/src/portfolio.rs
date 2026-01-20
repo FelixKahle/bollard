@@ -19,8 +19,8 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::engine::LocalSearchParams;
 use crate::monitor::wrapper::LocalSearchMonitorWrapper;
+use crate::params::LocalSearchParams;
 use crate::{
     decoder::Decoder, engine::LocalSearchEngine, meta::metaheuristic::Metaheuristic,
     operator::local_search_operator::LocalSearchOperator,
@@ -37,7 +37,7 @@ where
     T: SolverNumeric,
     N: Neighborhoods,
     H: Metaheuristic<T>,
-    D: Decoder<T, H::Evaluator>,
+    D: Decoder<T>,
     O: LocalSearchOperator<T, N>,
 {
     metaheuristic: H,
@@ -53,7 +53,7 @@ where
     T: SolverNumeric,
     N: Neighborhoods,
     H: Metaheuristic<T>,
-    D: Decoder<T, H::Evaluator>,
+    D: Decoder<T>,
     O: LocalSearchOperator<T, N>,
 {
     #[inline]
@@ -104,7 +104,7 @@ where
     T: SolverNumeric,
     N: Neighborhoods + Send + Sync,
     H: Metaheuristic<T> + Send + Sync,
-    D: Decoder<T, H::Evaluator> + Send + Sync,
+    D: Decoder<T> + Send + Sync,
     O: LocalSearchOperator<T, N> + Send + Sync,
 {
     fn invoke<'ctx>(
@@ -114,15 +114,17 @@ where
         // Use only the wrapper around the provided monitor
         let ls_monitor = LocalSearchMonitorWrapper::new(context.monitor);
 
-        let params = LocalSearchParams {
-            model: context.model,
-            decoder: &mut self.decoder,
-            neighborhood: context.neighborhoods,
-            operator: &mut self.operator,
-            metaheuristic: &mut self.metaheuristic,
-            monitor: ls_monitor,
-            initial_solution: self.initial_solution,
-        };
+        let params = LocalSearchParams::builder(
+            context.model,
+            &mut self.decoder,
+            context.neighborhoods,
+            &mut self.operator,
+            &mut self.metaheuristic,
+            ls_monitor,
+            self.initial_solution,
+        )
+        .build()
+        .unwrap();
 
         // Run local search with neighborhoods from the context and the stored initial solution
         let outcome = self.engine.run_with_incumbent(params, context.incumbent);

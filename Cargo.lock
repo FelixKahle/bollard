@@ -75,6 +75,7 @@ dependencies = [
  "libc",
  "num-traits",
  "paste",
+ "rand",
 ]
 
 [[package]]

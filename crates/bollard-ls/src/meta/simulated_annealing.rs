@@ -49,7 +49,6 @@
 //! comparison is `WeightedFlowTimeEvaluator`, keeping scoring consistent with other
 //! metaheuristics in this crate.
 
-use crate::eval::DefaultAssignmentEvaluator;
 use crate::meta::metaheuristic::Metaheuristic;
 use bollard_model::{model::Model, solution::Solution};
 use bollard_search::{monitor::search_monitor::SearchCommand, num::SolverNumeric};
@@ -85,14 +84,14 @@ pub trait CoolingSchedule: Send + Sync + std::fmt::Debug {
 /// name for logging and diagnostics. The wrapper owns the cooling schedule
 /// as a boxed trait object and forwards all orchestration and temperature
 /// management to the inner implementation.
-pub struct DynamicCoolingSchedule {
-    inner: Box<dyn CoolingSchedule>,
+pub struct DynamicCoolingSchedule<'a> {
+    inner: Box<dyn CoolingSchedule + 'a>,
 }
 
-impl DynamicCoolingSchedule {
+impl<'a> DynamicCoolingSchedule<'a> {
     /// Creates a new DynamicCoolingSchedule from a boxed CoolingSchedule.
     #[inline]
-    pub fn new(inner: Box<dyn CoolingSchedule>) -> Self {
+    pub fn new(inner: Box<dyn CoolingSchedule + 'a>) -> Self {
         Self { inner }
     }
 
@@ -100,7 +99,7 @@ impl DynamicCoolingSchedule {
     #[inline]
     pub fn from_schedule<S>(schedule: S) -> Self
     where
-        S: CoolingSchedule + 'static,
+        S: CoolingSchedule + 'a,
     {
         Self {
             inner: Box::new(schedule),
@@ -114,7 +113,7 @@ impl DynamicCoolingSchedule {
     }
 }
 
-impl std::fmt::Debug for DynamicCoolingSchedule {
+impl<'a> std::fmt::Debug for DynamicCoolingSchedule<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DynamicCoolingSchedule")
             .field("inner", &self.inner)
@@ -122,13 +121,13 @@ impl std::fmt::Debug for DynamicCoolingSchedule {
     }
 }
 
-impl std::fmt::Display for DynamicCoolingSchedule {
+impl<'a> std::fmt::Display for DynamicCoolingSchedule<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "DynamicCoolingSchedule")
     }
 }
 
-impl CoolingSchedule for DynamicCoolingSchedule {
+impl<'a> CoolingSchedule for DynamicCoolingSchedule<'a> {
     #[inline]
     fn on_start(&mut self) {
         self.inner.on_start();
@@ -147,6 +146,47 @@ impl CoolingSchedule for DynamicCoolingSchedule {
     #[inline]
     fn is_frozen(&self) -> bool {
         self.inner.is_frozen()
+    }
+}
+
+#[derive(Debug)]
+pub struct CoolingScheduleRefMut<'a> {
+    inner: &'a mut dyn CoolingSchedule,
+}
+
+impl<'a> CoolingScheduleRefMut<'a> {
+    #[inline]
+    pub fn new(inner: &'a mut dyn CoolingSchedule) -> Self {
+        Self { inner }
+    }
+
+    #[inline]
+    pub fn from_ref(inner: &'a mut dyn CoolingSchedule) -> Self {
+        Self { inner }
+    }
+}
+
+impl<'a> CoolingSchedule for CoolingScheduleRefMut<'a> {
+    fn on_start(&mut self) {
+        self.inner.on_start()
+    }
+
+    fn update(&mut self) {
+        self.inner.update()
+    }
+
+    fn current(&self) -> f64 {
+        self.inner.current()
+    }
+
+    fn is_frozen(&self) -> bool {
+        self.inner.is_frozen()
+    }
+}
+
+impl<'a> From<&'a mut DynamicCoolingSchedule<'a>> for CoolingScheduleRefMut<'a> {
+    fn from(dynamic: &'a mut DynamicCoolingSchedule<'a>) -> Self {
+        Self::new(dynamic)
     }
 }
 
@@ -182,6 +222,36 @@ impl GeometricCooling {
             alpha,
             min_temp,
         }
+    }
+
+    /// Resets the temperature to its initial value.
+    #[inline]
+    pub fn reset(&mut self) {
+        self.current = self.initial;
+    }
+
+    /// Returns the minimum temperature.
+    #[inline]
+    pub fn min_temperature(&self) -> f64 {
+        self.min_temp
+    }
+
+    /// Returns the current temperature.
+    #[inline]
+    pub fn current_temperature(&self) -> f64 {
+        self.current
+    }
+
+    /// Returns the decay rate.
+    #[inline]
+    pub fn alpha(&self) -> f64 {
+        self.alpha
+    }
+
+    /// Returns the initial temperature.
+    #[inline]
+    pub fn initial_temperature(&self) -> f64 {
+        self.initial
     }
 }
 
@@ -232,6 +302,36 @@ impl LinearCooling {
             min_temp,
         }
     }
+
+    /// Resets the temperature to its initial value.
+    #[inline]
+    pub fn reset(&mut self) {
+        self.current = self.initial;
+    }
+
+    /// Returns the initial temperature.
+    #[inline]
+    pub fn initial_temperature(&self) -> f64 {
+        self.initial
+    }
+
+    /// Returns the current temperature.
+    #[inline]
+    pub fn current_temperature(&self) -> f64 {
+        self.current
+    }
+
+    /// Returns the minimum temperature.
+    #[inline]
+    pub fn min_temperature(&self) -> f64 {
+        self.min_temp
+    }
+
+    /// Returns the temperature decrement.
+    #[inline]
+    pub fn temperature_decrease(&self) -> f64 {
+        self.decrement
+    }
 }
 
 impl CoolingSchedule for LinearCooling {
@@ -265,13 +365,10 @@ impl CoolingSchedule for LinearCooling {
 /// It uses the **Metropolis Criterion** to decide whether to accept a move:
 /// $$ P(\text{accept}) = \exp\left(\frac{-(C_{\text{new}} - C_{\text{old}})}{T}\right) $$
 #[derive(Debug, Clone)]
-pub struct SimulatedAnnealing<T, R, C>
-where
-    T: SolverNumeric,
-{
+pub struct SimulatedAnnealing<T, R, C> {
     cooling_schedule: C, // The cooling schedule managing temperature decay
     rng: R,              // Random number generator for stochastic acceptance
-    evaluator: DefaultAssignmentEvaluator<T>, // Evaluator for objective calculation
+    _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T, R, C> SimulatedAnnealing<T, R, C>
@@ -293,7 +390,7 @@ where
         Self {
             cooling_schedule,
             rng,
-            evaluator: DefaultAssignmentEvaluator::new(),
+            _phantom: std::marker::PhantomData,
         }
     }
 }
@@ -372,8 +469,6 @@ where
     R: Rng + Send + Sync,
     C: CoolingSchedule,
 {
-    type Evaluator = DefaultAssignmentEvaluator<T>;
-
     fn name(&self) -> &str {
         "SimulatedAnnealing"
     }
@@ -390,6 +485,7 @@ where
         &mut self,
         _iteration: u64,
         _model: &Model<T>,
+        _current_solution: &Solution<T>,
         _best_solution: &Solution<T>,
     ) -> SearchCommand {
         SearchCommand::Continue
@@ -453,10 +549,6 @@ where
         // Standard SA does not react specially to new bests.
         // Adaptive variants could implement reheating here.
     }
-
-    fn evaluator(&self) -> &DefaultAssignmentEvaluator<T> {
-        &self.evaluator
-    }
 }
 
 #[cfg(test)]
@@ -484,7 +576,6 @@ mod tests {
         let sa: SimulatedAnnealing<i64, _, _> = SimulatedAnnealing::new(cooling, rng);
 
         assert_eq!(sa.name(), "SimulatedAnnealing");
-        let _eval = sa.evaluator();
     }
 
     #[test]

@@ -37,17 +37,20 @@
 //! ordering into a complete schedule suitable for iterative improvement in local
 //! search.
 
-use crate::{eval::evaluator::AssignmentEvaluator, queue::VesselPriorityQueue};
-use bollard_model::{index::BerthIndex, model::Model, solution::Solution};
+use crate::{meta::metaheuristic::Evaluation, queue::VesselPriorityQueue};
+use bollard_model::{
+    index::{BerthIndex, VesselIndex},
+    model::Model,
+    solution::Solution,
+};
 use bollard_search::num::SolverNumeric;
 
 /// A decoder that transforms a priority queue into a schedule.
 ///
 /// Provides both checked and unchecked decoding methods.
-pub trait Decoder<T, E>: Send + Sync
+pub trait Decoder<T>: Send + Sync
 where
     T: SolverNumeric,
-    E: AssignmentEvaluator<T>,
 {
     /// Returns the name of the decoder.
     fn name(&self) -> &str;
@@ -61,13 +64,15 @@ where
     /// based on the vessel order in `queue`. It returns `true` if a valid schedule
     /// was constructed, or `false` if any vessel could not be assigned.
     /// Note that if `false` is returned, the contents of `state` may be incomplete or invalid.
-    fn decode(
+    fn decode<F>(
         &mut self,
         model: &Model<T>,
         queue: &VesselPriorityQueue,
         state: &mut Solution<T>,
-        evaluator: &E,
-    ) -> bool;
+        evaluator: F,
+    ) -> bool
+    where
+        F: Fn(&Model<T>, VesselIndex, BerthIndex, T) -> Option<Evaluation<T>>;
 
     /// Decodes the given priority queue into a schedule.
     ///
@@ -93,33 +98,15 @@ where
     ///     assignments, deadline feasibility) are already established or will be upheld by the caller.
     ///
     /// In debug builds, some of these conditions may be asserted; in release builds they are not checked.
-    unsafe fn decode_unchecked(
+    unsafe fn decode_unchecked<F>(
         &mut self,
         model: &Model<T>,
         queue: &VesselPriorityQueue,
         state: &mut Solution<T>,
-        evaluator: &E,
-    ) -> bool;
-}
-
-impl<T, E> std::fmt::Debug for dyn Decoder<T, E>
-where
-    T: SolverNumeric,
-    E: AssignmentEvaluator<T>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Decoder({})", self.name())
-    }
-}
-
-impl<T, E> std::fmt::Display for dyn Decoder<T, E>
-where
-    T: SolverNumeric,
-    E: AssignmentEvaluator<T>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Decoder({})", self.name())
-    }
+        evaluator: F,
+    ) -> bool
+    where
+        F: Fn(&Model<T>, VesselIndex, BerthIndex, T) -> Option<Evaluation<T>>;
 }
 
 /// Greedy local-search decoder that maps a vessel priority queue to a schedule.
@@ -131,19 +118,16 @@ where
 /// earlier finish, then earlier start). Internal buffers are reused between
 /// calls to minimize overhead in tight loops.
 #[derive(Debug, Clone)]
-pub struct GreedyDecoder<T, E>
+pub struct GreedyDecoder<T>
 where
     T: SolverNumeric,
-    E: AssignmentEvaluator<T>,
 {
     berth_free_times: Vec<T>, // len = num_berths
-    _phantom: std::marker::PhantomData<E>,
 }
 
-impl<T, E> Default for GreedyDecoder<T, E>
+impl<T> Default for GreedyDecoder<T>
 where
     T: SolverNumeric,
-    E: AssignmentEvaluator<T>,
 {
     #[inline(always)]
     fn default() -> Self {
@@ -151,17 +135,15 @@ where
     }
 }
 
-impl<T, E> GreedyDecoder<T, E>
+impl<T> GreedyDecoder<T>
 where
     T: SolverNumeric,
-    E: AssignmentEvaluator<T>,
 {
     /// Creates a new `GreedyDecoder` with no pre-allocated berths.
     #[inline(always)]
     pub fn new() -> Self {
         Self {
             berth_free_times: Vec::new(),
-            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -170,7 +152,6 @@ where
     pub fn preallocated(num_berths: usize) -> Self {
         Self {
             berth_free_times: vec![T::zero(); num_berths],
-            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -263,10 +244,9 @@ fn should_prefer<T: SolverNumeric>(
             && candidate_start < best_start)
 }
 
-impl<T, E> Decoder<T, E> for GreedyDecoder<T, E>
+impl<T> Decoder<T> for GreedyDecoder<T>
 where
     T: SolverNumeric,
-    E: AssignmentEvaluator<T>,
 {
     fn name(&self) -> &str {
         "GreedyDecoder"
@@ -282,13 +262,17 @@ where
         self.berth_free_times.fill(T::zero());
     }
 
-    fn decode(
+    fn decode<F>(
         &mut self,
         model: &Model<T>,
         queue: &VesselPriorityQueue,
         state: &mut Solution<T>,
-        evaluator: &E,
-    ) -> bool {
+        evaluator: F,
+    ) -> bool
+    where
+        Self: Sized,
+        F: Fn(&Model<T>, VesselIndex, BerthIndex, T) -> Option<Evaluation<T>>,
+    {
         let num_berths = model.num_berths();
         let num_vessels = model.num_vessels();
         let (berths_out, starts_out) = state.as_mut_slices();
@@ -364,7 +348,7 @@ where
                     // SAFETY: berth_index is in bounds due to loop condition and assert above.
                     unsafe { self.find_earliest_start(model, berth, arrival, duration) }
                 {
-                    let eval_opt = evaluator.evaluate(model, vessel_idx, berth, start_time);
+                    let eval_opt = evaluator(model, vessel_idx, berth, start_time);
 
                     if let Some(eval) = eval_opt {
                         let finish_time = start_time + duration;
@@ -404,13 +388,17 @@ where
         true
     }
 
-    unsafe fn decode_unchecked(
+    unsafe fn decode_unchecked<F>(
         &mut self,
         model: &Model<T>,
         queue: &VesselPriorityQueue,
         state: &mut Solution<T>,
-        evaluator: &E,
-    ) -> bool {
+        evaluator: F,
+    ) -> bool
+    where
+        Self: Sized,
+        F: Fn(&Model<T>, VesselIndex, BerthIndex, T) -> Option<Evaluation<T>>,
+    {
         let num_berths = model.num_berths();
         let num_vessels = model.num_vessels();
         let (berths_out, starts_out) = state.as_mut_slices();
@@ -485,9 +473,7 @@ where
                 if let Some(start_time) =
                     unsafe { self.find_earliest_start(model, berth, arrival, duration) }
                 {
-                    let eval_opt = unsafe {
-                        evaluator.evaluate_unchecked(model, vessel_idx, berth, start_time)
-                    };
+                    let eval_opt = evaluator(model, vessel_idx, berth, start_time);
 
                     if let Some(eval) = eval_opt {
                         let finish_time = start_time + duration;
@@ -531,7 +517,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{eval::wft::WeightedFlowTimeEvaluator, memory::SearchMemory};
+    use crate::memory::SearchMemory;
     use bollard_core::math::interval::ClosedOpenInterval;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
@@ -565,17 +551,19 @@ mod tests {
 
     #[inline]
     fn decode_and_accept<T, E>(
-        decoder: &mut GreedyDecoder<T, E>,
+        decoder: &mut GreedyDecoder<T>,
         model: &bollard_model::model::Model<T>,
         queue: &crate::queue::VesselPriorityQueue,
         memory: &mut SearchMemory<T>,
-        evaluator: &E,
+        evaluator: E,
     ) -> bool
     where
         T: SolverNumeric,
-        E: AssignmentEvaluator<T>,
+        E: Fn(&Model<T>, VesselIndex, BerthIndex, T) -> Option<Evaluation<T>> + Send + Sync,
     {
         let ok = unsafe {
+            // `evaluator` implements `Fn`, `decode_unchecked` takes `E`,
+            // so pass it by value via dereference.
             decoder.decode_unchecked(model, queue, memory.candidate_schedule_mut(), evaluator)
         };
         if ok {
@@ -607,6 +595,25 @@ mod tests {
         bldr.build()
     }
 
+    fn eval<T>(
+        model: &Model<T>,
+        vessel_index: VesselIndex,
+        berth_index: BerthIndex,
+        start_time: T,
+    ) -> Option<Evaluation<T>>
+    where
+        T: SolverNumeric,
+    {
+        let weighted_flow_time = crate::meta::shared::calculate_weighted_flow_time(
+            model,
+            vessel_index,
+            berth_index,
+            start_time,
+        )?;
+
+        Some(Evaluation::new(weighted_flow_time, weighted_flow_time))
+    }
+
     #[test]
     fn test_decode_success_basic_assignment_and_objective() {
         let model = build_model_simple();
@@ -615,15 +622,14 @@ mod tests {
         queue.extend([vi(0), vi(1), vi(2)]);
 
         let mut memory = new_memory_for_model(&model);
-        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64>::preallocated(model.num_berths());
 
         assert!(decode_and_accept(
             &mut decoder,
             &model,
             &queue,
             &mut memory,
-            &evaluator
+            eval
         ));
 
         let schedule = memory.current_schedule();
@@ -649,11 +655,10 @@ mod tests {
         queue.extend([vi(0)]);
 
         let mut memory = new_memory_for_model(&model);
-        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64>::preallocated(model.num_berths());
 
         let ok = unsafe {
-            decoder.decode_unchecked(&model, &queue, memory.candidate_schedule_mut(), &evaluator)
+            decoder.decode_unchecked(&model, &queue, memory.candidate_schedule_mut(), eval)
         };
         assert!(
             !ok,
@@ -679,15 +684,14 @@ mod tests {
         queue.extend([vi(0)]);
 
         let mut memory = new_memory_for_model(&model);
-        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64>::preallocated(model.num_berths());
 
         assert!(decode_and_accept(
             &mut decoder,
             &model,
             &queue,
             &mut memory,
-            &evaluator
+            eval
         ));
 
         let schedule = memory.current_schedule();
@@ -713,15 +717,14 @@ mod tests {
         queue2.extend([vi(1), vi(0)]);
 
         let mut memory2 = new_memory_for_model(&model2);
-        let evaluator2 = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder2 = GreedyDecoder::<i64, _>::preallocated(model2.num_berths());
+        let mut decoder2 = GreedyDecoder::<i64>::preallocated(model2.num_berths());
 
         assert!(decode_and_accept(
             &mut decoder2,
             &model2,
             &queue2,
             &mut memory2,
-            &evaluator2
+            eval
         ));
 
         let schedule2 = memory2.current_schedule();
@@ -750,15 +753,14 @@ mod tests {
         queue.extend([vi(0), vi(1)]);
 
         let mut memory = new_memory_for_model(&model);
-        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64>::preallocated(model.num_berths());
 
         assert!(decode_and_accept(
             &mut decoder,
             &model,
             &queue,
             &mut memory,
-            &evaluator
+            eval
         ));
 
         let schedule = memory.current_schedule();
@@ -780,15 +782,14 @@ mod tests {
         queue.extend([vi(0), vi(1), vi(2)]);
 
         let mut memory = new_memory_for_model(&model);
-        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64>::preallocated(model.num_berths());
 
         assert!(decode_and_accept(
             &mut decoder,
             &model,
             &queue,
             &mut memory,
-            &evaluator
+            eval
         ));
         let schedule = memory.current_schedule();
 
@@ -798,7 +799,7 @@ mod tests {
             &model,
             &queue,
             &mut memory2,
-            &evaluator
+            eval
         ));
         let schedule2 = memory2.current_schedule();
 
@@ -821,11 +822,10 @@ mod tests {
         queue.push(vi(0));
 
         let mut memory = new_memory_for_model(&model);
-        let evaluator = WeightedFlowTimeEvaluator::<i64>::default();
-        let mut decoder = GreedyDecoder::<i64, _>::preallocated(model.num_berths());
+        let mut decoder = GreedyDecoder::<i64>::preallocated(model.num_berths());
 
         let ok = unsafe {
-            decoder.decode_unchecked(&model, &queue, memory.candidate_schedule_mut(), &evaluator)
+            decoder.decode_unchecked(&model, &queue, memory.candidate_schedule_mut(), eval)
         };
         assert!(!ok, "Decoder accepted a vessel that violates the deadline");
     }
