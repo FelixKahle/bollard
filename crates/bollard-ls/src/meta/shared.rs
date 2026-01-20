@@ -29,7 +29,7 @@ use bollard_search::num::SolverNumeric;
 ///
 /// # Panics
 ///
-/// This function will panic if `vessel_index` is not within `0..model.num_vessels()`
+/// In debug builds, this function will panic if `vessel_index` is not within `0..model.num_vessels()`
 /// or if `berth_index` is not within `0..model.num_berths()`.
 #[inline(always)]
 pub fn calculate_weighted_flow_time<T>(
