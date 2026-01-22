@@ -64,12 +64,12 @@ use std::iter::FusedIterator;
 /// The resulting search space is significantly smaller than the naive full
 /// permutation tree, while still covering all canonical optimal schedules.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct ChronologicalExhaustiveBuilder<T> {
+pub struct ChronologicalBuilder<T> {
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T> ChronologicalExhaustiveBuilder<T> {
-    /// Creates a new `ChronologicalExhaustiveBuilder`.
+impl<T> ChronologicalBuilder<T> {
+    /// Creates a new `ChronologicalBuilder`.
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -85,20 +85,20 @@ impl<T> ChronologicalExhaustiveBuilder<T> {
     }
 }
 
-impl<T, E> DecisionBuilder<T, E> for ChronologicalExhaustiveBuilder<T>
+impl<T, E> DecisionBuilder<T, E> for ChronologicalBuilder<T>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
 {
     type DecisionIterator<'a>
-        = ExhaustiveIter<'a, T, E>
+        = ChronologicalIter<'a, T, E>
     where
         T: 'a,
         E: 'a,
         Self: 'a;
 
     fn name(&self) -> &str {
-        "ChronologicalExhaustiveBuilder"
+        "ChronologicalBuilder"
     }
 
     fn next_decision<'a>(
@@ -108,7 +108,7 @@ where
         berth_availability: &'a BerthAvailability<T>,
         state: &'a SearchState<T>,
     ) -> Self::DecisionIterator<'a> {
-        ExhaustiveIter {
+        ChronologicalIter {
             current_vessel: VesselIndex::new(0),
             current_berth: BerthIndex::new(0),
             berth_availability,
@@ -126,7 +126,7 @@ where
 /// (vessels × berths), skipping already-assigned vessels and yielding only
 /// decisions deemed feasible by the model, availability map, and evaluator.
 #[derive(Debug)]
-pub struct ExhaustiveIter<'a, T, E>
+pub struct ChronologicalIter<'a, T, E>
 where
     T: PrimInt + Signed + MinusOne,
 {
@@ -138,7 +138,7 @@ where
     evaluator: &'a mut E,
 }
 
-impl<'a, T, E> Iterator for ExhaustiveIter<'a, T, E>
+impl<'a, T, E> Iterator for ChronologicalIter<'a, T, E>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
@@ -198,7 +198,7 @@ where
     }
 }
 
-impl<'a, T, E> FusedIterator for ExhaustiveIter<'a, T, E>
+impl<'a, T, E> FusedIterator for ChronologicalIter<'a, T, E>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
@@ -208,7 +208,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::wtft::WeightedFlowTimeEvaluator;
+    use crate::eval::wct::WeightedCompletionTimeEvaluator;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
@@ -280,8 +280,8 @@ mod tests {
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
 
         // Evaluator is now actively used by the builder via Decision::try_new
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
+        let mut builder = ChronologicalBuilder::new();
 
         let iter = builder.next_decision(&mut eval, &model, &berth_availability, &state);
         let decisions: Vec<Decision<IntegerType>> = iter.collect();
@@ -313,8 +313,8 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
 
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut it = builder.next_decision(&mut eval, &model, &berth_availability, &state);
 
         // Exhaust the iterator

@@ -81,11 +81,11 @@ impl<T: Ord + SolverNumeric> PartialOrd for LptCandidate<T> {
 ///
 /// It prioritizes assignments where the processing time $p_{ij}$ is maximal.
 #[derive(Debug, Clone, Default)]
-pub struct LptHeuristicBuilder<T> {
+pub struct LptBuilder<T> {
     candidates: Vec<LptCandidate<T>>,
 }
 
-impl<T> LptHeuristicBuilder<T> {
+impl<T> LptBuilder<T> {
     pub fn new() -> Self {
         Self {
             candidates: Vec::new(),
@@ -98,7 +98,7 @@ impl<T> LptHeuristicBuilder<T> {
     }
 }
 
-impl<T, E> DecisionBuilder<T, E> for LptHeuristicBuilder<T>
+impl<T, E> DecisionBuilder<T, E> for LptBuilder<T>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
@@ -111,7 +111,7 @@ where
         E: 'a;
 
     fn name(&self) -> &str {
-        "LptHeuristicBuilder"
+        "LptBuilder"
     }
 
     fn next_decision<'a>(
@@ -188,9 +188,9 @@ mod tests {
     use crate::{
         berth_availability::BerthAvailability,
         branching::decision::{Decision, DecisionBuilder},
-        // Assuming LptHeuristicBuilder is exported or available here
-        branching::lpt::LptHeuristicBuilder,
-        eval::wtft::WeightedFlowTimeEvaluator,
+        // Assuming LptBuilder is exported or available here
+        branching::lpt::LptBuilder,
+        eval::wct::WeightedCompletionTimeEvaluator,
         state::SearchState,
     };
     use bollard_model::{
@@ -242,9 +242,9 @@ mod tests {
         let mut berth_availability = BerthAvailability::new();
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
-        let mut builder = LptHeuristicBuilder::<IntegerType>::new();
+        let mut builder = LptBuilder::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut evaluator, &model, &berth_availability, &state)
@@ -293,9 +293,9 @@ mod tests {
         let mut ba = BerthAvailability::new();
         ba.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(2, 1);
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
-        let mut builder = LptHeuristicBuilder::<IntegerType>::new();
+        let mut builder = LptBuilder::<IntegerType>::new();
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut eval, &model, &ba, &state)
             .collect();
@@ -333,9 +333,9 @@ mod tests {
         let mut ba = BerthAvailability::new();
         ba.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(2, 1);
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
-        let mut builder = LptHeuristicBuilder::<IntegerType>::new();
+        let mut builder = LptBuilder::<IntegerType>::new();
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut eval, &model, &ba, &state)
             .collect();

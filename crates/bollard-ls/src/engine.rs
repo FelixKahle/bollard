@@ -387,8 +387,8 @@ mod tests {
         result::LocalSearchTerminationReason,
     };
     use bollard_bnb::{
-        bnb::BnbSolver, branching::edf::EarliestDeadlineFirstBuilder,
-        eval::hybrid::HybridEvaluator, params::BnbSearchParams,
+        bnb::BnbSolver, branching::edf::EdfHeuristic, eval::hybrid::HybridEvaluator,
+        params::BnbSearchParams,
     };
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
@@ -701,7 +701,7 @@ mod tests {
         let num_berths = model.num_berths();
 
         let mut bnb_solver = BnbSolver::preallocated(num_berths, num_vessels);
-        let mut builder = EarliestDeadlineFirstBuilder::preallocated(num_berths, num_vessels);
+        let mut builder = EdfHeuristic::preallocated(num_berths, num_vessels);
         let mut evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
         let solution_limit_monitor = bollard_bnb::monitor::solution::SolutionLimitMonitor::new(1);
 

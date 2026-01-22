@@ -604,7 +604,7 @@ mod tests {
     where
         T: SolverNumeric,
     {
-        let weighted_flow_time = crate::meta::shared::calculate_weighted_flow_time(
+        let weighted_flow_time = crate::meta::shared::calculate_weighted_completion_time(
             model,
             vessel_index,
             berth_index,

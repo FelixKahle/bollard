@@ -20,6 +20,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bollard_model::index::{BerthIndex, VesselIndex};
+use bollard_model::model::Model;
 use bollard_model::solution::Solution;
 
 /// Creates a new `Solution`.
@@ -89,11 +90,38 @@ pub unsafe extern "C" fn bollard_solution_objective(ptr: *const Solution<i64>) -
     (&*ptr).objective_value()
 }
 
+/// Accesses the weighted total flow time of the solution.
+///
+/// # Panics
+///
+/// This function will panic if `ptr` or `model` is null.
+///
+/// # Safety
+///
+/// The caller must ensure that `ptr` is a valid pointer to a `Solution`
+/// and `model` is a valid pointer to a `Model`.
+#[no_mangle]
+pub unsafe extern "C" fn bollard_solution_weighted_total_flow_time(
+    ptr: *const Solution<i64>,
+    model: *const Model<i64>,
+) -> i64 {
+    assert!(
+        !ptr.is_null(),
+        "called `bollard_solution_weighted_total_flow_time` with `ptr` as null pointer"
+    );
+    assert!(
+        !model.is_null(),
+        "called `bollard_solution_weighted_total_flow_time` with `model` as null pointer"
+    );
+    (&*ptr).weighted_total_flow_time(&*model)
+}
+
 /// Accesses the number of vessels in the solution.
 ///
 /// # Panics
 ///
 /// This function will panic if `ptr` is null.
+/// Panics may also occur if the solution does not belong to the given model.
 ///
 /// # Safety
 ///

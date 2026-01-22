@@ -532,8 +532,12 @@ where
         berth_index: BerthIndex,
         start_time: T,
     ) -> Option<super::metaheuristic::Evaluation<T>> {
-        let weigted_flow_time =
-            shared::calculate_weighted_flow_time(model, vessel_index, berth_index, start_time)?;
+        let weigted_flow_time = shared::calculate_weighted_completion_time(
+            model,
+            vessel_index,
+            berth_index,
+            start_time,
+        )?;
 
         // Fast path: no penalty or degenerate lambda
         if self.lambda == 0.0 || !self.lambda.is_finite() {
@@ -574,7 +578,7 @@ where
         start_time: T,
     ) -> Option<super::metaheuristic::Evaluation<T>> {
         let weigted_flow_time = unsafe {
-            shared::calculate_weighted_flow_time_unchecked(
+            shared::calculate_weighted_completion_time_unchecked(
                 model,
                 vessel_index,
                 berth_index,

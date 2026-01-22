@@ -22,28 +22,29 @@
 //! Hybrid objective evaluation and lower‑bound estimation for berth scheduling.
 //! This module provides `HybridEvaluator<T>`, an implementation of `ObjectiveEvaluator`
 //! that blends availability‑aware feasibility checks with a fast, capacity‑sensitive
-//! remaining‑cost estimate. The approach treats maintenance windows and berth release
-//! times as first‑class information and couples them with workload‑driven sequencing
-//! so the bound reflects both temporal constraints and congestion effects in a single
-//! coherent approximation.
+//! remaining‑cost estimate.
 //!
-//! The evaluator operates on already‑adjusted start times and reports infeasible
-//! assignments as `None`, allowing the search to respect structural constraints
-//! rather than masking them with inflated penalties. For bound computation, it reads
-//! the current state’s berth free times and projects when remaining vessels can
-//! actually begin processing. It then organizes the outstanding workload with a
-//! lightweight heap to approximate an order that reduces delay for heavy tasks while
-//! staying consistent with berth availability. This hybrid view tends to dominate
-//! purely availability‑blind or purely weight‑only estimates by capturing when the
-//! system truly becomes capable of servicing the backlog.
+//! # Mathematical Note: Completion Time vs. Flow Time
+//!
+//! This evaluator optimizes **Weighted Completion Time** ($C_j \times w_j$) as a proxy
+//! for **Weighted Flow Time** ($(C_j - r_j) \times w_j$). Since the sum of weighted
+//! arrival times $\sum (r_j \times w_j)$ is a constant, minimizing completion time
+//! yields the exact same schedule as minimizing flow time, but reduces arithmetic
+//! overhead in the solver's hot path (the bounds calculation).
+//!
+//! # Algorithm
+//!
+//! The remaining‑cost estimate blends a feasibility‑aware projection with a
+//! lightweight workload relaxation. It first examines each unassigned vessel
+//! against every berth’s current free time and earliest usable window so that
+//! the best attainable finish time respects closures and deadlines. It then
+//! forms a coarse single‑machine schedule over shortest feasible processing
+//! times, starts it no earlier than the earliest berth release or arrival, and
+//! scales by berth count. Taking the maximum of these two views yields a bound
+//! that stays optimistic yet reacts to maintenance and congestion.
 //!
 //! Internally, small caches help avoid recomputation of per‑berth release times and
-//! per‑vessel workload summaries while keeping behavior deterministic. The design
-//! maintains regularity, ensuring costs do not decrease when completion is delayed,
-//! and it keeps the bound optimistic so pruning remains correct. In practice this
-//! makes the evaluator a dependable default: it is quick to evaluate, sensitive to
-//! maintenance and congestion, and stable across a wide range of instances without
-//! tuning or bespoke heuristics.
+//! per‑vessel workload summaries while keeping behavior deterministic.
 
 use crate::{
     berth_availability::BerthAvailability, eval::evaluator::ObjectiveEvaluator, state::SearchState,
@@ -86,7 +87,6 @@ struct WorkloadJob<T> {
 /// regularity, keeps the estimate availability‑aware, and tends to deliver a
 /// tighter bound in congested settings without sacrificing correctness or
 /// determinism.
-
 #[derive(Debug)]
 pub struct HybridEvaluator<T>
 where

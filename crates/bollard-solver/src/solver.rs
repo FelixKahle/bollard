@@ -346,7 +346,7 @@ mod tests {
     use super::*;
     use crate::opening;
     use bollard_bnb::{
-        branching::regret::RegretHeuristicBuilder, eval::hybrid::HybridEvaluator,
+        branching::regret::RegretBuilder, eval::hybrid::HybridEvaluator,
         portfolio::BnbPortfolioSolver,
     };
     use bollard_ls::{
@@ -398,10 +398,7 @@ mod tests {
         let neighborhoods = StaticTopology::from(&model);
 
         let first_solver = BnbPortfolioSolver::new(
-            RegretHeuristicBuilder::<IntegerType>::preallocated(
-                model.num_berths(),
-                model.num_vessels(),
-            ),
+            RegretBuilder::<IntegerType>::preallocated(model.num_berths(), model.num_vessels()),
             HybridEvaluator::preallocated(model.num_berths(), model.num_vessels()),
         );
 

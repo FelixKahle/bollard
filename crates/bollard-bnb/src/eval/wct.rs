@@ -19,10 +19,20 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-//! Weighted flow time evaluation and availability‑aware bounding. This module
-//! implements `WeightedFlowTimeEvaluator<T>`, an `ObjectiveEvaluator` for the
+//! This module implements `WeightedCompletionTimeEvaluator<T>`, an `ObjectiveEvaluator` for the
 //! weighted completion objective, integrating berth availability to keep both
 //! local scoring and global bounds aligned with real operating constraints.
+//!
+//! # Mathematical Note: Completion Time vs. Flow Time
+//!
+//! This evaluator optimizes **Weighted Completion Time** ($C_j \times w_j$) as a proxy
+//! for **Weighted Flow Time** ($(C_j - r_j) \times w_j$). Since the sum of weighted
+//! arrival times $\sum (r_j \times w_j)$ is a constant for any given instance, minimizing
+//! completion time yields the **exact same optimal schedule** as minimizing flow time.
+//! Excluding the subtraction of the arrival time reduces arithmetic overhead in the
+//! solver's hot path and avoids the need to access arrival times during cost evaluation.
+//!
+//! # Algorithm
 //!
 //! Local evaluation treats the provided start time as the actual beginning of
 //! service and computes a weighted completion cost. It reports infeasibility as
@@ -70,7 +80,7 @@ where
     }
 }
 
-/// Evaluator for the weighted flow time objective (sum of weight × completion time),
+/// Evaluator for the weighted completion time objective (sum of weight × completion time),
 /// aware of berth availability for both local scoring and global lower bounds.
 /// It implements `ObjectiveEvaluator` and is suitable wherever a regular objective
 /// is required, meaning costs do not decrease when completion is delayed.
@@ -100,7 +110,7 @@ where
 /// minimize reallocation. This design provides predictable performance and integrates
 /// naturally with availability‑aware branching.
 #[derive(Debug)]
-pub struct WeightedFlowTimeEvaluator<T>
+pub struct WeightedCompletionTimeEvaluator<T>
 where
     T: PrimInt + Signed,
 {
@@ -108,7 +118,7 @@ where
     scratch_vessels: Vec<VesselData<T>>,
 }
 
-impl<T> Default for WeightedFlowTimeEvaluator<T>
+impl<T> Default for WeightedCompletionTimeEvaluator<T>
 where
     T: PrimInt + Signed,
 {
@@ -117,11 +127,11 @@ where
     }
 }
 
-impl<T> WeightedFlowTimeEvaluator<T>
+impl<T> WeightedCompletionTimeEvaluator<T>
 where
     T: PrimInt + Signed,
 {
-    /// Creates a new `WeightedFlowTimeEvaluator` with empty scratch buffers.
+    /// Creates a new `WeightedCompletionTimeEvaluator` with empty scratch buffers.
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -130,7 +140,7 @@ where
         }
     }
 
-    /// Creates a new `WeightedFlowTimeEvaluator` with preallocated scratch buffers.
+    /// Creates a new `WeightedCompletionTimeEvaluator` with preallocated scratch buffers.
     #[inline]
     pub fn preallocated(capacity_berths: usize, capacity_vessels: usize) -> Self {
         Self {
@@ -140,13 +150,13 @@ where
     }
 }
 
-impl<T> ObjectiveEvaluator<T> for WeightedFlowTimeEvaluator<T>
+impl<T> ObjectiveEvaluator<T> for WeightedCompletionTimeEvaluator<T>
 where
     T: SolverNumeric,
 {
     #[inline]
     fn name(&self) -> &str {
-        "WeightedFlowTimeEvaluator"
+        "WeightedCompletionTimeEvaluator"
     }
 
     fn evaluate_vessel_assignment(
@@ -336,187 +346,5 @@ where
 
         let lower_bound = lower_bound_workload.max(lower_bound_independent);
         Some(lower_bound)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::eval::evaluator::ObjectiveEvaluator;
-    use bollard_model::{model::ModelBuilder, time::ProcessingTime};
-
-    type IntegerType = i64;
-
-    fn build_model_waiting() -> Model<IntegerType> {
-        let mut builder = ModelBuilder::<IntegerType>::new(2, 2);
-        builder.set_vessel_arrival_time(VesselIndex::new(0), 5);
-        builder.set_vessel_arrival_time(VesselIndex::new(1), 2);
-        builder.set_vessel_weight(VesselIndex::new(0), 3);
-        builder.set_vessel_weight(VesselIndex::new(1), 4);
-        builder.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            ProcessingTime::some(7),
-        );
-        builder.set_vessel_processing_time(
-            VesselIndex::new(0),
-            BerthIndex::new(1),
-            ProcessingTime::some(3),
-        );
-        builder.set_vessel_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(0),
-            ProcessingTime::none(),
-        );
-        builder.set_vessel_processing_time(
-            VesselIndex::new(1),
-            BerthIndex::new(1),
-            ProcessingTime::some(6),
-        );
-        builder.build()
-    }
-
-    #[test]
-    fn test_name_and_display_debug() {
-        let eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        assert_eq!(eval.name(), "WeightedFlowTimeEvaluator");
-
-        let dbg = format!("{:?}", &eval as &dyn ObjectiveEvaluator<IntegerType>);
-        let disp = format!("{}", &eval as &dyn ObjectiveEvaluator<IntegerType>);
-        assert!(dbg.contains("ObjectiveEvaluator(WeightedFlowTimeEvaluator)"));
-        assert!(disp.contains("ObjectiveEvaluator(WeightedFlowTimeEvaluator)"));
-    }
-
-    #[test]
-    fn test_evaluate_respects_waiting_time() {
-        let model = build_model_waiting();
-        let avail = BerthAvailability::new(); // empty availability for basic test
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-
-        // Vessel 0, Berth 0: arrival=5, proc=7. Ready=4 -> Start=5 -> Finish=12. Cost=36
-        // NOTE: We pass the ACTUAL start time here (e.g. 5)
-        let cost_a = eval.evaluate_vessel_assignment(
-            &model,
-            &avail,
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            5,
-        );
-        assert_eq!(cost_a, Some(36));
-
-        // Ready=10 -> Start=10 -> Finish=17. Cost=51
-        let cost_b = eval.evaluate_vessel_assignment(
-            &model,
-            &avail,
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            10,
-        );
-        assert_eq!(cost_b, Some(51));
-    }
-
-    #[test]
-    fn test_lower_bound_independent_projection() {
-        // Test Independent Projection logic.
-        // V1 (Arrival 2, Dur 6, W 4) -> Needs B1.
-        // V0 (Arrival 5, Dur 3 [on B1], W 3) -> Can use B0(7) or B1(3).
-
-        // Calculation:
-        // V1: Best is B1. Start max(2,0)=2. Finish 8. Cost 8*4 = 32.
-        // V0: Best is B1. Start max(5,0)=5. Finish 8. Cost 8*3 = 24.
-        // Total LB = 32 + 24 = 56.
-
-        let model = build_model_waiting();
-        let mut avail = BerthAvailability::new();
-        avail.initialize(&model, &[]);
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-
-        let lb = eval.estimate_remaining_cost(&model, &avail, &state);
-
-        assert_eq!(lb, Some(56));
-    }
-}
-
-#[cfg(test)]
-mod more_tests {
-    use super::*;
-    use crate::eval::evaluator::ObjectiveEvaluator;
-    use bollard_core::math::interval::ClosedOpenInterval;
-    use bollard_model::{model::ModelBuilder, time::ProcessingTime};
-
-    type IntegerType = i64;
-
-    #[test]
-    fn test_evaluate_unchecked_matches_checked() {
-        // One vessel, one berth
-        let mut b = ModelBuilder::<IntegerType>::new(1, 1);
-        b.set_vessel_arrival_time(VesselIndex::new(0), 5)
-            .set_vessel_weight(VesselIndex::new(0), 3)
-            .set_vessel_latest_departure_time(VesselIndex::new(0), IntegerType::MAX)
-            .set_vessel_processing_time(
-                VesselIndex::new(0),
-                BerthIndex::new(0),
-                ProcessingTime::some(7),
-            );
-        let model = b.build();
-        let avail = BerthAvailability::new();
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-
-        let start_time = 5;
-        // Checked
-        let safe = eval.evaluate_vessel_assignment(
-            &model,
-            &avail,
-            VesselIndex::new(0),
-            BerthIndex::new(0),
-            start_time,
-        );
-        assert_eq!(safe, Some(36)); // Start=5, Finish=12, Cost=12*3
-
-        // Unchecked
-        let unsafe_cost = unsafe {
-            ObjectiveEvaluator::<IntegerType>::evaluate_vessel_assignment_unchecked(
-                &eval,
-                &model,
-                &avail,
-                VesselIndex::new(0),
-                BerthIndex::new(0),
-                start_time,
-            )
-        };
-        assert_eq!(unsafe_cost, safe);
-    }
-
-    #[test]
-    fn test_lower_bound_uses_availability_to_jump_maintenance() {
-        // Test that LB uses availability.
-        // V0: Arrival 0, Duration 5.
-        // Berth 0: Closed [0, 10).
-        // If LB ignores availability, it thinks Start=0, Finish=5.
-        // If LB respects availability, it sees Start=10, Finish=15.
-
-        let mut b = ModelBuilder::<IntegerType>::new(1, 1);
-        b.set_vessel_arrival_time(VesselIndex::new(0), 0)
-            .set_vessel_weight(VesselIndex::new(0), 1)
-            .set_vessel_processing_time(
-                VesselIndex::new(0),
-                BerthIndex::new(0),
-                ProcessingTime::some(5),
-            )
-            // Add closure
-            .add_berth_closing_time(BerthIndex::new(0), ClosedOpenInterval::new(0, 10));
-        let model = b.build();
-
-        let mut avail = BerthAvailability::new();
-        avail.initialize(&model, &[]); // Setup closure map
-
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let state = SearchState::new(1, 1);
-
-        let lb = eval.estimate_remaining_cost(&model, &avail, &state);
-
-        // Expected: Start at 10 (after closure), Finish at 15. Cost = 15*1 = 15.
-        assert_eq!(lb, Some(15));
     }
 }

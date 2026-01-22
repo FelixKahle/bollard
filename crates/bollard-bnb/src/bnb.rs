@@ -478,7 +478,7 @@ where
     /// Initialize the search session.
     ///
     /// This sets up the initial trail and stack frames,
-    /// makes sure we have enaugh memory allocated to *not*
+    /// makes sure we have enough memory allocated to *not*
     /// resize during the search, and pushes the first decisions
     /// onto the stack.
     #[inline]
@@ -779,16 +779,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::branching::edf::EarliestDeadlineFirstBuilder;
-    use crate::branching::regret::RegretHeuristicBuilder;
-    use crate::branching::wspt::WsptHeuristicBuilder;
+    use crate::branching::edf::EdfHeuristic;
+    use crate::branching::regret::RegretBuilder;
+    use crate::branching::wspt::WsptBuilder;
     use crate::eval::hybrid::HybridEvaluator;
-    use crate::eval::wtft::WeightedFlowTimeEvaluator;
+    use crate::eval::wct::WeightedCompletionTimeEvaluator;
     use crate::monitor::no_op::NoOperationMonitor;
     use crate::monitor::solution::SolutionLimitMonitor;
     use crate::{
-        branching::chronological::ChronologicalExhaustiveBuilder,
-        monitor::log::LogTreeSearchMonitor,
+        branching::chronological::ChronologicalBuilder, monitor::log::LogTreeSearchMonitor,
     };
     use bollard_core::math::interval::ClosedOpenInterval;
     use bollard_model::{
@@ -807,10 +806,7 @@ mod tests {
     /// - Processing times:
     ///   - Berth 0: 10..12 depending on vessel index
     ///   - Berth 1: 7..10 depending on vessel index
-    fn build_model(
-        num_berths: usize,
-        num_vessels: usize,
-    ) -> bollard_model::model::Model<IntegerType> {
+    fn build_model(num_berths: usize, num_vessels: usize) -> Model<IntegerType> {
         let mut builder = ModelBuilder::<IntegerType>::new(num_berths, num_vessels);
 
         // Simple arrivals and weights
@@ -845,8 +841,7 @@ mod tests {
 
         let mut evaluator =
             HybridEvaluator::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut edf_builder =
-            EarliestDeadlineFirstBuilder::preallocated(model.num_berths(), model.num_vessels());
+        let mut edf_builder = EdfHeuristic::preallocated(model.num_berths(), model.num_vessels());
 
         // Build search params via builder (no fixed, no initial solution)
         let params = BnbSearchParams::builder(
@@ -865,8 +860,7 @@ mod tests {
             initial.result().unwrap().objective_value()
         );
 
-        let mut builder =
-            WsptHeuristicBuilder::preallocated(model.num_berths(), model.num_vessels());
+        let mut builder = WsptBuilder::preallocated(model.num_berths(), model.num_vessels());
 
         // Run the solver using the params builder with an initial solution
         let outcome = solver.solve(
@@ -929,8 +923,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -975,8 +969,8 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1026,8 +1020,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1048,7 +1042,7 @@ mod tests {
         };
         assert_eq!(sol1.objective_value(), 291);
 
-        let mut evaluator2 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut evaluator2 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1084,8 +1078,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1135,8 +1129,8 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1218,8 +1212,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1280,8 +1274,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1330,8 +1324,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1372,10 +1366,10 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
         for run in 0..2 {
-            let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+            let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
                 model.num_berths(),
                 model.num_vessels(),
             );
@@ -1434,9 +1428,9 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
-        let mut evaluator1 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut evaluator1 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1456,7 +1450,7 @@ mod tests {
         };
         assert_eq!(sol1.objective_value(), 291);
 
-        let mut evaluator2 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut evaluator2 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1486,10 +1480,10 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
         for run in 0..3 {
-            let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+            let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
                 model.num_berths(),
                 model.num_vessels(),
             );
@@ -1550,9 +1544,9 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1587,7 +1581,7 @@ mod tests {
             "stack should be empty after first run"
         );
 
-        let mut evaluator2 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut evaluator2 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1641,8 +1635,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1685,10 +1679,10 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
         for i in 0..3 {
-            let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+            let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
                 model.num_berths(),
                 model.num_vessels(),
             );
@@ -1732,8 +1726,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1788,8 +1782,8 @@ mod tests {
         let model = builder.build();
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::default();
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::default();
 
         let outcome = solver.solve(
             BnbSearchParams::builder(
@@ -1818,8 +1812,8 @@ mod tests {
         let model = build_model(2, 8);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator_cold = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator_cold = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1853,7 +1847,7 @@ mod tests {
             "incumbent upper bound should reflect the installed solution"
         );
 
-        let mut evaluator_warm = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut evaluator_warm = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1929,8 +1923,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -1984,8 +1978,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -2021,7 +2015,7 @@ mod tests {
         );
         assert!(
             stats.prunings_bound + stats.prunings_infeasible <= stats.nodes_explored,
-            "total prunings should not exceed explored nodes"
+            "total pruning should not exceed explored nodes"
         );
     }
 
@@ -2032,8 +2026,8 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator1 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator1 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -2059,7 +2053,7 @@ mod tests {
         assert_eq!(incumbent.upper_bound(), 291);
 
         // We only rely on incumbent here; we still create a fresh evaluator & call solve_with_incumbent
-        let mut evaluator2 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut evaluator2 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -2088,8 +2082,8 @@ mod tests {
     fn test_reset_mid_session_and_solve_different_size() {
         let model_a = build_model(2, 5);
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator_a = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator_a = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model_a.num_berths(),
             model_a.num_vessels(),
         );
@@ -2117,7 +2111,7 @@ mod tests {
         assert!(solver.stack.is_empty());
 
         let model_b = build_model(2, 6);
-        let mut evaluator_b = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut evaluator_b = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model_b.num_berths(),
             model_b.num_vessels(),
         );
@@ -2148,9 +2142,9 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
-        let mut evaluator1 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut evaluator1 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -2169,7 +2163,7 @@ mod tests {
             _ => panic!("first run should return a solution"),
         };
 
-        let mut evaluator2 = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut evaluator2 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -2197,10 +2191,7 @@ mod tests {
     }
 
     // Helper function used by test_solver_respects_closing_times and test_solver_respects_closing_times_and_fixed_assignments_together
-    fn build_model_with_closing_times(
-        num_berths: usize,
-        num_vessels: usize,
-    ) -> bollard_model::model::Model<IntegerType> {
+    fn build_model_with_closing_times(num_berths: usize, num_vessels: usize) -> Model<IntegerType> {
         let mut builder = ModelBuilder::<IntegerType>::new(num_berths, num_vessels);
 
         for v in 0..num_vessels {
@@ -2236,8 +2227,8 @@ mod tests {
     fn test_solver_respects_closing_times() {
         let model = build_model_with_closing_times(2, 8);
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -2279,8 +2270,8 @@ mod tests {
         let model = builder.build();
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -2366,7 +2357,7 @@ mod tests {
         //
         let mut solver_phase1 = BnbSolver::<IntegerType>::new();
         let mut heuristic_builder =
-            EarliestDeadlineFirstBuilder::preallocated(model.num_berths(), model.num_vessels());
+            EdfHeuristic::preallocated(model.num_berths(), model.num_vessels());
         let mut heuristic_evaluator =
             HybridEvaluator::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
 
@@ -2402,8 +2393,8 @@ mod tests {
         // Phase 2: exact BnB with chronological branching, warm-started from phase 1
         //
         let mut solver_phase2 = BnbSolver::<IntegerType>::new();
-        let mut exhaustive_builder = WsptHeuristicBuilder::new();
-        let mut exhaustive_evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut exhaustive_builder = WsptBuilder::new();
+        let mut exhaustive_evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -2472,8 +2463,8 @@ mod tests {
     fn test_solver_respects_closing_times_and_fixed_assignments_together() {
         let model = build_model_with_closing_times(2, 6);
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );
@@ -2524,7 +2515,7 @@ mod tests {
         let mut solver = BnbSolver::<IntegerType>::new();
 
         let mut evaluator = HybridEvaluator::<IntegerType>::preallocated(2, 1);
-        let mut decision_builder = RegretHeuristicBuilder::preallocated(2, 1);
+        let mut decision_builder = RegretBuilder::preallocated(2, 1);
 
         let outcome = solver.solve(
             BnbSearchParams::builder(
@@ -2560,5 +2551,285 @@ mod tests {
                 panic!("Rust Solver returned Unknown.");
             }
         }
+    }
+
+    #[test]
+    fn test_solver_identifies_and_fills_gaps_around_fixed_assignment() {
+        // Scenario:
+        // Berth 0 is the only berth.
+        // Vessel 0 (Fixed): Starts at 20, Duration 20. Occupies [20, 40).
+        // Gap Created: [0, 20).
+        // Vessel 1 (Small): Duration 15. Should fill the gap [0, 15).
+        // Vessel 2 (Large): Duration 25. Cannot fit in gap (max 20). Must go after V0 [40, 65).
+
+        let mut builder = ModelBuilder::<IntegerType>::new(1, 3);
+
+        // All arrive at 0
+        for v in 0..3 {
+            builder
+                .set_vessel_arrival_time(VesselIndex::new(v), 0)
+                .set_vessel_weight(VesselIndex::new(v), 1);
+        }
+
+        // V0: The Obstacle
+        builder.set_vessel_processing_time(
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            ProcessingTime::some(20),
+        );
+
+        // V1: The Filler (15 < 20)
+        builder.set_vessel_processing_time(
+            VesselIndex::new(1),
+            BerthIndex::new(0),
+            ProcessingTime::some(15),
+        );
+
+        // V2: The Overflow (25 > 20)
+        builder.set_vessel_processing_time(
+            VesselIndex::new(2),
+            BerthIndex::new(0),
+            ProcessingTime::some(25),
+        );
+
+        let model = builder.build();
+
+        // Fix V0 to start at 20
+        let fixed = vec![FixedAssignment::new(
+            20,
+            BerthIndex::new(0),
+            VesselIndex::new(0),
+        )];
+
+        let mut solver = BnbSolver::<IntegerType>::new();
+        // Use Chronological to prove it's not just a lucky heuristic guess,
+        // but that the availability logic strictly enforces the gap constraints.
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(1, 3);
+
+        let outcome = solver.solve(
+            BnbSearchParams::builder(
+                &model,
+                &mut builder,
+                &mut evaluator,
+                LogTreeSearchMonitor::default(),
+            )
+            .with_fixed_assignments(&fixed)
+            .build()
+            .unwrap(),
+        );
+
+        let solution = outcome.result().unwrap_optimal();
+
+        println!("Objective: {}", solution.objective_value());
+
+        // Check V0 (Fixed)
+        assert_eq!(
+            solution.start_time_for_vessel(VesselIndex::new(0)),
+            20,
+            "V0 must respect fixed start"
+        );
+
+        // Check V1 (The Filler)
+        let v1_start = solution.start_time_for_vessel(VesselIndex::new(1));
+        assert_eq!(v1_start, 0, "V1 should fit in the gap starting at 0");
+
+        // Check V2 (The Overflow)
+        let v2_start = solution.start_time_for_vessel(VesselIndex::new(2));
+        assert!(
+            v2_start >= 40,
+            "V2 is too big for the gap; must start after V0 finishes (at 40). Got {}",
+            v2_start
+        );
+
+        // Explicitly verify the logic:
+        // If the solver tried to put V2 in the gap, start would be 0.
+        // Since V2 duration is 25, it would end at 25.
+        // V0 starts at 20. 25 > 20 -> Collision.
+        // Therefore, BerthAvailability::earliest_availability worked correctly.
+    }
+
+    #[test]
+    fn test_solver_fills_gap_created_by_maintenance_window() {
+        // Scenario: Maintenance window [20, 40).
+        // V1 (Small): Duration 15. Fits [0, 15).
+        // V2 (Large): Duration 25. Fits [40, 65).
+
+        let mut builder = ModelBuilder::<IntegerType>::new(1, 2);
+
+        builder
+            .set_vessel_arrival_time(VesselIndex::new(0), 0)
+            .set_vessel_weight(VesselIndex::new(0), 1);
+        builder
+            .set_vessel_arrival_time(VesselIndex::new(1), 0)
+            .set_vessel_weight(VesselIndex::new(1), 1);
+
+        // V0: Small (15)
+        builder.set_vessel_processing_time(
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            ProcessingTime::some(15),
+        );
+        // V1: Large (25)
+        builder.set_vessel_processing_time(
+            VesselIndex::new(1),
+            BerthIndex::new(0),
+            ProcessingTime::some(25),
+        );
+
+        // Add Closing Time (Maintenance) [20, 40)
+        builder.add_berth_closing_time(BerthIndex::new(0), ClosedOpenInterval::new(20, 40));
+
+        let model = builder.build();
+
+        let mut solver = BnbSolver::<IntegerType>::new();
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(1, 2);
+
+        let outcome = solver.solve(
+            BnbSearchParams::builder(
+                &model,
+                &mut builder,
+                &mut evaluator,
+                NoOperationMonitor::new(),
+            )
+            .build()
+            .unwrap(),
+        );
+
+        let solution = outcome.result().unwrap_optimal();
+
+        // One vessel must start at 0, the other at 40.
+        let s0 = solution.start_time_for_vessel(VesselIndex::new(0));
+        let s1 = solution.start_time_for_vessel(VesselIndex::new(1));
+
+        // V0 (15) fits in [0, 20).
+        // V1 (25) does NOT fit in [0, 20).
+
+        if s0 == 0 {
+            assert!(
+                s1 >= 40,
+                "If V0 took the gap, V1 must wait until maintenance ends."
+            );
+        } else {
+            // This branch shouldn't happen for optimal because V1 is too big for the gap,
+            // so V1 MUST be at 40, meaning V0 MUST be at 0 to minimize completion time.
+            panic!(
+                "Optimal schedule must place V0 (Small) in the gap. Found V0 at {}",
+                s0
+            );
+        }
+
+        assert_eq!(s0, 0);
+        assert_eq!(s1, 40);
+    }
+
+    #[test]
+    fn test_symmetry_breaking_respects_future_constraints() {
+        // Scenario:
+        // Berth 0: High capacity (Closes at 100).
+        // Berth 1: Low capacity (Closes at 20).
+        // Both are free at T=0.
+
+        // Vessel 0: Small (10). Fits on both.
+        // Vessel 1: Large (50). Only fits on Berth 0.
+
+        // If the symmetry breaker thinks B0 and B1 are identical at T=0 (because V0 takes 10 on both),
+        // it might prune B1 (the "worse" index).
+        // This forces V0 onto B0.
+        // Then V1 has nowhere to go but B0 (after V0 finishes).
+        // V0: [0, 10), V1: [10, 60). Total Cost: 10 + 60 = 70.
+
+        // If symmetry is correctly broken by looking at closing times:
+        // Solver tries V0 on B1.
+        // V0: [0, 10) on B1.
+        // V1: [0, 50) on B0.
+        // Total Cost: 10 + 50 = 60.
+
+        let mut builder = ModelBuilder::<IntegerType>::new(2, 2);
+
+        // V0 and V1 Setup
+        for v in 0..2 {
+            builder
+                .set_vessel_arrival_time(VesselIndex::new(v), 0)
+                .set_vessel_weight(VesselIndex::new(v), 1);
+        }
+
+        // Processing Times
+        // V0 (Small)
+        builder.set_vessel_processing_time(
+            VesselIndex::new(0),
+            BerthIndex::new(0),
+            ProcessingTime::some(10),
+        );
+        builder.set_vessel_processing_time(
+            VesselIndex::new(0),
+            BerthIndex::new(1),
+            ProcessingTime::some(10),
+        ); // Identical PT
+
+        // V1 (Large)
+        builder.set_vessel_processing_time(
+            VesselIndex::new(1),
+            BerthIndex::new(0),
+            ProcessingTime::some(50),
+        );
+        builder.set_vessel_processing_time(
+            VesselIndex::new(1),
+            BerthIndex::new(1),
+            ProcessingTime::some(50),
+        ); // Physics allows it, but constraint won't
+
+        // Closing Times (The Differentiator)
+        // B0 closes at 100
+        builder.add_berth_closing_time(BerthIndex::new(0), ClosedOpenInterval::new(100, 200));
+        // B1 closes at 20
+        builder.add_berth_closing_time(BerthIndex::new(1), ClosedOpenInterval::new(20, 200));
+
+        let model = builder.build();
+
+        let mut solver = BnbSolver::<IntegerType>::new();
+        // Use Chronological to rely purely on the decision generation/pruning logic, avoiding heuristic luck.
+        let mut builder = ChronologicalBuilder::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(2, 2);
+
+        let outcome = solver.solve(
+            BnbSearchParams::builder(
+                &model,
+                &mut builder,
+                &mut evaluator,
+                LogTreeSearchMonitor::default(), // Use Log monitor to see what's happening if it fails
+            )
+            .build()
+            .unwrap(),
+        );
+
+        let solution = outcome.result().unwrap_optimal();
+        let obj = solution.objective_value();
+
+        println!("Found Objective: {}", obj);
+
+        if obj == 70 {
+            panic!(
+                "Suboptimal solution found (70). The symmetry breaker likely pruned the optimal branch (60) because it ignored the closing time difference between berths."
+            );
+        }
+
+        assert_eq!(
+            obj, 60,
+            "Solver should find the optimal schedule by utilizing the constrained berth for the small vessel."
+        );
+
+        // Optional: verify placement
+        assert_eq!(
+            solution.berth_for_vessel(VesselIndex::new(0)),
+            BerthIndex::new(1),
+            "V0 should take the small berth"
+        );
+        assert_eq!(
+            solution.berth_for_vessel(VesselIndex::new(1)),
+            BerthIndex::new(0),
+            "V1 should take the large berth"
+        );
     }
 }

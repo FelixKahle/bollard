@@ -177,8 +177,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::branching::chronological::ChronologicalExhaustiveBuilder;
-    use crate::eval::wtft::WeightedFlowTimeEvaluator;
+    use crate::branching::chronological::ChronologicalBuilder;
+    use crate::eval::wct::WeightedCompletionTimeEvaluator;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
@@ -227,8 +227,8 @@ mod tests {
         let neighborhoods = StaticTopology::from(&model);
 
         // Construct inner solver, builder, and evaluator
-        let builder = ChronologicalExhaustiveBuilder::new();
-        let evaluator = WeightedFlowTimeEvaluator::<IntegerType>::preallocated(
+        let builder = ChronologicalBuilder::new();
+        let evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
         );

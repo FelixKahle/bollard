@@ -23,14 +23,13 @@ use crate::result::BollardFfiSolverResult;
 use bollard_bnb::{
     bnb::BnbSolver,
     branching::{
-        chronological::ChronologicalExhaustiveBuilder, decision::DecisionBuilder,
-        edf::EarliestDeadlineFirstBuilder, fcfs::FcfsHeuristicBuilder, lpt::LptHeuristicBuilder,
-        regret::RegretHeuristicBuilder, slack::SlackHeuristicBuilder, spt::SptHeuristicBuilder,
-        wspt::WsptHeuristicBuilder,
+        chronological::ChronologicalBuilder, decision::DecisionBuilder, edf::EdfHeuristic,
+        fcfs::FcfsBuilder, lpt::LptBuilder, regret::RegretBuilder, slack::SlackBuilder,
+        spt::SptBuilder, urgency::UrgencyRegretHeuristicBuilder, wspt::WsptBuilder,
     },
     eval::{
-        evaluator::ObjectiveEvaluator, hybrid::HybridEvaluator, workload::WorkloadEvaluator,
-        wtft::WeightedFlowTimeEvaluator,
+        evaluator::ObjectiveEvaluator, hybrid::HybridEvaluator,
+        wct::WeightedCompletionTimeEvaluator, workload::WorkloadEvaluator,
     },
     fixed::FixedAssignment,
     monitor::{
@@ -592,28 +591,30 @@ impl From<BnbFfiFixedAssignment> for FixedAssignment<i64> {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum BnbSolverFfiDecisionBuilderType {
-    ChronologicalExhaustive = 0,
-    FcfsHeuristic = 1,
-    RegretHeuristic = 2,
-    SlackHeuristic = 3,
+    Chronological = 0,
+    Fcfs = 1,
+    Regret = 2,
+    Slack = 3,
     #[default]
-    WsptHeuristic = 4, // We default to WSPT. Its generally the best performing sorting heuristic.
-    SptHeuristic = 5,
-    LptHeuristic = 6,
-    EarliestDeadlineFirst = 7,
+    Wspt = 4, // We default to WSPT. Its generally the best performing sorting heuristic.
+    Spt = 5,
+    Lpt = 6,
+    EdfHeuristic = 7,
+    UrgencyRegretHeuristic = 8,
 }
 
 impl std::fmt::Display for BnbSolverFfiDecisionBuilderType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
-            BnbSolverFfiDecisionBuilderType::ChronologicalExhaustive => "ChronologicalExhaustive",
-            BnbSolverFfiDecisionBuilderType::FcfsHeuristic => "FcfsHeuristic",
-            BnbSolverFfiDecisionBuilderType::RegretHeuristic => "RegretHeuristic",
-            BnbSolverFfiDecisionBuilderType::SlackHeuristic => "SlackHeuristic",
-            BnbSolverFfiDecisionBuilderType::WsptHeuristic => "WsptHeuristic",
-            BnbSolverFfiDecisionBuilderType::SptHeuristic => "SptHeuristic",
-            BnbSolverFfiDecisionBuilderType::LptHeuristic => "LptHeuristic",
-            BnbSolverFfiDecisionBuilderType::EarliestDeadlineFirst => "EarliestDeadlineFirst",
+            BnbSolverFfiDecisionBuilderType::Chronological => "Chronological",
+            BnbSolverFfiDecisionBuilderType::Fcfs => "Fcfs",
+            BnbSolverFfiDecisionBuilderType::Regret => "Regret",
+            BnbSolverFfiDecisionBuilderType::Slack => "Slack",
+            BnbSolverFfiDecisionBuilderType::Wspt => "Wspt",
+            BnbSolverFfiDecisionBuilderType::Spt => "Spt",
+            BnbSolverFfiDecisionBuilderType::Lpt => "Lpt",
+            BnbSolverFfiDecisionBuilderType::EdfHeuristic => "EdfHeuristic",
+            BnbSolverFfiDecisionBuilderType::UrgencyRegretHeuristic => "UrgencyRegretHeuristic",
         };
         write!(f, "{}", name)
     }
@@ -626,7 +627,7 @@ pub enum BnbSolverFfiObjectiveEvaluatorType {
     #[default]
     Hybrid = 0, // Basically the union of Workload and WeightedFlowTime. Just better overall.
     Workload = 1,
-    WeightedFlowTime = 2,
+    WeightedCompletionTime = 2,
 }
 
 impl std::fmt::Display for BnbSolverFfiObjectiveEvaluatorType {
@@ -634,7 +635,7 @@ impl std::fmt::Display for BnbSolverFfiObjectiveEvaluatorType {
         let name = match self {
             BnbSolverFfiObjectiveEvaluatorType::Hybrid => "Hybrid",
             BnbSolverFfiObjectiveEvaluatorType::Workload => "Workload",
-            BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime => "WeightedFlowTime",
+            BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime => "WeightedFlowTime",
         };
         write!(f, "{}", name)
     }
@@ -771,10 +772,10 @@ unsafe fn dispatch_solve(
 
     let outcome = match (builder_type, evaluator_type) {
         (
-            BnbSolverFfiDecisionBuilderType::ChronologicalExhaustive,
+            BnbSolverFfiDecisionBuilderType::Chronological,
             BnbSolverFfiObjectiveEvaluatorType::Hybrid,
         ) => {
-            let builder = ChronologicalExhaustiveBuilder::preallocated(num_berths, num_vessels);
+            let builder = ChronologicalBuilder::preallocated(num_berths, num_vessels);
             let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
@@ -791,10 +792,10 @@ unsafe fn dispatch_solve(
             BnbSolverFfiOutcome::from(outcome)
         }
         (
-            BnbSolverFfiDecisionBuilderType::ChronologicalExhaustive,
+            BnbSolverFfiDecisionBuilderType::Chronological,
             BnbSolverFfiObjectiveEvaluatorType::Workload,
         ) => {
-            let builder = ChronologicalExhaustiveBuilder::preallocated(num_berths, num_vessels);
+            let builder = ChronologicalBuilder::preallocated(num_berths, num_vessels);
             let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
@@ -811,11 +812,45 @@ unsafe fn dispatch_solve(
             BnbSolverFfiOutcome::from(outcome)
         }
         (
-            BnbSolverFfiDecisionBuilderType::ChronologicalExhaustive,
-            BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
+            BnbSolverFfiDecisionBuilderType::Chronological,
+            BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime,
         ) => {
-            let builder = ChronologicalExhaustiveBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let builder = ChronologicalBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Fcfs, BnbSolverFfiObjectiveEvaluatorType::Hybrid) => {
+            let builder = FcfsBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Fcfs, BnbSolverFfiObjectiveEvaluatorType::Workload) => {
+            let builder = FcfsBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,
@@ -831,10 +866,300 @@ unsafe fn dispatch_solve(
             BnbSolverFfiOutcome::from(outcome)
         }
         (
-            BnbSolverFfiDecisionBuilderType::FcfsHeuristic,
+            BnbSolverFfiDecisionBuilderType::Fcfs,
+            BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime,
+        ) => {
+            let builder = FcfsBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Regret, BnbSolverFfiObjectiveEvaluatorType::Hybrid) => {
+            let builder = RegretBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Regret, BnbSolverFfiObjectiveEvaluatorType::Workload) => {
+            let builder = RegretBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (
+            BnbSolverFfiDecisionBuilderType::Regret,
+            BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime,
+        ) => {
+            let builder = RegretBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Slack, BnbSolverFfiObjectiveEvaluatorType::Hybrid) => {
+            let builder = SlackBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Slack, BnbSolverFfiObjectiveEvaluatorType::Workload) => {
+            let builder = SlackBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (
+            BnbSolverFfiDecisionBuilderType::Slack,
+            BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime,
+        ) => {
+            let builder = SlackBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Wspt, BnbSolverFfiObjectiveEvaluatorType::Hybrid) => {
+            let builder = WsptBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Wspt, BnbSolverFfiObjectiveEvaluatorType::Workload) => {
+            let builder = WsptBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (
+            BnbSolverFfiDecisionBuilderType::Wspt,
+            BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime,
+        ) => {
+            let builder = WsptBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Spt, BnbSolverFfiObjectiveEvaluatorType::Hybrid) => {
+            let builder = SptBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Spt, BnbSolverFfiObjectiveEvaluatorType::Workload) => {
+            let builder = SptBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (
+            BnbSolverFfiDecisionBuilderType::Spt,
+            BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime,
+        ) => {
+            let builder = SptBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Lpt, BnbSolverFfiObjectiveEvaluatorType::Hybrid) => {
+            let builder = LptBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (BnbSolverFfiDecisionBuilderType::Lpt, BnbSolverFfiObjectiveEvaluatorType::Workload) => {
+            let builder = LptBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (
+            BnbSolverFfiDecisionBuilderType::Lpt,
+            BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime,
+        ) => {
+            let builder = LptBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
+
+            let outcome = solve(
+                solver,
+                model,
+                builder,
+                evaluator,
+                solution_limit,
+                time_limit_ms,
+                enable_log,
+                initial_solution,
+                fixed_assignments, // With fixed assignments
+            );
+            BnbSolverFfiOutcome::from(outcome)
+        }
+        (
+            BnbSolverFfiDecisionBuilderType::EdfHeuristic,
             BnbSolverFfiObjectiveEvaluatorType::Hybrid,
         ) => {
-            let builder = FcfsHeuristicBuilder::preallocated(num_berths, num_vessels);
+            let builder = EdfHeuristic::preallocated(num_berths, num_vessels);
             let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
@@ -851,10 +1176,10 @@ unsafe fn dispatch_solve(
             BnbSolverFfiOutcome::from(outcome)
         }
         (
-            BnbSolverFfiDecisionBuilderType::FcfsHeuristic,
+            BnbSolverFfiDecisionBuilderType::EdfHeuristic,
             BnbSolverFfiObjectiveEvaluatorType::Workload,
         ) => {
-            let builder = FcfsHeuristicBuilder::preallocated(num_berths, num_vessels);
+            let builder = EdfHeuristic::preallocated(num_berths, num_vessels);
             let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
@@ -871,11 +1196,11 @@ unsafe fn dispatch_solve(
             BnbSolverFfiOutcome::from(outcome)
         }
         (
-            BnbSolverFfiDecisionBuilderType::FcfsHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
+            BnbSolverFfiDecisionBuilderType::EdfHeuristic,
+            BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime,
         ) => {
-            let builder = FcfsHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let builder = EdfHeuristic::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,
@@ -891,10 +1216,10 @@ unsafe fn dispatch_solve(
             BnbSolverFfiOutcome::from(outcome)
         }
         (
-            BnbSolverFfiDecisionBuilderType::RegretHeuristic,
+            BnbSolverFfiDecisionBuilderType::UrgencyRegretHeuristic,
             BnbSolverFfiObjectiveEvaluatorType::Hybrid,
         ) => {
-            let builder = RegretHeuristicBuilder::preallocated(num_berths, num_vessels);
+            let builder = UrgencyRegretHeuristicBuilder::preallocated(num_berths, num_vessels);
             let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
@@ -911,10 +1236,10 @@ unsafe fn dispatch_solve(
             BnbSolverFfiOutcome::from(outcome)
         }
         (
-            BnbSolverFfiDecisionBuilderType::RegretHeuristic,
+            BnbSolverFfiDecisionBuilderType::UrgencyRegretHeuristic,
             BnbSolverFfiObjectiveEvaluatorType::Workload,
         ) => {
-            let builder = RegretHeuristicBuilder::preallocated(num_berths, num_vessels);
+            let builder = UrgencyRegretHeuristicBuilder::preallocated(num_berths, num_vessels);
             let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
@@ -931,311 +1256,11 @@ unsafe fn dispatch_solve(
             BnbSolverFfiOutcome::from(outcome)
         }
         (
-            BnbSolverFfiDecisionBuilderType::RegretHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
+            BnbSolverFfiDecisionBuilderType::UrgencyRegretHeuristic,
+            BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime,
         ) => {
-            let builder = RegretHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::SlackHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::Hybrid,
-        ) => {
-            let builder = SlackHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::SlackHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::Workload,
-        ) => {
-            let builder = SlackHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::SlackHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
-        ) => {
-            let builder = SlackHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::WsptHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::Hybrid,
-        ) => {
-            let builder = WsptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::WsptHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::Workload,
-        ) => {
-            let builder = WsptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::WsptHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
-        ) => {
-            let builder = WsptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::SptHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::Hybrid,
-        ) => {
-            let builder = SptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::SptHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::Workload,
-        ) => {
-            let builder = SptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::SptHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
-        ) => {
-            let builder = SptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::LptHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::Hybrid,
-        ) => {
-            let builder = LptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::LptHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::Workload,
-        ) => {
-            let builder = LptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::LptHeuristic,
-            BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
-        ) => {
-            let builder = LptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::EarliestDeadlineFirst,
-            BnbSolverFfiObjectiveEvaluatorType::Hybrid,
-        ) => {
-            let builder = EarliestDeadlineFirstBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::EarliestDeadlineFirst,
-            BnbSolverFfiObjectiveEvaluatorType::Workload,
-        ) => {
-            let builder = EarliestDeadlineFirstBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WorkloadEvaluator::preallocated(num_berths, num_vessels);
-
-            let outcome = solve(
-                solver,
-                model,
-                builder,
-                evaluator,
-                solution_limit,
-                time_limit_ms,
-                enable_log,
-                initial_solution,
-                fixed_assignments, // With fixed assignments
-            );
-            BnbSolverFfiOutcome::from(outcome)
-        }
-        (
-            BnbSolverFfiDecisionBuilderType::EarliestDeadlineFirst,
-            BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
-        ) => {
-            let builder = EarliestDeadlineFirstBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let builder = UrgencyRegretHeuristicBuilder::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,
@@ -1761,39 +1786,31 @@ mod tests {
     #[test]
     fn test_decision_builder_type_display() {
         assert_eq!(
+            format!("{}", BnbSolverFfiDecisionBuilderType::Chronological),
+            "Chronological"
+        );
+        assert_eq!(format!("{}", BnbSolverFfiDecisionBuilderType::Fcfs), "Fcfs");
+        assert_eq!(
+            format!("{}", BnbSolverFfiDecisionBuilderType::Regret),
+            "Regret"
+        );
+        assert_eq!(
+            format!("{}", BnbSolverFfiDecisionBuilderType::Slack),
+            "Slack"
+        );
+        assert_eq!(format!("{}", BnbSolverFfiDecisionBuilderType::Wspt), "Wspt");
+        assert_eq!(format!("{}", BnbSolverFfiDecisionBuilderType::Spt), "Spt");
+        assert_eq!(format!("{}", BnbSolverFfiDecisionBuilderType::Lpt), "Lpt");
+        assert_eq!(
+            format!("{}", BnbSolverFfiDecisionBuilderType::EdfHeuristic),
+            "EdfHeuristic"
+        );
+        assert_eq!(
             format!(
                 "{}",
-                BnbSolverFfiDecisionBuilderType::ChronologicalExhaustive
+                BnbSolverFfiDecisionBuilderType::UrgencyRegretHeuristic
             ),
-            "ChronologicalExhaustive"
-        );
-        assert_eq!(
-            format!("{}", BnbSolverFfiDecisionBuilderType::FcfsHeuristic),
-            "FcfsHeuristic"
-        );
-        assert_eq!(
-            format!("{}", BnbSolverFfiDecisionBuilderType::RegretHeuristic),
-            "RegretHeuristic"
-        );
-        assert_eq!(
-            format!("{}", BnbSolverFfiDecisionBuilderType::SlackHeuristic),
-            "SlackHeuristic"
-        );
-        assert_eq!(
-            format!("{}", BnbSolverFfiDecisionBuilderType::WsptHeuristic),
-            "WsptHeuristic"
-        );
-        assert_eq!(
-            format!("{}", BnbSolverFfiDecisionBuilderType::SptHeuristic),
-            "SptHeuristic"
-        );
-        assert_eq!(
-            format!("{}", BnbSolverFfiDecisionBuilderType::LptHeuristic),
-            "LptHeuristic"
-        );
-        assert_eq!(
-            format!("{}", BnbSolverFfiDecisionBuilderType::EarliestDeadlineFirst),
-            "EarliestDeadlineFirst"
+            "UrgencyRegretHeuristic"
         );
     }
 
@@ -1808,7 +1825,10 @@ mod tests {
             "Workload"
         );
         assert_eq!(
-            format!("{}", BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime),
+            format!(
+                "{}",
+                BnbSolverFfiObjectiveEvaluatorType::WeightedCompletionTime
+            ),
             "WeightedFlowTime"
         );
     }

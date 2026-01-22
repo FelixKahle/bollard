@@ -21,26 +21,32 @@
 
 //! Workload‑based lower‑bound evaluation for berth scheduling. This module defines
 //! `WorkloadEvaluator<T>`, an `ObjectiveEvaluator` that derives an optimistic cost
-//! by simulating the remaining workload on the available berths with a lightweight
-//! parallel‑machine model. It reads each berth’s next free time from the current
-//! search state and treats unassigned vessels as immediately available, selecting
-//! for each vessel the fastest feasible processing option across berths to preserve
-//! optimism. The resulting jobs are ordered using a WSPT‑style priority so that heavy
-//! tasks tend to be completed earlier in the simulation, producing a bound that is
-//! sensitive to both capacity and workload mix while remaining safely optimistic.
+//! by simulating the remaining workload on the available berths.
+//!
+//! # Mathematical Note: Completion Time vs. Flow Time
+//!
+//! This evaluator optimizes **Weighted Completion Time** ($C_j \times w_j$) as a proxy
+//! for **Weighted Flow Time** ($(C_j - r_j) \times w_j$). Since the sum of weighted
+//! arrival times $\sum (r_j \times w_j)$ is a constant, minimizing completion time
+//! yields the exact same schedule as minimizing flow time, but reduces arithmetic
+//! overhead in the solver's hot path (the bounds calculation).
+//!
+//! # Algorithm
+//!
+//! The evaluator reads each berth’s next free time from the current search state and
+//! treats unassigned vessels as immediately available. It selects the fastest feasible
+//! processing time for each vessel across all berths to preserve optimism. The
+//! resulting jobs are ordered using a WSPT‑style priority (Smith's Rule) so that
+//! heavy tasks tend to be completed earlier in the simulation.
 //!
 //! Local evaluation interprets the provided start time as the actual beginning of
-//! service and returns the weighted completion cost when the assignment is feasible;
-//! if the vessel cannot be completed by its deadline or has no processing time on
-//! the chosen berth, the result is `None`. For the bound, maintenance windows and
-//! arrivals are relaxed deliberately to keep the estimate below or equal to the true
-//! remaining cost, while berth release times are respected to reflect real capacity
-//! limits. If any remaining vessel is infeasible on all berths, the evaluator returns
-//! `None` to signal that the branch cannot lead to a valid schedule. Saturating
-//! arithmetic is used when composing times and costs to avoid overflow without
-//! violating monotonicity. The implementation favors determinism and low overhead,
-//! with optional preallocation to reduce transient allocations when evaluating many
-//! branches in large instances.
+//! service and returns the weighted completion cost when the assignment is feasible.
+//! For the bound, maintenance windows and arrivals are relaxed to keep the estimate
+//! optimistic, while berth release times are respected to reflect capacity limits.
+//!
+//! Saturating arithmetic is used when composing times and costs to avoid overflow
+//! without violating monotonicity. The implementation favors determinism and low
+//! overhead, with optional preallocation to reduce transient allocations.
 
 use crate::{
     berth_availability::BerthAvailability, eval::evaluator::ObjectiveEvaluator, state::SearchState,
@@ -136,6 +142,17 @@ where
         "WorkloadEvaluator"
     }
 
+    /// Calculates the objective cost for a vessel assignment.
+    ///
+    /// # Mathematical Note
+    ///
+    /// This function calculates **Weighted Completion Time** ($C_j \times w_j$) rather than
+    /// strict **Weighted Flow Time** ($(C_j - r_j) \times w_j$).
+    ///
+    /// Since the term $\sum (r_j \times w_j)$ is constant for a given problem instance, minimizing
+    /// Weighted Completion Time yields the **exact same optimal schedule** as minimizing Weighted
+    /// Flow Time. Excluding the subtraction of the arrival time $r_j$ allows the solver to perform
+    /// fewer arithmetic operations in the hot path.
     fn evaluate_vessel_assignment(
         &mut self,
         model: &Model<T>,
@@ -161,6 +178,17 @@ where
         Some(completion_time.saturating_mul_val(weight))
     }
 
+    /// Calculates the objective cost for a vessel assignment.
+    ///
+    /// # Mathematical Note
+    ///
+    /// This function calculates **Weighted Completion Time** ($C_j \times w_j$) rather than
+    /// strict **Weighted Flow Time** ($(C_j - r_j) \times w_j$).
+    ///
+    /// Since the term $\sum (r_j \times w_j)$ is constant for a given problem instance, minimizing
+    /// Weighted Completion Time yields the **exact same optimal schedule** as minimizing Weighted
+    /// Flow Time. Excluding the subtraction of the arrival time $r_j$ allows the solver to perform
+    /// fewer arithmetic operations in the hot path.
     unsafe fn evaluate_vessel_assignment_unchecked(
         &self,
         model: &Model<T>,

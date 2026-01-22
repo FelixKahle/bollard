@@ -111,12 +111,12 @@ where
 /// This "Best-First" strategy helps the solver find high-quality incumbents early,
 /// maximizing the effectiveness of bound-based pruning.
 #[derive(Debug, Clone, Default)]
-pub struct WsptHeuristicBuilder<T> {
+pub struct WsptBuilder<T> {
     candidates: Vec<WsptCandidate<T>>,
 }
 
-impl<T> WsptHeuristicBuilder<T> {
-    /// Creates a new `WsptHeuristicBuilder` with an empty candidate buffer.
+impl<T> WsptBuilder<T> {
+    /// Creates a new `WsptBuilder` with an empty candidate buffer.
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -124,7 +124,7 @@ impl<T> WsptHeuristicBuilder<T> {
         }
     }
 
-    /// Creates a new `WsptHeuristicBuilder` with a preallocated candidate buffer.
+    /// Creates a new `WsptBuilder` with a preallocated candidate buffer.
     #[inline]
     pub fn preallocated(num_berths: usize, num_vessels: usize) -> Self {
         Self {
@@ -132,7 +132,7 @@ impl<T> WsptHeuristicBuilder<T> {
         }
     }
 
-    /// Creates a new `WsptHeuristicBuilder` with specific capacity.
+    /// Creates a new `WsptBuilder` with specific capacity.
     #[inline]
     pub fn with_capacity(size: usize) -> Self {
         Self {
@@ -141,7 +141,7 @@ impl<T> WsptHeuristicBuilder<T> {
     }
 }
 
-impl<T, E> DecisionBuilder<T, E> for WsptHeuristicBuilder<T>
+impl<T, E> DecisionBuilder<T, E> for WsptBuilder<T>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
@@ -239,7 +239,7 @@ impl<'a, T> FusedIterator for WsptHeuristicIter<'a, T> where T: Copy {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::wtft::WeightedFlowTimeEvaluator;
+    use crate::eval::wct::WeightedCompletionTimeEvaluator;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
@@ -309,8 +309,8 @@ mod tests {
         let mut berth_availability = BerthAvailability::new();
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let mut builder = WsptHeuristicBuilder::<IntegerType>::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
+        let mut builder = WsptBuilder::<IntegerType>::new();
 
         // Generate decisions
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
@@ -362,8 +362,8 @@ mod tests {
         berth_availability.initialize(&model, &[]);
 
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
-        let mut builder = WsptHeuristicBuilder::<IntegerType>::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
+        let mut builder = WsptBuilder::<IntegerType>::new();
 
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
         assert_eq!(

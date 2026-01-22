@@ -20,7 +20,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bollard_bnb::{
-    bnb::BnbSolver, branching::edf::EarliestDeadlineFirstBuilder, eval::hybrid::HybridEvaluator,
+    bnb::BnbSolver, branching::edf::EdfHeuristic, eval::hybrid::HybridEvaluator,
     monitor::solution::SolutionLimitMonitor, params::BnbSearchParams,
 };
 use bollard_model::{model::Model, solution::Solution};
@@ -38,7 +38,7 @@ where
     let num_berths = model.num_berths();
 
     let mut bnb_solver = BnbSolver::preallocated(num_berths, num_vessels);
-    let mut builder = EarliestDeadlineFirstBuilder::preallocated(num_berths, num_vessels);
+    let mut builder = EdfHeuristic::preallocated(num_berths, num_vessels);
     let mut evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
     let solution_limit_monitor = SolutionLimitMonitor::new(1);
 
