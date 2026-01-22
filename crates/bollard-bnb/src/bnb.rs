@@ -478,7 +478,7 @@ where
     /// Initialize the search session.
     ///
     /// This sets up the initial trail and stack frames,
-    /// makes sure we have enaugh memory allocated to *not*
+    /// makes sure we have enough memory allocated to *not*
     /// resize during the search, and pushes the first decisions
     /// onto the stack.
     #[inline]
@@ -779,16 +779,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::branching::edf::EarliestDeadlineFirstBuilder;
-    use crate::branching::regret::RegretHeuristicBuilder;
-    use crate::branching::wspt::WsptHeuristicBuilder;
+    use crate::branching::edf::EdfHeuristic;
+    use crate::branching::regret::RegretBuilder;
+    use crate::branching::wspt::WsptBuilder;
     use crate::eval::hybrid::HybridEvaluator;
     use crate::eval::wct::WeightedCompletionTimeEvaluator;
     use crate::monitor::no_op::NoOperationMonitor;
     use crate::monitor::solution::SolutionLimitMonitor;
     use crate::{
-        branching::chronological::ChronologicalExhaustiveBuilder,
-        monitor::log::LogTreeSearchMonitor,
+        branching::chronological::ChronologicalBuilder, monitor::log::LogTreeSearchMonitor,
     };
     use bollard_core::math::interval::ClosedOpenInterval;
     use bollard_model::{
@@ -807,10 +806,7 @@ mod tests {
     /// - Processing times:
     ///   - Berth 0: 10..12 depending on vessel index
     ///   - Berth 1: 7..10 depending on vessel index
-    fn build_model(
-        num_berths: usize,
-        num_vessels: usize,
-    ) -> bollard_model::model::Model<IntegerType> {
+    fn build_model(num_berths: usize, num_vessels: usize) -> Model<IntegerType> {
         let mut builder = ModelBuilder::<IntegerType>::new(num_berths, num_vessels);
 
         // Simple arrivals and weights
@@ -845,8 +841,7 @@ mod tests {
 
         let mut evaluator =
             HybridEvaluator::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut edf_builder =
-            EarliestDeadlineFirstBuilder::preallocated(model.num_berths(), model.num_vessels());
+        let mut edf_builder = EdfHeuristic::preallocated(model.num_berths(), model.num_vessels());
 
         // Build search params via builder (no fixed, no initial solution)
         let params = BnbSearchParams::builder(
@@ -865,8 +860,7 @@ mod tests {
             initial.result().unwrap().objective_value()
         );
 
-        let mut builder =
-            WsptHeuristicBuilder::preallocated(model.num_berths(), model.num_vessels());
+        let mut builder = WsptBuilder::preallocated(model.num_berths(), model.num_vessels());
 
         // Run the solver using the params builder with an initial solution
         let outcome = solver.solve(
@@ -929,7 +923,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -975,7 +969,7 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1026,7 +1020,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1084,7 +1078,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1135,7 +1129,7 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1218,7 +1212,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1280,7 +1274,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1330,7 +1324,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1372,7 +1366,7 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
         for run in 0..2 {
             let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
@@ -1434,7 +1428,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
         let mut evaluator1 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
@@ -1486,7 +1480,7 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
         for run in 0..3 {
             let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
@@ -1550,7 +1544,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
@@ -1641,7 +1635,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1685,7 +1679,7 @@ mod tests {
 
         let mut solver =
             BnbSolver::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
         for i in 0..3 {
             let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
@@ -1732,7 +1726,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1788,7 +1782,7 @@ mod tests {
         let model = builder.build();
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::default();
 
         let outcome = solver.solve(
@@ -1818,7 +1812,7 @@ mod tests {
         let model = build_model(2, 8);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator_cold = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1929,7 +1923,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -1984,7 +1978,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -2021,7 +2015,7 @@ mod tests {
         );
         assert!(
             stats.prunings_bound + stats.prunings_infeasible <= stats.nodes_explored,
-            "total prunings should not exceed explored nodes"
+            "total pruning should not exceed explored nodes"
         );
     }
 
@@ -2032,7 +2026,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator1 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -2088,7 +2082,7 @@ mod tests {
     fn test_reset_mid_session_and_solve_different_size() {
         let model_a = build_model(2, 5);
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator_a = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model_a.num_berths(),
             model_a.num_vessels(),
@@ -2148,7 +2142,7 @@ mod tests {
         let model = build_model(2, 5);
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
 
         let mut evaluator1 = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
@@ -2197,10 +2191,7 @@ mod tests {
     }
 
     // Helper function used by test_solver_respects_closing_times and test_solver_respects_closing_times_and_fixed_assignments_together
-    fn build_model_with_closing_times(
-        num_berths: usize,
-        num_vessels: usize,
-    ) -> bollard_model::model::Model<IntegerType> {
+    fn build_model_with_closing_times(num_berths: usize, num_vessels: usize) -> Model<IntegerType> {
         let mut builder = ModelBuilder::<IntegerType>::new(num_berths, num_vessels);
 
         for v in 0..num_vessels {
@@ -2236,7 +2227,7 @@ mod tests {
     fn test_solver_respects_closing_times() {
         let model = build_model_with_closing_times(2, 8);
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -2279,7 +2270,7 @@ mod tests {
         let model = builder.build();
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -2366,7 +2357,7 @@ mod tests {
         //
         let mut solver_phase1 = BnbSolver::<IntegerType>::new();
         let mut heuristic_builder =
-            EarliestDeadlineFirstBuilder::preallocated(model.num_berths(), model.num_vessels());
+            EdfHeuristic::preallocated(model.num_berths(), model.num_vessels());
         let mut heuristic_evaluator =
             HybridEvaluator::<IntegerType>::preallocated(model.num_berths(), model.num_vessels());
 
@@ -2402,7 +2393,7 @@ mod tests {
         // Phase 2: exact BnB with chronological branching, warm-started from phase 1
         //
         let mut solver_phase2 = BnbSolver::<IntegerType>::new();
-        let mut exhaustive_builder = WsptHeuristicBuilder::new();
+        let mut exhaustive_builder = WsptBuilder::new();
         let mut exhaustive_evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -2472,7 +2463,7 @@ mod tests {
     fn test_solver_respects_closing_times_and_fixed_assignments_together() {
         let model = build_model_with_closing_times(2, 6);
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(
             model.num_berths(),
             model.num_vessels(),
@@ -2524,7 +2515,7 @@ mod tests {
         let mut solver = BnbSolver::<IntegerType>::new();
 
         let mut evaluator = HybridEvaluator::<IntegerType>::preallocated(2, 1);
-        let mut decision_builder = RegretHeuristicBuilder::preallocated(2, 1);
+        let mut decision_builder = RegretBuilder::preallocated(2, 1);
 
         let outcome = solver.solve(
             BnbSearchParams::builder(
@@ -2613,7 +2604,7 @@ mod tests {
         let mut solver = BnbSolver::<IntegerType>::new();
         // Use Chronological to prove it's not just a lucky heuristic guess,
         // but that the availability logic strictly enforces the gap constraints.
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(1, 3);
 
         let outcome = solver.solve(
@@ -2692,7 +2683,7 @@ mod tests {
         let model = builder.build();
 
         let mut solver = BnbSolver::<IntegerType>::new();
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(1, 2);
 
         let outcome = solver.solve(
@@ -2799,7 +2790,7 @@ mod tests {
 
         let mut solver = BnbSolver::<IntegerType>::new();
         // Use Chronological to rely purely on the decision generation/pruning logic, avoiding heuristic luck.
-        let mut builder = ChronologicalExhaustiveBuilder::new();
+        let mut builder = ChronologicalBuilder::new();
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::preallocated(2, 2);
 
         let outcome = solver.solve(

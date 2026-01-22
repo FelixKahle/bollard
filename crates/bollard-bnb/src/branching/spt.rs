@@ -79,11 +79,11 @@ impl<T: Ord + SolverNumeric> PartialOrd for SptCandidate<T> {
 ///
 /// It prioritizes assignments where the processing time $p_{ij}$ is minimal.
 #[derive(Debug, Clone, Default)]
-pub struct SptHeuristicBuilder<T> {
+pub struct SptBuilder<T> {
     candidates: Vec<SptCandidate<T>>,
 }
 
-impl<T> SptHeuristicBuilder<T> {
+impl<T> SptBuilder<T> {
     pub fn new() -> Self {
         Self {
             candidates: Vec::new(),
@@ -96,7 +96,7 @@ impl<T> SptHeuristicBuilder<T> {
     }
 }
 
-impl<T, E> DecisionBuilder<T, E> for SptHeuristicBuilder<T>
+impl<T, E> DecisionBuilder<T, E> for SptBuilder<T>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
@@ -109,7 +109,7 @@ where
         E: 'a;
 
     fn name(&self) -> &str {
-        "SptHeuristicBuilder"
+        "SptBuilder"
     }
 
     fn next_decision<'a>(
@@ -190,8 +190,8 @@ mod tests {
     use crate::{
         berth_availability::BerthAvailability,
         branching::decision::{Decision, DecisionBuilder},
-        // Assuming SptHeuristicBuilder is exported or available here
-        branching::spt::SptHeuristicBuilder,
+        // Assuming SptBuilder is exported or available here
+        branching::spt::SptBuilder,
         eval::wct::WeightedCompletionTimeEvaluator,
         state::SearchState,
     };
@@ -246,7 +246,7 @@ mod tests {
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
-        let mut builder = SptHeuristicBuilder::<IntegerType>::new();
+        let mut builder = SptBuilder::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut evaluator, &model, &berth_availability, &state)
@@ -296,7 +296,7 @@ mod tests {
         let state = SearchState::<IntegerType>::new(2, 1);
         let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
-        let mut builder = SptHeuristicBuilder::<IntegerType>::new();
+        let mut builder = SptBuilder::<IntegerType>::new();
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut eval, &model, &ba, &state)
             .collect();
@@ -339,7 +339,7 @@ mod tests {
         let state = SearchState::<IntegerType>::new(1, 2);
         let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
-        let mut builder = SptHeuristicBuilder::<IntegerType>::new();
+        let mut builder = SptBuilder::<IntegerType>::new();
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut eval, &model, &ba, &state)
             .collect();

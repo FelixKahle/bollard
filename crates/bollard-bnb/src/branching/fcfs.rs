@@ -117,7 +117,7 @@ where
 /// the same arrival time, it breaks ties by preferring assignments with lower
 /// costs, and further ties are resolved using the natural ordering of `Decision`.
 #[derive(Debug, Clone, Default)]
-pub struct FcfsHeuristicBuilder<T> {
+pub struct FcfsBuilder<T> {
     /// Scratch buffer for candidates.
     ///
     /// We never deallocate this buffer during the lifetime of the builder.
@@ -125,8 +125,8 @@ pub struct FcfsHeuristicBuilder<T> {
     candidates: Vec<FcfsCandidate<T>>,
 }
 
-impl<T> FcfsHeuristicBuilder<T> {
-    /// Creates a new `FcfsHeuristicBuilder` with an empty candidate buffer.
+impl<T> FcfsBuilder<T> {
+    /// Creates a new `FcfsBuilder` with an empty candidate buffer.
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -134,7 +134,7 @@ impl<T> FcfsHeuristicBuilder<T> {
         }
     }
 
-    /// Creates a new `FcfsHeuristicBuilder` with preallocated capacity.
+    /// Creates a new `FcfsBuilder` with preallocated capacity.
     #[inline]
     pub fn preallocated(num_berths: usize, num_vessels: usize) -> Self {
         Self {
@@ -143,20 +143,20 @@ impl<T> FcfsHeuristicBuilder<T> {
     }
 }
 
-impl<T, E> DecisionBuilder<T, E> for FcfsHeuristicBuilder<T>
+impl<T, E> DecisionBuilder<T, E> for FcfsBuilder<T>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
 {
     type DecisionIterator<'a>
-        = FcfsHeuristicIter<'a, T>
+        = FcfsIter<'a, T>
     where
         T: 'a,
         E: 'a,
         Self: 'a;
 
     fn name(&self) -> &str {
-        "FirstComeFirstServeBuilder"
+        "FcfsBuilder"
     }
 
     fn next_decision<'a>(
@@ -213,18 +213,18 @@ where
 
         self.candidates.sort_unstable();
 
-        FcfsHeuristicIter {
+        FcfsIter {
             iter: self.candidates.iter(),
         }
     }
 }
 
 /// A lightweight iterator that yields `Decision`s from the FCFS-sorted candidate slice.
-pub struct FcfsHeuristicIter<'a, T> {
+pub struct FcfsIter<'a, T> {
     iter: std::slice::Iter<'a, FcfsCandidate<T>>,
 }
 
-impl<'a, T> Iterator for FcfsHeuristicIter<'a, T>
+impl<'a, T> Iterator for FcfsIter<'a, T>
 where
     T: Copy,
 {
@@ -236,7 +236,7 @@ where
     }
 }
 
-impl<'a, T> FusedIterator for FcfsHeuristicIter<'a, T> where T: Copy {}
+impl<'a, T> FusedIterator for FcfsIter<'a, T> where T: Copy {}
 
 #[cfg(test)]
 mod tests {
@@ -288,7 +288,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
+        let mut builder = FcfsBuilder::<IntegerType>::new();
 
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
 
@@ -335,7 +335,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(1, 2);
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
+        let mut builder = FcfsBuilder::<IntegerType>::new();
 
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
 
@@ -368,7 +368,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
+        let mut builder = FcfsBuilder::<IntegerType>::new();
 
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
         assert_eq!(
@@ -407,7 +407,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
+        let mut builder = FcfsBuilder::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut evaluator, &model, &berth_availability, &state)
@@ -470,7 +470,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
+        let mut builder = FcfsBuilder::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut evaluator, &model, &berth_availability, &state)

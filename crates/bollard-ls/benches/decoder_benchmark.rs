@@ -20,7 +20,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bollard_bnb::bnb::BnbSolver;
-use bollard_bnb::branching::edf::EarliestDeadlineFirstBuilder;
+use bollard_bnb::branching::edf::EdfHeuristic;
 use bollard_bnb::eval::hybrid::HybridEvaluator;
 use bollard_bnb::monitor::solution::SolutionLimitMonitor;
 use bollard_bnb::params::BnbSearchParams;
@@ -88,7 +88,7 @@ fn find_feasible_solution(model: &Model<i64>) -> Solution<i64> {
     let num_berths = model.num_berths();
 
     let mut bnb_solver = BnbSolver::preallocated(num_berths, num_vessels);
-    let mut builder = EarliestDeadlineFirstBuilder::preallocated(num_berths, num_vessels);
+    let mut builder = EdfHeuristic::preallocated(num_berths, num_vessels);
     let mut evaluator = HybridEvaluator::preallocated(num_berths, num_vessels);
     let solution_limit_monitor = SolutionLimitMonitor::new(1);
 

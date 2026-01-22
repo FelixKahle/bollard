@@ -108,12 +108,12 @@ where
 ///    - If 1 option: `regret = T::max_value()` (Must assign now).
 /// 4. It promotes all options to a global list, sorted by descending regret.
 #[derive(Debug, Clone, Default)]
-pub struct RegretHeuristicBuilder<T> {
+pub struct RegretBuilder<T> {
     candidates: Vec<RegretCandidate<T>>,
     scratch_options: Vec<Decision<T>>,
 }
 
-impl<T> RegretHeuristicBuilder<T> {
+impl<T> RegretBuilder<T> {
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -131,7 +131,7 @@ impl<T> RegretHeuristicBuilder<T> {
     }
 }
 
-impl<T, E> DecisionBuilder<T, E> for RegretHeuristicBuilder<T>
+impl<T, E> DecisionBuilder<T, E> for RegretBuilder<T>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
@@ -144,7 +144,7 @@ where
         Self: 'a;
 
     fn name(&self) -> &str {
-        "RegretHeuristicBuilder"
+        "RegretBuilder"
     }
 
     fn next_decision<'a>(
@@ -329,7 +329,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = RegretHeuristicBuilder::<IntegerType>::new();
+        let mut builder = RegretBuilder::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut evaluator, &model, &berth_availability, &state)
@@ -409,7 +409,7 @@ mod tests {
 
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = RegretHeuristicBuilder::<IntegerType>::new();
+        let mut builder = RegretBuilder::<IntegerType>::new();
 
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
         assert_eq!(

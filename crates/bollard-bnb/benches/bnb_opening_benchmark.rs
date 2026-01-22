@@ -20,9 +20,8 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bollard_bnb::{
-    bnb::BnbSolver, branching::edf::EarliestDeadlineFirstBuilder,
-    eval::wct::WeightedCompletionTimeEvaluator, monitor::solution::SolutionLimitMonitor,
-    params::BnbSearchParams,
+    bnb::BnbSolver, branching::edf::EdfHeuristic, eval::wct::WeightedCompletionTimeEvaluator,
+    monitor::solution::SolutionLimitMonitor, params::BnbSearchParams,
 };
 use bollard_model::{loading::ProblemLoader, model::Model};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -96,7 +95,7 @@ fn benchmark_edf(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("edf", file_name), &path, |b, _| {
             b.iter(|| {
                 let mut solver: BnbSolver<i64> = BnbSolver::new();
-                let mut builder = EarliestDeadlineFirstBuilder::<i64>::new();
+                let mut builder = EdfHeuristic::<i64>::new();
                 let mut evaluator = WeightedCompletionTimeEvaluator::<i64>::new();
                 let monitor = SolutionLimitMonitor::<i64>::new(1);
 

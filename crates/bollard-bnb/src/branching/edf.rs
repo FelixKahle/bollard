@@ -87,11 +87,11 @@ impl<T: Eq> Eq for EdfCandidate<T> {}
 ///
 /// This acts as a "Fail-First" heuristic compatible with chronological search states.
 #[derive(Debug, Clone, Default)]
-pub struct EarliestDeadlineFirstBuilder<T> {
+pub struct EdfHeuristic<T> {
     candidates: Vec<EdfCandidate<T>>,
 }
 
-impl<T> EarliestDeadlineFirstBuilder<T> {
+impl<T> EdfHeuristic<T> {
     pub fn new() -> Self {
         Self {
             candidates: Vec::new(),
@@ -105,7 +105,7 @@ impl<T> EarliestDeadlineFirstBuilder<T> {
     }
 }
 
-impl<T, E> DecisionBuilder<T, E> for EarliestDeadlineFirstBuilder<T>
+impl<T, E> DecisionBuilder<T, E> for EdfHeuristic<T>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
@@ -118,7 +118,7 @@ where
         E: 'a;
 
     fn name(&self) -> &str {
-        "EarliestDeadlineFirst"
+        "EdfHeuristic"
     }
 
     fn next_decision<'a>(
@@ -265,7 +265,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = EarliestDeadlineFirstBuilder::<IntegerType>::new();
+        let mut builder = EdfHeuristic::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut evaluator, &model, &berth_availability, &state)
@@ -337,7 +337,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = EarliestDeadlineFirstBuilder::<IntegerType>::new();
+        let mut builder = EdfHeuristic::<IntegerType>::new();
 
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
         assert_eq!(
@@ -390,7 +390,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = EarliestDeadlineFirstBuilder::<IntegerType>::new();
+        let mut builder = EdfHeuristic::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut evaluator, &model, &berth_availability, &state)

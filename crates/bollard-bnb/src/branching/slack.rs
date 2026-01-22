@@ -109,12 +109,12 @@ where
 ///    - secondary: ascending `cost_delta` (cheapest first),
 ///    - tertiary: deterministic `Decision` order.
 #[derive(Debug, Clone, Default)]
-pub struct SlackHeuristicBuilder<T> {
+pub struct SlackBuilder<T> {
     candidates: Vec<SlackCandidate<T>>,
     scratch_options: Vec<Decision<T>>,
 }
 
-impl<T> SlackHeuristicBuilder<T> {
+impl<T> SlackBuilder<T> {
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -140,7 +140,7 @@ impl<T> SlackHeuristicBuilder<T> {
     }
 }
 
-impl<T, E> DecisionBuilder<T, E> for SlackHeuristicBuilder<T>
+impl<T, E> DecisionBuilder<T, E> for SlackBuilder<T>
 where
     T: SolverNumeric + num_traits::Bounded + SaturatingSubVal,
     E: ObjectiveEvaluator<T>,
@@ -153,7 +153,7 @@ where
         Self: 'a;
 
     fn name(&self) -> &str {
-        "SlackHeuristicBuilder"
+        "SlackBuilder"
     }
 
     fn next_decision<'a>(
@@ -337,7 +337,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = SlackHeuristicBuilder::<IntegerType>::new();
+        let mut builder = SlackBuilder::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut evaluator, &model, &berth_availability, &state)
@@ -445,7 +445,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = SlackHeuristicBuilder::<IntegerType>::new();
+        let mut builder = SlackBuilder::<IntegerType>::new();
 
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
         assert_eq!(

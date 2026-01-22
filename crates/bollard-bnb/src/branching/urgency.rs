@@ -93,12 +93,12 @@ where
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct UrgencyRegretBuilder<T> {
+pub struct UrgencyRegretHeuristicBuilder<T> {
     candidates: Vec<UrgencyCandidate<T>>,
     scratch_options: Vec<(Decision<T>, T)>, // (Decision, DecisionSlack)
 }
 
-impl<T> UrgencyRegretBuilder<T> {
+impl<T> UrgencyRegretHeuristicBuilder<T> {
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -116,7 +116,7 @@ impl<T> UrgencyRegretBuilder<T> {
     }
 }
 
-impl<T, E> DecisionBuilder<T, E> for UrgencyRegretBuilder<T>
+impl<T, E> DecisionBuilder<T, E> for UrgencyRegretHeuristicBuilder<T>
 where
     T: SolverNumeric,
     E: ObjectiveEvaluator<T>,
@@ -129,7 +129,7 @@ where
         Self: 'a;
 
     fn name(&self) -> &str {
-        "UrgencyRegretBuilder"
+        "UrgencyRegretHeuristicBuilder"
     }
 
     fn next_decision<'a>(
@@ -274,7 +274,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
         let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
-        let mut builder = UrgencyRegretBuilder::<IntegerType>::new();
+        let mut builder = UrgencyRegretHeuristicBuilder::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder
             .next_decision(&mut evaluator, &model, &berth_availability, &state)
