@@ -122,7 +122,7 @@ where
     T: SolverNumeric,
 {
     let weighted_flow_time =
-        shared::calculate_weighted_flow_time(model, vessel_index, berth_index, start_time)?;
+        shared::calculate_weighted_completion_time(model, vessel_index, berth_index, start_time)?;
 
     Some(Evaluation::new(weighted_flow_time, weighted_flow_time))
 }

@@ -21,7 +21,7 @@
 
 use bollard_bnb::{
     bnb::BnbSolver, branching::edf::EarliestDeadlineFirstBuilder,
-    eval::wtft::WeightedFlowTimeEvaluator, monitor::solution::SolutionLimitMonitor,
+    eval::wct::WeightedCompletionTimeEvaluator, monitor::solution::SolutionLimitMonitor,
     params::BnbSearchParams,
 };
 use bollard_model::{loading::ProblemLoader, model::Model};
@@ -97,7 +97,7 @@ fn benchmark_edf(c: &mut Criterion) {
             b.iter(|| {
                 let mut solver: BnbSolver<i64> = BnbSolver::new();
                 let mut builder = EarliestDeadlineFirstBuilder::<i64>::new();
-                let mut evaluator = WeightedFlowTimeEvaluator::<i64>::new();
+                let mut evaluator = WeightedCompletionTimeEvaluator::<i64>::new();
                 let monitor = SolutionLimitMonitor::<i64>::new(1);
 
                 let params =

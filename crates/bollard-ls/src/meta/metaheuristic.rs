@@ -50,7 +50,7 @@ pub struct Evaluation<T> {
     pub score: T,
 
     /// The actual cost to be added to the Schedule's objective value.
-    /// This represents the physical/business cost (e.g., Weighted Flow Time).
+    /// This represents the physical/business cost.
     pub objective_delta: T,
 }
 
@@ -97,8 +97,12 @@ where
         berth_index: BerthIndex,
         start_time: T,
     ) -> Option<Evaluation<T>> {
-        let weighted_flow_time =
-            shared::calculate_weighted_flow_time(model, vessel_index, berth_index, start_time)?;
+        let weighted_flow_time = shared::calculate_weighted_completion_time(
+            model,
+            vessel_index,
+            berth_index,
+            start_time,
+        )?;
         Some(Evaluation::new(weighted_flow_time, weighted_flow_time))
     }
 
@@ -116,7 +120,7 @@ where
         start_time: T,
     ) -> Option<Evaluation<T>> {
         let weighted_flow_time = unsafe {
-            shared::calculate_weighted_flow_time_unchecked(
+            shared::calculate_weighted_completion_time_unchecked(
                 model,
                 vessel_index,
                 berth_index,

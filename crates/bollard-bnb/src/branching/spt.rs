@@ -192,7 +192,7 @@ mod tests {
         branching::decision::{Decision, DecisionBuilder},
         // Assuming SptHeuristicBuilder is exported or available here
         branching::spt::SptHeuristicBuilder,
-        eval::wtft::WeightedFlowTimeEvaluator,
+        eval::wct::WeightedCompletionTimeEvaluator,
         state::SearchState,
     };
     use bollard_model::{
@@ -244,7 +244,7 @@ mod tests {
         let mut berth_availability = BerthAvailability::new();
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
         let mut builder = SptHeuristicBuilder::<IntegerType>::new();
 
@@ -294,7 +294,7 @@ mod tests {
         let mut ba = BerthAvailability::new();
         ba.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(2, 1);
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
         let mut builder = SptHeuristicBuilder::<IntegerType>::new();
         let decisions: Vec<Decision<IntegerType>> = builder
@@ -337,7 +337,7 @@ mod tests {
         let mut ba = BerthAvailability::new();
         ba.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(1, 2);
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
         let mut builder = SptHeuristicBuilder::<IntegerType>::new();
         let decisions: Vec<Decision<IntegerType>> = builder

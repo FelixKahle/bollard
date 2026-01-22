@@ -29,8 +29,8 @@ use bollard_bnb::{
         wspt::WsptHeuristicBuilder,
     },
     eval::{
-        evaluator::ObjectiveEvaluator, hybrid::HybridEvaluator, workload::WorkloadEvaluator,
-        wtft::WeightedFlowTimeEvaluator,
+        evaluator::ObjectiveEvaluator, hybrid::HybridEvaluator,
+        wct::WeightedCompletionTimeEvaluator, workload::WorkloadEvaluator,
     },
     fixed::FixedAssignment,
     monitor::{
@@ -815,7 +815,7 @@ unsafe fn dispatch_solve(
             BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
         ) => {
             let builder = ChronologicalExhaustiveBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,
@@ -875,7 +875,7 @@ unsafe fn dispatch_solve(
             BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
         ) => {
             let builder = FcfsHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,
@@ -935,7 +935,7 @@ unsafe fn dispatch_solve(
             BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
         ) => {
             let builder = RegretHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,
@@ -995,7 +995,7 @@ unsafe fn dispatch_solve(
             BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
         ) => {
             let builder = SlackHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,
@@ -1055,7 +1055,7 @@ unsafe fn dispatch_solve(
             BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
         ) => {
             let builder = WsptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,
@@ -1115,7 +1115,7 @@ unsafe fn dispatch_solve(
             BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
         ) => {
             let builder = SptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,
@@ -1175,7 +1175,7 @@ unsafe fn dispatch_solve(
             BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
         ) => {
             let builder = LptHeuristicBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,
@@ -1235,7 +1235,7 @@ unsafe fn dispatch_solve(
             BnbSolverFfiObjectiveEvaluatorType::WeightedFlowTime,
         ) => {
             let builder = EarliestDeadlineFirstBuilder::preallocated(num_berths, num_vessels);
-            let evaluator = WeightedFlowTimeEvaluator::preallocated(num_berths, num_vessels);
+            let evaluator = WeightedCompletionTimeEvaluator::preallocated(num_berths, num_vessels);
 
             let outcome = solve(
                 solver,

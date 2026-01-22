@@ -241,7 +241,7 @@ impl<'a, T> FusedIterator for FcfsHeuristicIter<'a, T> where T: Copy {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::wtft::WeightedFlowTimeEvaluator;
+    use crate::eval::wct::WeightedCompletionTimeEvaluator;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
@@ -287,7 +287,7 @@ mod tests {
         let mut berth_availability = BerthAvailability::new();
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
         let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
 
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
@@ -334,7 +334,7 @@ mod tests {
         let mut berth_availability = BerthAvailability::new();
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(1, 2);
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
         let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
 
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
@@ -367,7 +367,7 @@ mod tests {
         let mut berth_availability = BerthAvailability::new();
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
         let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
 
         let mut iter = builder.next_decision(&mut evaluator, &model, &berth_availability, &state);
@@ -406,7 +406,7 @@ mod tests {
         let mut berth_availability = BerthAvailability::new();
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
         let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder
@@ -469,7 +469,7 @@ mod tests {
         let mut berth_availability = BerthAvailability::new();
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
         let mut builder = FcfsHeuristicBuilder::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder

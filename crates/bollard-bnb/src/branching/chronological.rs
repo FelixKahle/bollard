@@ -208,7 +208,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::wtft::WeightedFlowTimeEvaluator;
+    use crate::eval::wct::WeightedCompletionTimeEvaluator;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
@@ -280,7 +280,7 @@ mod tests {
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
 
         // Evaluator is now actively used by the builder via Decision::try_new
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
         let mut builder = ChronologicalExhaustiveBuilder::new();
 
         let iter = builder.next_decision(&mut eval, &model, &berth_availability, &state);
@@ -313,7 +313,7 @@ mod tests {
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
 
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
         let mut builder = ChronologicalExhaustiveBuilder::new();
         let mut it = builder.next_decision(&mut eval, &model, &berth_availability, &state);
 

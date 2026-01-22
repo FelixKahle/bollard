@@ -166,6 +166,10 @@ where
         current_free
     };
 
+    if ba.unavailable_intervals(berth_index) != ba.unavailable_intervals(previous_berth) {
+        return false;
+    }
+
     // This uses a custom written, high-performance binary search internally.
     // Even though its fast to call it still needs to load the berth availability data
     // from memory, and call the binary search that is O(log N + K) where N is the number of
@@ -247,6 +251,10 @@ where
     } else {
         current_free
     };
+
+    if ba.unavailable_intervals(berth_index) != ba.unavailable_intervals(previous_berth) {
+        return false;
+    }
 
     // This uses a custom written, high-performance binary search internally.
     // Even though its fast to call it still needs to load the berth availability data
@@ -558,7 +566,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::wtft::WeightedFlowTimeEvaluator;
+    use crate::eval::wct::WeightedCompletionTimeEvaluator;
     use bollard_model::index::{BerthIndex, VesselIndex};
     use bollard_model::model::ModelBuilder;
     use bollard_model::time::ProcessingTime;
@@ -931,7 +939,7 @@ mod tests {
         assert!(ba.initialize(&model, &[]));
 
         let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
         // Assign vessel 0 first
         state.assign_vessel(VesselIndex::new(0), BerthIndex::new(0), 0);
@@ -974,7 +982,7 @@ mod tests {
         assert!(ba.initialize(&model, &[]));
 
         let mut state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
         // Make both berths have same free time, ensuring indistinguishable slots
         state.set_berth_free_time(BerthIndex::new(0), 5);
@@ -1033,7 +1041,7 @@ mod tests {
         assert!(ba.initialize(&model, &[]));
 
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
         // None processing time -> decision must be None
         let d_none = Decision::try_new(
@@ -1065,7 +1073,7 @@ mod tests {
         assert!(ba.initialize(&model, &[]));
 
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut eval = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut eval = WeightedCompletionTimeEvaluator::<IntegerType>::new();
 
         // Ensure a feasible nominal start (arrival=5, berth_free=0 -> nominal=5)
         let v = VesselIndex::new(1);

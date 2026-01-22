@@ -231,7 +231,7 @@ impl<'a, T: Copy> FusedIterator for UrgencyRegretIter<'a, T> {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::wtft::WeightedFlowTimeEvaluator;
+    use crate::eval::wct::WeightedCompletionTimeEvaluator;
     use bollard_model::{
         index::{BerthIndex, VesselIndex},
         model::ModelBuilder,
@@ -273,7 +273,7 @@ mod tests {
         let mut berth_availability = BerthAvailability::new();
         berth_availability.initialize(&model, &[]);
         let state = SearchState::<IntegerType>::new(model.num_berths(), model.num_vessels());
-        let mut evaluator = WeightedFlowTimeEvaluator::<IntegerType>::new();
+        let mut evaluator = WeightedCompletionTimeEvaluator::<IntegerType>::new();
         let mut builder = UrgencyRegretBuilder::<IntegerType>::new();
 
         let decisions: Vec<Decision<IntegerType>> = builder

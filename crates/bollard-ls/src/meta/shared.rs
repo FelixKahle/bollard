@@ -25,14 +25,24 @@ use bollard_model::{
 };
 use bollard_search::num::SolverNumeric;
 
-/// Calculates the weighted flow time cost for a vessel assigned to a berth at a given start time.
+/// Calculates the weighted completion time cost for a vessel assigned to a berth at a given start time.
+///
+/// # Mathematical Note
+///
+/// This function calculates **Weighted Completion Time** ($C_j \times w_j$) rather than
+/// strict **Weighted Flow Time** ($(C_j - r_j) \times w_j$).
+///
+/// Since the term $\sum (r_j \times w_j)$ is constant for a given problem instance, minimizing
+/// Weighted Completion Time yields the **exact same optimal schedule** as minimizing Weighted
+/// Flow Time. Excluding the subtraction of the arrival time $r_j$ allows the solver to perform
+/// fewer arithmetic operations in the hot path.
 ///
 /// # Panics
 ///
 /// In debug builds, this function will panic if `vessel_index` is not within `0..model.num_vessels()`
 /// or if `berth_index` is not within `0..model.num_berths()`.
 #[inline(always)]
-pub fn calculate_weighted_flow_time<T>(
+pub fn calculate_weighted_completion_time<T>(
     model: &Model<T>,
     vessel_index: VesselIndex,
     berth_index: BerthIndex,
@@ -43,14 +53,14 @@ where
 {
     debug_assert!(
         vessel_index.get() < model.num_vessels(),
-        "called `calculate_weighted_flow_time` with vessel index out of bounds: the len is {} but the index is {}",
+        "called `calculate_weighted_completion_time` with vessel index out of bounds: the len is {} but the index is {}",
         model.num_vessels(),
         vessel_index.get()
     );
 
     debug_assert!(
         berth_index.get() < model.num_berths(),
-        "called `calculate_weighted_flow_time` with berth index out of bounds: the len is {} but the index is {}",
+        "called `calculate_weighted_completion_time` with berth index out of bounds: the len is {} but the index is {}",
         model.num_berths(),
         berth_index.get()
     );
@@ -73,7 +83,17 @@ where
     Some(completion_time.saturating_mul_val(weight))
 }
 
-/// Calculates the weighted flow time cost for a vessel assigned to a berth at a given start time.
+/// Calculates the weighted completion time cost for a vessel assigned to a berth at a given start time.
+///
+/// # Mathematical Note
+///
+/// This function calculates **Weighted Completion Time** ($C_j \times w_j$) rather than
+/// strict **Weighted Flow Time** ($(C_j - r_j) \times w_j$).
+///
+/// Since the term $\sum (r_j \times w_j)$ is constant for a given problem instance, minimizing
+/// Weighted Completion Time yields the **exact same optimal schedule** as minimizing Weighted
+/// Flow Time. Excluding the subtraction of the arrival time $r_j$ allows the solver to perform
+/// fewer arithmetic operations in the hot path.
 ///
 /// # Panics
 ///
@@ -85,7 +105,7 @@ where
 /// The caller must ensure that `vessel_index` is within `0..model.num_vessels()` and
 /// `berth_index` is within `0..model.num_berths()`.
 #[inline(always)]
-pub unsafe fn calculate_weighted_flow_time_unchecked<T>(
+pub unsafe fn calculate_weighted_completion_time_unchecked<T>(
     model: &Model<T>,
     vessel_index: VesselIndex,
     berth_index: BerthIndex,
@@ -96,14 +116,14 @@ where
 {
     debug_assert!(
         vessel_index.get() < model.num_vessels(),
-        "called `calculate_weighted_flow_time_unchecked` with vessel index out of bounds: the len is {} but the index is {}",
+        "called `calculate_weighted_completion_time_unchecked` with vessel index out of bounds: the len is {} but the index is {}",
         model.num_vessels(),
         vessel_index.get()
     );
 
     debug_assert!(
         berth_index.get() < model.num_berths(),
-        "called `calculate_weighted_flow_time_unchecked` with berth index out of bounds: the len is {} but the index is {}",
+        "called `calculate_weighted_completion_time_unchecked` with berth index out of bounds: the len is {} but the index is {}",
         model.num_berths(),
         berth_index.get()
     );

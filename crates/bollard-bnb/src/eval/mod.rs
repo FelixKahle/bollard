@@ -48,5 +48,5 @@
 pub mod evaluator;
 pub mod hybrid;
 pub mod validation;
+pub mod wct;
 pub mod workload;
-pub mod wtft;
