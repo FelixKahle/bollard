@@ -31,7 +31,11 @@
 //! Like the `Model`, the `Solution` uses a Structure of Arrays (SoA) layout where data
 //! is indexed directly by `VesselIndex`.
 
-use crate::index::{BerthIndex, VesselIndex};
+use crate::{
+    index::{BerthIndex, VesselIndex},
+    model::Model,
+};
+use bollard_core::num::constants;
 use num_traits::{PrimInt, Signed};
 
 /// The final solution to the Berth Allocation Problem.
@@ -223,6 +227,32 @@ where
     #[inline]
     pub fn objective_value_mut(&mut self) -> &mut T {
         &mut self.objective_value
+    }
+
+    /// Calculates the weighted total flow time of the solution.
+    #[inline]
+    pub fn weighted_total_flow_time(&self, model: &Model<T>) -> T
+    where
+        T: constants::MinusOne,
+    {
+        let mut total = T::zero();
+
+        for (i, _berth) in self.berths.iter().enumerate() {
+            let vessel = VesselIndex::new(i);
+            let start_time = self.start_times[i];
+
+            let arrival = model.vessel_arrival_time(vessel);
+            let proc_time_pt = model.vessel_shortest_processing_time(vessel);
+            let proc_time = proc_time_pt.unwrap_or(T::zero());
+            let weight = model.vessel_weight(vessel);
+
+            let completion = start_time + proc_time;
+            let flow_time = completion - arrival;
+
+            total = total + weight * flow_time;
+        }
+
+        total
     }
 
     /// Overwrites this solution with data from another solution.
