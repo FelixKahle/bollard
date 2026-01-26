@@ -511,9 +511,22 @@ where
         _model: &Model<T>,
         _current: &Solution<T>,
         candidate: &Solution<T>,
-        _best: &Solution<T>,
+        best: &Solution<T>,
     ) -> bool {
+        // 1. Aspiration Criterion
+        // If the candidate's raw objective is better than the best found so far,
+        // accept it immediately. We ignore penalties because a new global optimum
+        // is always the priority.
+        if candidate.objective_value() < best.objective_value() {
+            return true;
+        }
+
+        // 2. Standard GLS Acceptance
+        // Otherwise, compare based on the Augmented Score (Base + Penalties).
+        // This guides the search out of local optima by following the penalized landscape.
         let aug_candidate = self.calculate_augmented_score(candidate);
+
+        // Use epsilon for stable float comparison
         aug_candidate < self.current_augmented_score - 1e-9
     }
 

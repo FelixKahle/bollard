@@ -247,6 +247,11 @@ where
                 );
 
                 if kicked {
+                    operator.prepare(
+                        self.memory.current_schedule(),
+                        self.memory.queue(),
+                        neighborhood,
+                    );
                     continue;
                 } else {
                     break LocalSearchTerminationReason::LocalOptimum;
@@ -375,10 +380,10 @@ mod tests {
     use super::*;
     use crate::{
         decoder::GreedyDecoder,
-        meta::greedy_descent::GreedyDescent,
+        meta::{greedy_descent::GreedyDescent, guided_local_search::GuidedLocalSearch},
         monitor::{
-            composite::CompositeLocalSearchMonitor, logging::LogLocalSearchMonitor,
-            solution::SolutionLimitMonitor, time::TimeLimitMonitor,
+            composite::CompositeLocalSearchMonitor, solution::SolutionLimitMonitor,
+            time::TimeLimitMonitor,
         },
         operator::{
             compound::MultiArmedBanditCompoundOperator, scramble::ScrambleOperator,
@@ -723,76 +728,75 @@ mod tests {
 
     #[ignore = "this test is to expensive to run"]
     #[test]
-    fn test_first_instance_with_simulated_annealing_and_composite_monitor_arm_bandit() {
-        use crate::meta::simulated_annealing::{GeometricCooling, SimulatedAnnealing};
-
-        // 1. Get first instance path
+    fn test_all_instances_with_simulated_annealing_and_composite_monitor_arm_bandit() {
+        // 1. Get all instance paths
         let files = get_instance_files();
         assert!(!files.is_empty(), "No instance files found in data/");
-        let first = &files[0];
 
-        // 2. Load model and find an initial feasible solution via BnB
-        let model = load_instance(first.to_str().unwrap());
-        let neighborhood = StaticTopology::from(&model);
-        let initial = find_feasible_solution(&model);
+        for instance_path in files {
+            println!(
+                "Running GLS+MAB LS for instance: {}",
+                instance_path.display()
+            );
 
-        // 3. Build a simulated annealing metaheuristic with
-        //    high temperature & low cooling rate (slow cooling).
-        let rng = rand::rngs::StdRng::seed_from_u64(1234);
-        let cooling = GeometricCooling::new(
-            10_000.0, // high initial temperature
-            0.9999,   // low cooling rate (alpha close to 1.0 => slow cooling)
-            0.000001, // min temperature
-        );
-        let mut sa = SimulatedAnnealing::new(cooling, rng);
+            // 2. Load model and find an initial feasible solution via BnB
+            let model = load_instance(instance_path.to_str().unwrap());
+            let neighborhood = StaticTopology::from(&model);
+            let initial = find_feasible_solution(&model);
 
-        // 5. Build the rest of the local search components
-        let num_vessels = model.num_vessels();
-        let num_berths = model.num_berths();
+            //let mut sa = SimulatedAnnealing::new(cooling, rng);
+            let mut gls: GuidedLocalSearch<i64> = GuidedLocalSearch::new(150.0);
 
-        let operators: Vec<Box<dyn LocalSearchOperator<i64, StaticTopology>>> = vec![
-            Box::new(SwapOperator::new()),
-            Box::new(ShiftOperator::new()),
-            Box::new(ScrambleOperator::new(rand::rngs::StdRng::seed_from_u64(32))),
-            Box::new(TwoOptOperator::new()),
-        ];
+            // 5. Build the rest of the local search components
+            let num_vessels = model.num_vessels();
+            let num_berths = model.num_berths();
 
-        // Memory Coefficient (alpha = 0.8):
-        // A value close to 1.0 means the bandit "remembers" past success rates for a long time.
-        // 0.8 is a good balance, allowing the bandit to adapt if an operator stops performing
-        // well later in the search (e.g., swapping might be good early, but 2-opt better late).
-        let memory_coeff = 0.8;
+            let operators: Vec<Box<dyn LocalSearchOperator<i64, StaticTopology>>> = vec![
+                Box::new(SwapOperator::new()),
+                Box::new(ShiftOperator::new()),
+                Box::new(ScrambleOperator::new(rand::rngs::StdRng::seed_from_u64(32))),
+                Box::new(TwoOptOperator::new()),
+            ];
 
-        // Exploration Coefficient (C = 1.0):
-        // This is the exploration constant in the UCB algorithm.
-        // 1.0 provides a balanced weight to the "uncertainty" term, ensuring operators
-        // that haven't been tried recently get a chance.
-        let exploration_coeff = 1.0;
+            // Memory Coefficient (alpha = 0.8):
+            // A value close to 1.0 means the bandit "remembers" past success rates for a long time.
+            // 0.8 is a good balance, allowing the bandit to adapt if an operator stops performing
+            // well later in the search (e.g., swapping might be good early, but 2-opt better late).
+            let memory_coeff = 0.8;
 
-        let mut operator =
-            MultiArmedBanditCompoundOperator::new(operators, memory_coeff, exploration_coeff);
+            // Exploration Coefficient (C = 1.0):
+            // This is the exploration constant in the UCB algorithm.
+            // 1.0 provides a balanced weight to the "uncertainty" term, ensuring operators
+            // that haven't been tried recently get a chance.
+            let exploration_coeff = 1.0;
 
-        let mut composite = CompositeLocalSearchMonitor::with_capacity(2);
-        composite.add_monitor(LogLocalSearchMonitor::new(std::time::Duration::from_secs(
-            1,
-        )));
-        composite.add_monitor(TimeLimitMonitor::new(std::time::Duration::from_secs(60)));
+            let mut operator =
+                MultiArmedBanditCompoundOperator::new(operators, memory_coeff, exploration_coeff);
 
-        let mut decoder = GreedyDecoder::preallocated(num_berths);
-        let params = LocalSearchParams::builder(
-            &model,
-            &mut decoder,
-            &neighborhood,
-            &mut operator,
-            &mut sa,
-            composite,
-            &initial,
-        )
-        .build()
-        .unwrap();
+            let mut composite = CompositeLocalSearchMonitor::with_capacity(1);
+            composite.add_monitor(TimeLimitMonitor::new(std::time::Duration::from_secs(60)));
 
-        let mut engine = LocalSearchEngine::preallocated(num_vessels);
-        let outcome = engine.run(params);
-        println!("{}", outcome.solution().objective_value());
+            let mut decoder = GreedyDecoder::preallocated(num_berths);
+            let params = LocalSearchParams::builder(
+                &model,
+                &mut decoder,
+                &neighborhood,
+                &mut operator,
+                &mut gls,
+                composite,
+                &initial,
+            )
+            .build()
+            .unwrap();
+
+            let mut engine = LocalSearchEngine::preallocated(num_vessels);
+            let outcome = engine.run(params);
+            println!(
+                "File: {}, WTFT: {}, Time (secs): {}",
+                instance_path.display(),
+                outcome.solution().weighted_total_flow_time(&model),
+                outcome.statistics().time_total.as_secs_f64()
+            );
+        }
     }
 }

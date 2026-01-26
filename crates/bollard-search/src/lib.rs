@@ -23,6 +23,7 @@ pub mod incumbent;
 pub mod monitor;
 pub mod neighborhood;
 pub mod num;
+pub mod pool;
 pub mod portfolio;
 pub mod result;
 pub mod stats;
