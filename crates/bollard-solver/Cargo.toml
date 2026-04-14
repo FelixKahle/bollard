@@ -32,4 +32,4 @@ bollard_model = { path = "../bollard-model" }
 bollard_ls = { path = "../bollard-ls" }
 num-traits = "0.2.19"
 tracing = "0.1.43"
-rand = "0.9.2"
+rand = "0.9.3"
